@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>{% block titulo %}FiBOT Consultorio{% endblock %}</title>
+  <style>
+    :root { --ink:#1c1b19; --muted:#5b584f; --green:#2f5233; --green-bg:#eef3ec; --rule:#dcd6c7; --cream:#faf6ef; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: -apple-system, system-ui, sans-serif; background: var(--cream); color: var(--ink); }
+    header { background: var(--green); color: #fff; padding: 14px 20px; display:flex; justify-content:space-between; align-items:center; }
+    header a { color:#fff; text-decoration:none; font-weight:600; }
+    main { max-width: 880px; margin: 0 auto; padding: 20px; }
+    .card { background:#fff; border:1px solid var(--rule); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
+    h1,h2,h3 { margin-top:0; }
+    label { display:block; font-size: .85rem; color: var(--muted); margin-top:10px; margin-bottom:4px; }
+    input[type=text], input[type=password], input[type=date], input[type=time], input[type=number] {
+      width:100%; padding:8px 10px; border:1px solid var(--rule); border-radius:6px; font-size:1rem;
+    }
+    .btn { background: var(--green); color:#fff; border:none; border-radius:6px; padding:9px 16px; font-size:.95rem; cursor:pointer; }
+    .btn.secundario { background:#fff; color:var(--green); border:1px solid var(--green); }
+    .dia { border-bottom:1px solid var(--rule); padding:8px 0; }
+    .dia:last-child { border-bottom:none; }
+    .turno { display:flex; justify-content:space-between; align-items:center; padding:4px 0; font-size:.92rem; }
+    .estado-libre { color: var(--muted); }
+    .estado-reservado { color: var(--green); font-weight:600; }
+    .error { background:#fbeee4; color:#c1652f; padding:8px 12px; border-radius:6px; margin-bottom:10px; }
+    .dias-semana label { display:inline-flex; align-items:center; gap:4px; font-size:.85rem; margin-right:10px; }
+    .fila { display:flex; gap:14px; flex-wrap:wrap; }
+    .fila > div { flex:1; min-width:140px; }
+  </style>
+</head>
+<body>
+  {% block cuerpo %}{% endblock %}
+</body>
+</html>
