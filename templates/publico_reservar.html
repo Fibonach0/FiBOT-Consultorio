@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block titulo %}Confirmar turno — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<header>
+  <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
+</header>
+<main>
+  <div class="card">
+    <h2>Confirmar turno</h2>
+    <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}</p>
+
+    <form method="post" action="{{ url_for('publico_reservar', slug=tenant.slug, turno_id=turno.id) }}">
+      <label for="nombre">Nombre y apellido</label>
+      <input type="text" id="nombre" name="nombre" required>
+
+      <label for="telefono">WhatsApp (con código de país, ej. 5491123456789)</label>
+      <input type="text" id="telefono" name="telefono" required placeholder="5491123456789">
+
+      <div style="margin-top:14px;">
+        <button class="btn" type="submit">Confirmar reserva</button>
+        <a class="btn secundario" href="{{ url_for('publico', slug=tenant.slug) }}" style="text-decoration:none; display:inline-block; margin-left:8px;">Elegir otro horario</a>
+      </div>
+    </form>
+  </div>
+</main>
+{% endblock %}

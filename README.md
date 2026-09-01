@@ -1,9 +1,10 @@
 # FiBOT Consultorio
 
 FiBOT para profesionales con turnos (psicólogos, odontólogos, nutricionistas,
-kinesiólogos…): agenda, recordatorios automáticos y reserva de horarios, todo
-por WhatsApp. Un solo deploy sirve a todos los profesionales — no hay que
-levantar un servicio nuevo por cada uno.
+kinesiólogos…): agenda, recordatorios automáticos y reserva de horarios, por
+WhatsApp o desde una página pública (`consultorios.fibot.ar/<slug>`). Un solo
+deploy sirve a todos los profesionales — no hay que levantar un servicio
+nuevo por cada uno.
 
 Ver [`CLAUDE.md`](./CLAUDE.md) para la arquitectura completa.
 
@@ -21,7 +22,8 @@ Dar de alta un profesional (tenant):
 python scripts/crear_tenant.py
 ```
 
-Aplicar el esquema en Supabase: `migrations/001_init.sql`.
+Aplicar el esquema en Supabase, en orden: `migrations/001_init.sql`,
+`migrations/002_slug.sql`.
 
 ## Deploy
 
