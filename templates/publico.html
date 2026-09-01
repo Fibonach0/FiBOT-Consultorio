@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+{% block titulo %}Reservar turno — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<header>
+  <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
+</header>
+<main>
+  <div class="card">
+    <h1>{{ tenant.nombre }}</h1>
+    {% if tenant.rubro %}<p style="color:var(--muted); margin-top:-10px;">{{ tenant.rubro }}</p>{% endif %}
+    <p>Elegí un horario para reservar tu turno.</p>
+  </div>
+
+  {% with mensajes = get_flashed_messages() %}
+    {% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}
+  {% endwith %}
+
+  <div class="card">
+    {% if not turnos %}
+      <p style="color:var(--muted);">No hay horarios disponibles por el momento. Volvé a pasar más tarde.</p>
+    {% else %}
+      {% for t in turnos %}
+      <div class="turno">
+        <span><strong>{{ t._dia }}</strong> — {{ t._hora }}</span>
+        <a class="btn" href="{{ url_for('publico_reservar_form', slug=tenant.slug, turno_id=t.id) }}">Reservar</a>
+      </div>
+      {% endfor %}
+    {% endif %}
+  </div>
+</main>
+{% endblock %}

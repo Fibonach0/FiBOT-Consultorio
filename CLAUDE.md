@@ -56,7 +56,7 @@ de panel) vive en la tabla `tenants` de Supabase y se carga con
 ## Arquitectura
 
 ```
-app.py            webhook de Meta (uno solo, para todos los tenants) + panel web
+app.py            webhook de Meta (uno solo, para todos los tenants) + panel web + página pública
 conversation.py   qué le contesta el bot a un paciente — SIN estado en memoria
 db.py             toda la capa de datos, siempre con tenant_id explícito
 whatsapp.py       envío por Graph API + verificación de firma del webhook
@@ -65,6 +65,26 @@ config.py         variables de entorno de la plataforma (no aborta con defaults 
 migrations/       esquema de Supabase, aplicar en orden numérico
 scripts/          alta de tenants a mano (crear_tenant.py)
 ```
+
+### Página pública de reserva (`/<slug>`)
+
+Cada tenant puede tener un `slug` (columna en `tenants`, cargada por
+`scripts/crear_tenant.py`) que habilita `consultorios.fibot.ar/<slug>`: una
+página sin login donde cualquiera ve los horarios libres y reserva dejando
+nombre y WhatsApp — sin escribirle nada al bot primero. Es el link que el
+profesional comparte en su firma, Instagram, etc.
+
+Reusa exactamente los mismos `db.turnos_libres` / `db.turno_por_id` /
+`db.reservar_turno` que ya usaba la conversación de WhatsApp — la reserva
+pública no es un camino paralelo, es la misma operación atómica (filtra por
+`estado = 'libre'` en el UPDATE) con otra puerta de entrada. Un tenant sin
+`slug` cargado simplemente no tiene página pública; sigue andando por
+WhatsApp y panel como siempre.
+
+El teléfono que se carga en el formulario se limpia a solo dígitos antes de
+guardarlo — el recordatorio automático (y que el paciente después le escriba
+al bot para cancelar) necesitan el número en el mismo formato internacional
+sin símbolos que usa WhatsApp.
 
 ### Por qué `conversation.py` no guarda estado de conversación
 

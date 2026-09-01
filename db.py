@@ -43,6 +43,19 @@ def get_tenant_by_id(tenant_id: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+def get_tenant_by_slug(slug: str) -> dict | None:
+    """Resuelve la página pública de reserva (consultorios.fibot.ar/<slug>)."""
+    res = (
+        _client.table("tenants")
+        .select("*")
+        .eq("slug", slug)
+        .eq("activo", True)
+        .limit(1)
+        .execute()
+    )
+    return res.data[0] if res.data else None
+
+
 def turnos_libres(tenant_id: str, desde: datetime, limite: int = 8) -> list[dict]:
     """Próximos turnos libres de ESTE tenant, a partir de `desde`."""
     res = (

@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titulo %}Turno confirmado — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<header>
+  <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
+</header>
+<main>
+  <div class="card">
+    <h2>¡Turno reservado!</h2>
+    <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}</p>
+    <p style="color:var(--muted);">Te vamos a mandar un recordatorio por WhatsApp antes del turno. Si necesitás cancelarlo, escribile al bot por WhatsApp.</p>
+    <a class="btn secundario" href="{{ url_for('publico', slug=tenant.slug) }}" style="text-decoration:none; display:inline-block; margin-top:8px;">Volver</a>
+  </div>
+</main>
+{% endblock %}

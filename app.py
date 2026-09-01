@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 
 import bcrypt
-from flask import Flask, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
 
 import config
 import conversation
@@ -186,6 +186,74 @@ def agenda_cancelar(turno_id):
     # tocar un turno que no es suyo aunque adivine el id de otro.
     db.cancelar_turno(session["tenant_id"], turno_id)
     return redirect(url_for("agenda"))
+
+
+# ---------- página pública de reserva (sin login) ----------
+# consultorios.fibot.ar/<slug> — el link que cada profesional comparte con
+# sus pacientes. Solo existe para tenants con `slug` cargado (ver
+# scripts/crear_tenant.py); un tenant sin slug simplemente no tiene página
+# pública y sigue funcionando como antes (WhatsApp + panel).
+
+def _con_hora_local(turnos: list[dict], tz: ZoneInfo) -> list[dict]:
+    resultado = []
+    for t in turnos:
+        inicio_local = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+        resultado.append(
+            {
+                **t,
+                "_dia": f"{DIAS_LABEL[inicio_local.weekday()]} {inicio_local.day}/{inicio_local.month:02d}",
+                "_hora": inicio_local.strftime("%H:%M"),
+            }
+        )
+    return resultado
+
+
+@app.get("/<slug>")
+def publico(slug):
+    tenant = db.get_tenant_by_slug(slug)
+    if not tenant:
+        return "No encontrado.", 404
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    ahora = datetime.now(ZoneInfo("UTC"))
+    turnos = _con_hora_local(db.turnos_libres(tenant["id"], ahora, limite=20), tz)
+    return render_template("publico.html", tenant=tenant, turnos=turnos)
+
+
+@app.get("/<slug>/reservar/<turno_id>")
+def publico_reservar_form(slug, turno_id):
+    tenant = db.get_tenant_by_slug(slug)
+    if not tenant:
+        return "No encontrado.", 404
+    turno = db.turno_por_id(tenant["id"], turno_id)
+    if not turno or turno["estado"] != "libre":
+        flash("Ese horario ya no está disponible — elegí otro.")
+        return redirect(url_for("publico", slug=slug))
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    turno = _con_hora_local([turno], tz)[0]
+    return render_template("publico_reservar.html", tenant=tenant, turno=turno)
+
+
+@app.post("/<slug>/reservar/<turno_id>")
+def publico_reservar(slug, turno_id):
+    tenant = db.get_tenant_by_slug(slug)
+    if not tenant:
+        return "No encontrado.", 404
+    nombre = (request.form.get("nombre") or "").strip()
+    # Solo dígitos: lo que se manda por WhatsApp (recordatorio, y si el
+    # paciente después le escribe al bot) necesita el número en formato
+    # internacional sin espacios ni símbolos — se limpia acá para no
+    # depender de que el paciente lo tipee bien.
+    telefono = "".join(ch for ch in (request.form.get("telefono") or "") if ch.isdigit())
+    if not nombre or not telefono:
+        flash("Completá nombre y teléfono.")
+        return redirect(url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
+    if not db.reservar_turno(tenant["id"], turno_id, telefono, nombre):
+        flash("Ese horario ya no está disponible — elegí otro.")
+        return redirect(url_for("publico", slug=slug))
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    turno = db.turno_por_id(tenant["id"], turno_id)
+    turno = _con_hora_local([turno], tz)[0]
+    return render_template("publico_confirmado.html", tenant=tenant, turno=turno)
 
 
 scheduler.iniciar()
