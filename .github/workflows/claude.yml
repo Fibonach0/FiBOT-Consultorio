@@ -1,0 +1,61 @@
+name: Claude Code
+
+# Eslabón que faltaba del despacho por voz/chat (ver DISPATCH.md en Personal-FiBOT):
+# FiBOT abre un issue con la mención @claude → este workflow despierta una sesión de
+# Claude Code que clona, hace el laburo en una rama nueva y abre un PR en DRAFT.
+# También responde a comentarios con @claude (así una respuesta del dueño desde la
+# oficina, que FiBOT comenta en el issue, hace que la sesión siga).
+#
+# Requisitos (setup por repo, una sola vez):
+#   1. La GitHub App de Claude instalada en este repo: https://github.com/apps/claude
+#   2. El secret CLAUDE_CODE_OAUTH_TOKEN (Settings → Secrets and variables → Actions),
+#      generado en la máquina del dueño con `claude setup-token`. Sale de la
+#      suscripción Max, no de la API medida. Nunca pasa por un chat.
+#
+# Sólo dispara para usuarios con permiso de escritura en el repo (default del action).
+
+on:
+  issues:
+    types: [opened]
+  issue_comment:
+    types: [created]
+  pull_request_review_comment:
+    types: [created]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  claude:
+    if: |
+      (github.event_name == 'issues' && (contains(github.event.issue.body, '@claude') || contains(github.event.issue.title, '@claude'))) ||
+      (github.event_name == 'issue_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review_comment' && contains(github.event.comment.body, '@claude')) ||
+      (github.event_name == 'pull_request_review' && contains(github.event.review.body, '@claude'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+      id-token: write
+      actions: read
+    env:
+      CLAUDE_TOKEN_SET: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN != '' }}
+    steps:
+      - name: Chequear credencial
+        if: env.CLAUDE_TOKEN_SET != 'true'
+        run: |
+          echo "::error::Falta el secret CLAUDE_CODE_OAUTH_TOKEN en este repo. Generalo con 'claude setup-token' y cargalo en Settings → Secrets and variables → Actions."
+          exit 1
+
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Claude Code
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          claude_args: |
+            --allowedTools "Bash(gh pr create:*),Bash(gh pr view:*),Bash(gh pr list:*),Bash(npm install),Bash(npm ci),Bash(npm run:*),Bash(npm test:*),Bash(bun install),Bash(bunx tsc:*),Bash(bun build:*),Bash(bun test:*),Bash(python -m pytest:*),Bash(python -m compileall:*)"
+            --append-system-prompt "Reglas de la casa (Fibonach0): trabajá en una rama nueva, NUNCA commitees en la rama por defecto. Cambios chicos y atómicos. Verificá antes de entregar (tsc/build/tests según el stack; leé CLAUDE.md si existe). Al terminar abrí un Pull Request en DRAFT con 'gh pr create --draft' explicando qué hiciste y qué verificaste; si no podés abrirlo, dejá el link para crearlo. Contestá en español rioplatense."
