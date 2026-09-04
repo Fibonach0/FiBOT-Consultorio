@@ -26,6 +26,34 @@ def get_tenant_by_phone_number_id(phone_number_id: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+def tenant_por_paciente(telefono: str) -> dict | None:
+    """Resuelve el tenant a partir del teléfono del PACIENTE, no del número al
+    que le escribió.
+
+    Hace falta sólo en el modo "sin número propio": ahí varios profesionales
+    comparten el número de la plataforma, así que el phone_number_id que manda
+    Meta ya no alcanza para saber de quién es el mensaje. Se busca el turno más
+    reciente de ese teléfono y se devuelve su dueño.
+
+    Es la ÚNICA función de este archivo que no recibe tenant_id, y es a
+    propósito: es justamente la que lo averigua. Todo lo que venga después sí
+    lo recibe explícito. Si un paciente tiene turnos con dos profesionales
+    distintos en el número compartido, gana el más reciente — y por eso el
+    modo compartido es para pilotos, no para escalar.
+    """
+    res = (
+        _client.table("turnos")
+        .select("tenant_id")
+        .eq("paciente_telefono", telefono)
+        .order("inicio", desc=True)
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return None
+    return get_tenant_by_id(res.data[0]["tenant_id"])
+
+
 def get_tenant_by_panel_user(panel_user: str) -> dict | None:
     res = (
         _client.table("tenants")

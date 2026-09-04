@@ -33,6 +33,47 @@ que recibir `tenant_id` explícito y filtrar por él en la query — nunca "trae
 todo y filtrar en Python". Un bug ahí cruza turnos o pacientes de un
 profesional a otro.
 
+### El modo "sin número propio" (y la única excepción a esa disciplina)
+
+Pedirle a un profesional que abra su propio número de WhatsApp Business, lo
+verifique y lo sume al Business Portfolio **antes** de poder probar nada es el
+paso donde se cae la mayoría de los pilotos. Por eso `whatsapp_phone_number_id`
+es **opcional** (`migrations/003`): si el tenant no tiene número propio, usa el
+de la plataforma (`PLATAFORMA_PHONE_NUMBER_ID`) y arranca el mismo día.
+
+El costo de eso: cuando varios tenants comparten un número, el
+`phone_number_id` del webhook **ya no identifica a nadie**. El tenant se
+resuelve por el paciente — `db.tenant_por_paciente(telefono)` busca el turno
+más reciente de ese teléfono y devuelve su tenant. Es **la única función de
+`db.py` sin `tenant_id` explícito, y es deliberado**: es justamente la que lo
+averigua. No copiarla como precedente.
+
+Dos consecuencias que hay que tener presentes al vender esto:
+
+- Un paciente que **nunca reservó** y le escribe al número compartido no se
+  puede rutear a nadie: el webhook lo ignora y loguea. Por eso el camino de
+  entrada de un tenant sin número propio es la **página pública `/<slug>`**,
+  no el WhatsApp — primero reserva, después puede escribir.
+- Como el número no es del profesional, todo lo que sale por ahí **lo nombra**:
+  el recordatorio dice quién es, y el saludo también. `whatsapp.numero_de(tenant)`
+  es el único lugar donde se decide desde qué número sale cada mensaje.
+
+Cuando el profesional consigue su propio número, se le carga el
+`whatsapp_phone_number_id` en su fila y no hay nada más que migrar: el webhook
+lo resuelve por número otra vez y `numero_de()` empieza a devolver el suyo.
+
+### El recordatorio necesita una plantilla aprobada por Meta
+
+Meta sólo deja mandar texto libre dentro de las **24 h** desde el último
+mensaje del paciente. El recordatorio de turno se manda la noche anterior —
+o sea, casi siempre **fuera** de esa ventana. Sin plantilla aprobada, el
+recordatorio no llega y el envío falla en silencio.
+
+`RECORDATORIO_TEMPLATE` es el nombre de una plantilla aprobada con dos
+parámetros de body: `{{1}}` = nombre del profesional, `{{2}}` = cuándo es el
+turno. Si está vacía, `scheduler.py` avisa al arrancar y cae a texto libre —
+que sirve para probar en local, no para producción.
+
 ## Comandos
 
 ```bash
