@@ -62,21 +62,35 @@ def webhook_receive():
             phone_number_id = value.get("metadata", {}).get("phone_number_id")
             if not phone_number_id:
                 continue
-            tenant = db.get_tenant_by_phone_number_id(phone_number_id)
-            if not tenant:
+            tenant_del_numero = db.get_tenant_by_phone_number_id(phone_number_id)
+            # Modo "sin número propio": varios tenants comparten el número de
+            # la plataforma, así que el phone_number_id ya no identifica a
+            # nadie. En ese caso el tenant se resuelve por paciente, adentro
+            # del loop — porque depende de QUIÉN escribió, no de a dónde.
+            es_compartido = (
+                tenant_del_numero is None
+                and bool(config.PLATAFORMA_PHONE_NUMBER_ID)
+                and phone_number_id == config.PLATAFORMA_PHONE_NUMBER_ID
+            )
+            if tenant_del_numero is None and not es_compartido:
                 logger.warning("Mensaje a un phone_number_id sin tenant activo: %s", phone_number_id)
                 continue
             for msg in value.get("messages", []):
                 if msg.get("type") != "text":
                     continue
                 telefono = msg.get("from")
+                tenant = tenant_del_numero or db.tenant_por_paciente(telefono)
+                if not tenant:
+                    logger.warning(
+                        "Mensaje al número compartido de un teléfono sin turnos: %s", telefono)
+                    continue
                 texto = msg.get("text", {}).get("body", "")
                 try:
                     respuesta = conversation.responder(tenant, telefono, texto)
                 except Exception:
                     logger.exception("Fallo procesando mensaje de %s (tenant %s)", telefono, tenant["id"])
                     respuesta = "Uh, tuve un problema procesando eso. Probá de nuevo en un rato."
-                whatsapp.enviar_texto(tenant["whatsapp_phone_number_id"], telefono, respuesta)
+                whatsapp.enviar_texto(whatsapp.numero_de(tenant), telefono, respuesta)
 
     return jsonify(ok=True), 200
 

@@ -31,12 +31,30 @@ def _tick() -> None:
         except Exception:
             logger.exception("Fallo consultando recordatorios de tenant %s", tenant["id"])
             continue
+        numero = whatsapp.numero_de(tenant)
+        if not numero:
+            logger.error(
+                "Tenant %s no tiene número propio y PLATAFORMA_PHONE_NUMBER_ID está vacía: "
+                "no hay desde dónde mandar el recordatorio", tenant["id"])
+            continue
         for turno in pendientes:
-            texto = (
-                f"Te recuerdo tu turno con *{tenant['nombre']}* "
-                f"el {_fmt(turno['inicio'], tz)}. Si no podés ir, respondé *cancelar*."
-            )
-            if whatsapp.enviar_texto(tenant["whatsapp_phone_number_id"], turno["paciente_telefono"], texto):
+            cuando = _fmt(turno["inicio"], tz)
+            # El recordatorio siempre cae fuera de la ventana de 24 h de Meta
+            # (el paciente reservó por la web y nunca escribió), así que sin
+            # plantilla aprobada esto NO llega. Ver config.RECORDATORIO_TEMPLATE.
+            if config.RECORDATORIO_TEMPLATE:
+                ok = whatsapp.enviar_plantilla(
+                    numero, turno["paciente_telefono"],
+                    config.RECORDATORIO_TEMPLATE, config.RECORDATORIO_TEMPLATE_LANG,
+                    [tenant["nombre"], cuando],
+                )
+            else:
+                texto = (
+                    f"Te recuerdo tu turno con *{tenant['nombre']}* "
+                    f"el {cuando}. Si no podés ir, respondé *cancelar*."
+                )
+                ok = whatsapp.enviar_texto(numero, turno["paciente_telefono"], texto)
+            if ok:
                 db.marcar_recordatorio_enviado(turno["id"])
             else:
                 logger.error("No se pudo mandar el recordatorio del turno %s", turno["id"])
@@ -56,3 +74,7 @@ def iniciar() -> None:
     hilo = threading.Thread(target=_loop, daemon=True, name="recordatorios")
     hilo.start()
     logger.info("Scheduler de recordatorios arrancado (cada %s min)", config.RECORDATORIO_INTERVALO_MIN)
+    if not config.RECORDATORIO_TEMPLATE:
+        logger.warning(
+            "RECORDATORIO_TEMPLATE vacía: los recordatorios salen como texto libre y "
+            "Meta los va a rechazar salvo que el paciente haya escrito en las últimas 24 h.")
