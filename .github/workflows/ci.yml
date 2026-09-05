@@ -1,0 +1,55 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # 3.11 es la misma que usa nixpacks.toml en Railway. Si cambia allá,
+      # cambiarla acá también: un verde sobre otra versión no dice nada del
+      # runtime real.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: pip
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      # Cubre los archivos que ningún test importa (scripts/crear_tenant.py,
+      # por ejemplo). No prueba que anden, pero sí que no tengan un error de
+      # sintaxis — que es exactamente lo que se escapa cuando nadie los corre.
+      - name: Sintaxis de todo el repo
+        run: python -m compileall -q .
+
+      # Cada suite en su PROPIO proceso, a propósito: todas monkeypatchean
+      # `db` sin restaurarlo, así que corridas juntas se pisan los parches
+      # entre sí (está escrito en el docstring de cada archivo). El bucle no
+      # corta en el primer fallo — interesa ver todas las que fallan, no la
+      # primera. Se descubren por glob para no tener que tocar este workflow
+      # cada vez que se suma una.
+      - name: Tests
+        run: |
+          set -u
+          fallos=""
+          for f in test_*.py; do
+            echo "::group::$f"
+            if python "$f"; then
+              echo "--- $f OK"
+            else
+              echo "--- $f FALLÓ"
+              fallos="$fallos $f"
+            fi
+            echo "::endgroup::"
+          done
+          if [ -n "$fallos" ]; then
+            echo "Suites que fallaron:$fallos"
+            exit 1
+          fi
+          echo "Todas las suites pasaron."
