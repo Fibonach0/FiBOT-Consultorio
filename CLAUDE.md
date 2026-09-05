@@ -155,6 +155,23 @@ que el profesional regenere nada.
   deliberado para la etapa de pilotos con conocidos — automatizar el alta es
   trabajo para cuando haya más de un puñado de tenants.
 
+## Tests y CI
+
+Los `test_*.py` están sueltos en la raíz y se corren **uno por proceso**
+(`python test_x.py`), no con pytest en batch: todos monkeypatchean `db` sin
+restaurarlo, así que juntos en el mismo proceso se pisan los parches entre sí.
+Está escrito en el docstring de cada archivo y el CI lo respeta.
+
+`.github/workflows/ci.yml` corre en cada PR: `compileall` sobre todo el repo
+(cubre lo que ningún test importa, como `scripts/crear_tenant.py`) y después
+cada suite por separado, en un bucle que **no corta en el primer fallo** —
+interesa ver todas las que rompieron, no la primera. Las descubre por glob:
+un `test_nuevo.py` entra solo, sin tocar el workflow.
+
+La versión de Python del CI (3.11) es la de `nixpacks.toml`. Si cambia en
+Railway, cambiarla ahí también — un verde sobre otra versión no dice nada del
+runtime real.
+
 ## Convenciones
 
 - **Nunca commitear directo a `main`**: rama + PR.
