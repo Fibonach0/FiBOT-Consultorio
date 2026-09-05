@@ -162,6 +162,23 @@ Los `test_*.py` están sueltos en la raíz y se corren **uno por proceso**
 restaurarlo, así que juntos en el mismo proceso se pisan los parches entre sí.
 Está escrito en el docstring de cada archivo y el CI lo respeta.
 
+**Un test que importe `app` tiene que apagar el scheduler primero**:
+
+```python
+import scheduler
+scheduler.iniciar = lambda: None
+import app          # recién ahora
+```
+
+`app.py` arranca el hilo de recordatorios al importarse y su primer tick pega
+contra Supabase de una. Con la URL falsa de los tests eso vuelca un traceback
+de DNS de 40 líneas en cada corrida del CI — no rompe nada (el `try/except` de
+`_loop` lo agarra) pero tapa lo que sí importa el día que falle algo de verdad.
+Se apaga en el test, no con una variable de entorno: un interruptor para
+apagar los recordatorios es justo lo que no querés que alguien active sin
+querer en Railway. Los recordatorios se prueban llamando a `scheduler._tick()`
+a mano, que es lo que interesa verificar.
+
 `.github/workflows/ci.yml` corre en cada PR: `compileall` sobre todo el repo
 (cubre lo que ningún test importa, como `scripts/crear_tenant.py`) y después
 cada suite por separado, en un bucle que **no corta en el primer fallo** —

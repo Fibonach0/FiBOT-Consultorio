@@ -17,6 +17,16 @@ os.environ.setdefault("META_APP_SECRET", "supersecret")
 os.environ.setdefault("META_VERIFY_TOKEN", "verify123")
 os.environ.setdefault("FLASK_SECRET_KEY", "fake")
 
+# El hilo del scheduler arranca solo al importar `app` y su primer tick pega
+# contra Supabase de una — con la URL falsa de estos tests eso vuelca un
+# traceback de DNS de 40 líneas en cada corrida del CI y tapa lo que sí
+# importa. Se apaga ANTES de importar app; los recordatorios se prueban
+# llamando a scheduler._tick() a mano, que es lo que interesa verificar, no
+# que el hilo esté vivo.
+import scheduler  # noqa: E402
+
+scheduler.iniciar = lambda: None
+
 import app  # noqa: E402
 import db  # noqa: E402
 
