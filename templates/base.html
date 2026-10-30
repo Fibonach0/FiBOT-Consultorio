@@ -15,7 +15,7 @@
     .card { background:#fff; border:1px solid var(--rule); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
     h1,h2,h3 { margin-top:0; }
     label { display:block; font-size: .85rem; color: var(--muted); margin-top:10px; margin-bottom:4px; }
-    input[type=text], input[type=password], input[type=date], input[type=time], input[type=number] {
+    input[type=text], input[type=search], input[type=password], input[type=date], input[type=time], input[type=number] {
       width:100%; padding:8px 10px; border:1px solid var(--rule); border-radius:6px; font-size:1rem;
     }
     .btn { background: var(--green); color:#fff; border:none; border-radius:6px; padding:9px 16px; font-size:.95rem; cursor:pointer; }
@@ -79,6 +79,8 @@
     .tablero > .card { margin-bottom:0; }
     .lista-larga { max-height:620px; overflow-y:auto; }
     .fichero { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:14px; align-items:start; }
+    #buscar-ficha { margin-bottom:12px; }
+    .ficha[hidden] { display:none; }
     .fichero .ficha { cursor:pointer; transition:transform .12s; }
     .fichero .ficha:hover, .fichero .ficha:focus-visible { transform:translateY(-3px); outline:none; box-shadow:2px 5px 10px rgba(60, 50, 30, .25); }
     .ficha { aspect-ratio:148 / 210; padding:14px 14px 12px; background:#fffdf5; border:1px solid var(--rule); border-radius:3px; box-shadow:1px 2px 4px rgba(60, 50, 30, .16); font-size:.8rem; }
