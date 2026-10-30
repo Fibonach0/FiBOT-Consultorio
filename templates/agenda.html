@@ -39,6 +39,13 @@
     </div>
     {% endfor %}
     {% endif %}
+    {% set para_mirar = fichas|rejectattr('alerta', 'none')|list %}
+    {% if para_mirar %}
+    <h4 class="subtitulo">Para mirar</h4>
+    {% for f in para_mirar %}
+    <div class="semana-fecha" role="button" tabindex="0" data-ficha="{{ f.dom }}"><strong>{{ f.nombre }}</strong> · {{ f.alerta }}</div>
+    {% endfor %}
+    {% endif %}
     {% set por_renovar = fichas|rejectattr('quedan', 'none')|list %}
     {% if por_renovar %}
     <h4 class="subtitulo">Por renovar</h4>
@@ -333,6 +340,7 @@
     <div class="ficha">
       <button class="cerrar" type="button" aria-label="Cerrar">×</button>
       <h4>{{ f.nombre }}</h4>
+      {% if f.alerta %}<div class="chip chip-alerta">{{ f.alerta }}</div>{% endif %}
       <dl>
         <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
         <dt>Valor</dt><dd>{{ f.valor|pesos if f.valor is not none else '—' }}</dd>
