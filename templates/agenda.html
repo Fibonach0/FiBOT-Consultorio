@@ -280,10 +280,12 @@
 
   <div class="card">
     <h3>Fichas de pacientes <span class="contador">{{ fichas|length }}</span></h3>
+    {% if fichas %}<input type="search" id="buscar-ficha" placeholder="Buscar por nombre o teléfono" autocomplete="off">{% endif %}
+    <div class="tenue" id="sin-resultados" hidden>No hay ninguna ficha con ese nombre.</div>
     {% if not fichas %}<div class="tenue">Cuando agendes un paciente, acá aparece su ficha.</div>{% endif %}
     <div class="fichero">
       {% for f in fichas %}
-      <article class="ficha" role="button" tabindex="0" data-ficha="{{ f.dom }}">
+      <article class="ficha" role="button" tabindex="0" data-ficha="{{ f.dom }}" data-buscar="{{ f.nombre }} {{ f.telefono }}">
         <h4>{{ f.nombre }}</h4>
         <dl>
           <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
@@ -422,6 +424,17 @@
     // salvo que haya un aviso que leer.
     dialogo.querySelectorAll('form').forEach(form =>
       form.addEventListener('submit', () => sessionStorage.setItem('ficha', dialogo.id)));
+  });
+  // Sin acentos ni mayúsculas: "gomez" encuentra a Gómez.
+  const normal = texto => texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  document.getElementById('buscar-ficha')?.addEventListener('input', e => {
+    const buscado = normal(e.target.value.trim());
+    let visibles = 0;
+    document.querySelectorAll('.fichero .ficha').forEach(ficha => {
+      ficha.hidden = !normal(ficha.dataset.buscar).includes(buscado);
+      visibles += !ficha.hidden;
+    });
+    document.getElementById('sin-resultados').hidden = visibles > 0;
   });
   const abierta = sessionStorage.getItem('ficha');
   sessionStorage.removeItem('ficha');
