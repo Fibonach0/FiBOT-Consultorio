@@ -74,6 +74,14 @@ class _Query:
         self.op, self.payload, self._on_conflict, self._ignore = "upsert", filas, on_conflict, ignore_duplicates
         return self
 
+    def insert(self, fila):
+        self.op, self.payload = "insert", fila
+        return self
+
+    def delete(self):
+        self.op = "delete"
+        return self
+
     def eq(self, c, v):
         self.filtros.append(lambda f: _norm(f.get(c)) == _norm(v))
         return self
@@ -133,7 +141,13 @@ class _Query:
                 filas.append(fila)
                 creadas.append(dict(fila))
             return _Res(creadas)
+        if self.op == "insert":
+            filas.append({"id": f"{self.tabla}-{len(filas) + 1}", **self.payload})
+            return _Res([dict(filas[-1])])
         match = [f for f in filas if all(p(f) for p in self.filtros)]
+        if self.op == "delete":
+            TABLAS[self.tabla] = [f for f in filas if f not in match]
+            return _Res([dict(f) for f in match])
         if self.op == "update":
             for f in match:
                 f.update(self.payload)
@@ -175,6 +189,8 @@ def turno(id_, tenant_id, inicio, **extra):
 def reset():
     TABLAS["tenants"] = [dict(TENANT), dict(OTRO)]
     TABLAS["pacientes"] = []
+    TABLAS["paciente_personas"] = []
+    TABLAS["paciente_fechas"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -410,6 +426,45 @@ chequear("fecha inválida avisa y no guarda", "no es válida" in html and len(TA
 html = client.get("/agenda").data.decode()
 chequear("el panel muestra las fichas", 'class="ficha"' in html and "1991-05-20" in html)
 chequear("las fichas no muestran otro tenant", "De otra" not in html)
+
+print("Dentro de la ficha")
+reset()
+d = app.date
+chequear("una fecha de hoy cae hoy", app._proxima_vez(10, 30, d(2026, 10, 30)) == d(2026, 10, 30))
+chequear("una que ya pasó cae el año que viene", app._proxima_vez(3, 1, d(2026, 10, 30)) == d(2027, 3, 1))
+chequear("el 29/2 cae el 28 si no es bisiesto", app._proxima_vez(2, 29, d(2026, 10, 30)) == d(2027, 2, 28))
+chequear("el 29/2 cae el 29 si es bisiesto", app._proxima_vez(2, 29, d(2027, 10, 30)) == d(2028, 2, 29))
+chequear("cuenta los días del cumpleaños", app._cumpleanios("1990-11-02", d(2026, 10, 30)) == "36 años, en 3 días")
+chequear("el cumpleaños de hoy", app._cumpleanios("1990-10-30", d(2026, 10, 30)) == "36 años, hoy")
+tel = "5491100000002"
+client.post("/agenda/paciente", data={"telefono": tel, "fecha_nacimiento": "1990-05-20", "notas": "Le cuesta diciembre"})
+client.post("/agenda/paciente", data={"telefono": tel, "fecha_nacimiento": "1991-05-20"})
+chequear("guardar sin notas no las borra", TABLAS["pacientes"][0]["notas"] == "Le cuesta diciembre")
+client.post("/agenda/paciente/persona", data={"telefono": tel, "nombre": "Toby", "vinculo": "perro"})
+client.post("/agenda/paciente/fecha", data={"telefono": tel, "titulo": "Navidad", "dia": "25", "mes": "12", "animo": "mal"})
+client.post("/agenda/paciente/fecha", data={"telefono": tel, "titulo": "Nació Toby", "dia": "1", "mes": "1", "anio": "2020", "animo": "raro"})
+chequear("guarda persona y fecha", TABLAS["paciente_personas"][0]["nombre"] == "Toby" and len(TABLAS["paciente_fechas"]) == 2)
+chequear("un ánimo inválido queda sin indicar", TABLAS["paciente_fechas"][1]["animo"] is None)
+html = client.post("/agenda/paciente/fecha", data={"telefono": tel, "titulo": "Mal", "dia": "31", "mes": "4"},
+                   follow_redirects=True).data.decode()
+chequear("el 31/4 se rechaza", "no es válida" in html and len(TABLAS["paciente_fechas"]) == 2)
+client.post("/agenda/paciente/fecha", data={"telefono": tel, "titulo": "Bisiesto", "dia": "29", "mes": "2", "anio": "2023"})
+chequear("el 29/2 sin importar el año", any(f["titulo"] == "Bisiesto" for f in TABLAS["paciente_fechas"]))
+TABLAS["paciente_fechas"].append({"id": "ajena", "tenant_id": "t2", "paciente_telefono": tel, "titulo": "Secreto ajeno",
+                                  "dia": 1, "mes": 1, "anio": None, "animo": None})
+html = client.get("/agenda").data.decode()
+chequear("el popup trae notas y fechas", "<dialog" in html and "Le cuesta diciembre" in html and "Navidad" in html and "Toby" in html)
+chequear("no muestra fechas de otro tenant", "Secreto ajeno" not in html)
+html = client.get("/agenda?semana=" + ahora.strftime("%Y-%m-%d")).data.decode()
+chequear("desde la semana, la ficha vuelve a la semana", 'name="telefono"' in html
+         and html[html.index("<dialog"):].count('name="semana"') > 0)
+client.post("/agenda/paciente/fecha/ajena/borrar")
+chequear("borrar lo de otro tenant no hace nada", any(f["id"] == "ajena" for f in TABLAS["paciente_fechas"]))
+primera = TABLAS["paciente_fechas"][0]["id"]
+client.post(f"/agenda/paciente/fecha/{primera}/borrar")
+chequear("borra la fecha propia", not any(f["id"] == primera for f in TABLAS["paciente_fechas"]))
+client.post(f"/agenda/paciente/persona/{TABLAS['paciente_personas'][0]['id']}/borrar")
+chequear("borra la persona propia", TABLAS["paciente_personas"] == [])
 
 print("Calendario")
 reset()

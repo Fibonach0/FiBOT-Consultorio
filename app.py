@@ -234,6 +234,47 @@ def _edad(nacimiento: str | None, hoy: date) -> int | None:
     return hoy.year - n.year - ((hoy.month, hoy.day) < (n.month, n.day))
 
 
+def _proxima_vez(mes: int, dia: int, hoy: date) -> date:
+    """Próxima vez que cae esta fecha, hoy incluido. Un 29/2 se festeja el 28
+    en los años que no son bisiestos."""
+    for anio in (hoy.year, hoy.year + 1):
+        try:
+            cae = date(anio, mes, dia)
+        except ValueError:
+            cae = date(anio, 2, 28)
+        if cae >= hoy:
+            return cae
+    raise AssertionError("una fecha siempre cae dentro del año que viene")
+
+
+def _falta(dias: int) -> str:
+    return {0: "hoy", 1: "mañana"}.get(dias, f"en {dias} días")
+
+
+def _cumpleanios(nacimiento: str | None, hoy: date) -> str | None:
+    if not nacimiento:
+        return None
+    n = date.fromisoformat(nacimiento)
+    cae = _proxima_vez(n.month, n.day, hoy)
+    return f"{cae.year - n.year} años, {_falta((cae - hoy).days)}"
+
+
+def _con_cuenta_regresiva(fechas: list[dict], hoy: date) -> list[dict]:
+    resultado = []
+    for f in fechas:
+        cae = _proxima_vez(f["mes"], f["dia"], hoy)
+        resultado.append(
+            {
+                **f,
+                "_dias": (cae - hoy).days,
+                "_falta": _falta((cae - hoy).days),
+                "_cuando": f"{f['dia']}/{f['mes']:02d}" + (f"/{f['anio']}" if f.get("anio") else ""),
+                "_anios": cae.year - f["anio"] if f.get("anio") else None,
+            }
+        )
+    return sorted(resultado, key=lambda f: f["_dias"])
+
+
 def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     """Una ficha por paciente (se identifica por teléfono, como en todo el
     sistema). Frecuencia y valor son los de su próxima sesión, o los de la
@@ -242,22 +283,34 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     por_paciente: dict[str, list[dict]] = {}
     for t in _con_hora_local(db.sesiones_reservadas(tenant["id"]), tz):
         por_paciente.setdefault(t["paciente_telefono"], []).append(t)
-    nacimientos = db.nacimientos_de_pacientes(tenant["id"])
+    datos = db.datos_de_pacientes(tenant["id"])
+    personas: dict[str, list[dict]] = {}
+    for p in db.personas_de_pacientes(tenant["id"]):
+        personas.setdefault(p["paciente_telefono"], []).append(p)
+    fechas: dict[str, list[dict]] = {}
+    for f in db.fechas_de_pacientes(tenant["id"]):
+        fechas.setdefault(f["paciente_telefono"], []).append(f)
+    hoy = ahora.date()
 
-    fichas = []
+    lista = []
     for telefono, sesiones in por_paciente.items():
         pasadas = [t for t in sesiones if datetime.fromisoformat(t["inicio"]) <= ahora]
         futuras = sesiones[len(pasadas):]
         vigente = futuras[0] if futuras else pasadas[-1]
         sin_pagar = [t for t in pasadas if t.get("pago") == "pendiente"]
-        fichas.append(
+        nacimiento = datos.get(telefono, {}).get("fecha_nacimiento")
+        lista.append(
             {
                 "telefono": telefono,
                 "nombre": next((t["paciente_nombre"] for t in reversed(sesiones) if t.get("paciente_nombre")), telefono),
                 "frecuencia": vigente.get("frecuencia"),
                 "valor": vigente.get("valor"),
-                "fecha_nacimiento": nacimientos.get(telefono),
-                "edad": _edad(nacimientos.get(telefono), ahora.date()),
+                "fecha_nacimiento": nacimiento,
+                "edad": _edad(nacimiento, hoy),
+                "cumpleanios": _cumpleanios(nacimiento, hoy),
+                "notas": datos.get(telefono, {}).get("notas"),
+                "personas": personas.get(telefono, []),
+                "fechas": _con_cuenta_regresiva(fechas.get(telefono, []), hoy),
                 "desde": datetime.fromisoformat(sesiones[0]["inicio"]).astimezone(tz).strftime("%d/%m/%Y"),
                 "proxima": f"{futuras[0]['_dia']} {futuras[0]['_hora']}" if futuras else None,
                 "asistio": sum(t.get("asistencia") == "vino" for t in pasadas),
@@ -267,7 +320,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "historial": pasadas[:-11:-1],
             }
         )
-    return sorted(fichas, key=lambda f: f["nombre"].casefold())
+    return sorted(lista, key=lambda f: f["nombre"].casefold())
 
 
 def _volver_a_agenda():
@@ -301,6 +354,7 @@ def agenda():
         "pendientes": pendientes,
         "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
         "fichas": _fichas(tenant, tz, ahora),
+        "meses": MESES_LABEL,
         "duracion_default": tenant.get("duracion_turno_minutos") or 50,
     }
 
@@ -509,7 +563,59 @@ def agenda_paciente():
         except ValueError:
             flash("La fecha de nacimiento no es válida.")
             return _volver_a_agenda()
-    db.guardar_nacimiento(session["tenant_id"], telefono, fecha)
+    campos = {"fecha_nacimiento": fecha}
+    if "notas" in request.form:
+        campos["notas"] = request.form["notas"].strip() or None
+    db.guardar_paciente(session["tenant_id"], telefono, campos)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/persona")
+@login_required
+def agenda_persona():
+    telefono = request.form.get("telefono") or ""
+    nombre = (request.form.get("nombre") or "").strip()
+    if not telefono or not nombre:
+        flash("Falta el nombre.")
+        return _volver_a_agenda()
+    db.agregar_persona(session["tenant_id"], telefono, nombre, (request.form.get("vinculo") or "").strip() or None)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/persona/<persona_id>/borrar")
+@login_required
+def agenda_persona_borrar(persona_id):
+    db.borrar_persona(session["tenant_id"], persona_id)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/fecha")
+@login_required
+def agenda_fecha():
+    telefono = request.form.get("telefono") or ""
+    titulo = (request.form.get("titulo") or "").strip()
+    try:
+        dia, mes = int(request.form.get("dia") or 0), int(request.form.get("mes") or 0)
+        anio = int(request.form["anio"]) if request.form.get("anio") else None
+        # 2000 fue bisiesto: el 29/2 vale, el 31/4 no.
+        date(2000, mes, dia)
+        if anio is not None and not 1900 <= anio <= 2100:
+            raise ValueError
+    except ValueError:
+        flash("Esa fecha no es válida.")
+        return _volver_a_agenda()
+    if not telefono or not titulo:
+        flash("Falta decir qué fecha es.")
+        return _volver_a_agenda()
+    animo = request.form.get("animo")
+    db.agregar_fecha(session["tenant_id"], telefono, titulo, dia, mes, anio, animo if animo in ("bien", "mal") else None)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/fecha/<fecha_id>/borrar")
+@login_required
+def agenda_fecha_borrar(fecha_id):
+    db.borrar_fecha(session["tenant_id"], fecha_id)
     return _volver_a_agenda()
 
 
