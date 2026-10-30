@@ -430,10 +430,10 @@ chequear("las fichas no muestran otro tenant", "De otra" not in html)
 print("Dentro de la ficha")
 reset()
 d = app.date
-chequear("una fecha de hoy cae hoy", app._proxima_vez(10, 30, d(2026, 10, 30)) == d(2026, 10, 30))
-chequear("una que ya pasó cae el año que viene", app._proxima_vez(3, 1, d(2026, 10, 30)) == d(2027, 3, 1))
-chequear("el 29/2 cae el 28 si no es bisiesto", app._proxima_vez(2, 29, d(2026, 10, 30)) == d(2027, 2, 28))
-chequear("el 29/2 cae el 29 si es bisiesto", app._proxima_vez(2, 29, d(2027, 10, 30)) == d(2028, 2, 29))
+chequear("una fecha de hoy cae hoy", app.proxima_vez(10, 30, d(2026, 10, 30)) == d(2026, 10, 30))
+chequear("una que ya pasó cae el año que viene", app.proxima_vez(3, 1, d(2026, 10, 30)) == d(2027, 3, 1))
+chequear("el 29/2 cae el 28 si no es bisiesto", app.proxima_vez(2, 29, d(2026, 10, 30)) == d(2027, 2, 28))
+chequear("el 29/2 cae el 29 si es bisiesto", app.proxima_vez(2, 29, d(2027, 10, 30)) == d(2028, 2, 29))
 chequear("cuenta los días del cumpleaños", app._cumpleanios("1990-11-02", d(2026, 10, 30)) == "36 años, en 3 días")
 chequear("el cumpleaños de hoy", app._cumpleanios("1990-10-30", d(2026, 10, 30)) == "36 años, hoy")
 tel = "5491100000002"
@@ -490,6 +490,47 @@ chequear("sólo las fechas cercanas", [c["titulo"] for c in fila_hoy["fechas"]] 
 html = client.get("/agenda").data.decode()
 chequear("el panel abre la ficha desde Hoy", "Retomar lo de la mudanza" in html and f'data-ficha="{fila_hoy["ficha"]["dom"]}"' in html
          and f'id="{fila_hoy["ficha"]["dom"]}"' in html)
+
+print("Resumen al profesional")
+reset()
+enviados.clear()
+real_now = ahora.astimezone(zona)
+hoy_local = real_now.date()
+fecha_cerca = hoy_local + timedelta(days=2)
+TABLAS["paciente_fechas"].append({"id": "x", "tenant_id": "t1", "paciente_telefono": "5491100000002", "titulo": "Secreta",
+                                  "dia": fecha_cerca.day, "mes": fecha_cerca.month, "anio": None, "animo": "mal"})
+client.post("/agenda/avisos", data={"telefono": "54 9 11 7777-0000"})
+chequear("guarda el número limpio", TABLAS["tenants"][0]["aviso_telefono"] == "5491177770000")
+
+
+class _Reloj(app.datetime):
+    hora = 9
+
+    @classmethod
+    def now(cls, tz=None):
+        return real_now.replace(hour=cls.hora)
+
+
+scheduler.datetime = _Reloj
+t = TABLAS["tenants"][0]
+_Reloj.hora = 6
+scheduler._resumen_diario(t, zona)
+chequear("temprano no manda nada", enviados == [])
+_Reloj.hora = 9
+scheduler._resumen_diario(t, zona)
+chequear("manda el resumen al profesional", len(enviados) == 1 and enviados[0][1] == "5491177770000", enviados)
+chequear("no dice nada del paciente", "Secreta" not in enviados[0][2] and "1 fecha importante" in enviados[0][2], enviados)
+scheduler._resumen_diario(t, zona)
+chequear("una sola vez por día", len(enviados) == 1)
+html = client.get("/agenda").data.decode()
+chequear("el detalle está en el panel", "Fechas de esta semana" in html and "Secreta" in html)
+TABLAS["tenants"][0].update(ultimo_aviso=None)
+TABLAS["paciente_fechas"].clear()
+scheduler._resumen_diario(t, zona)
+chequear("sin nada que contar no manda", len(enviados) == 1)
+client.post("/agenda/avisos", data={"telefono": ""})
+chequear("se puede apagar", TABLAS["tenants"][0]["aviso_telefono"] is None)
+scheduler.datetime = app.datetime
 
 print("Calendario")
 reset()

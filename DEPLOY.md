@@ -24,6 +24,7 @@ esquema ahí les pega a los dos.
    - `migrations/006_valor_y_frecuencia.sql`
    - `migrations/007_pacientes.sql`
    - `migrations/008_notas_y_fechas.sql`
+   - `migrations/009_avisos.sql`
 3. Anotar de Settings → API: la **URL** y la **service role key**.
 
 > La service role key saltea las políticas de RLS. Es correcto acá —
@@ -71,6 +72,13 @@ Tu turno con {{1}} cambió de horario: ahora es el {{2}}.
 Si no podés venir, respondé CANCELAR y lo liberamos.
 ```
 
+Y una tercera para el resumen diario al profesional (`AVISO_TEMPLATE`), también
+**UTILITY** y **es_AR**, con un parámetro:
+
+```
+Hoy en tu consultorio: {{1}}. Mirá el panel para ver el detalle.
+```
+
 La aprobación tarda de minutos a un par de días. **Hasta que esté aprobada,
 dejar `RECORDATORIO_TEMPLATE` vacía** — con la plantilla a medio aprobar los
 envíos fallan; con la variable vacía el bot cae a texto libre y al menos
@@ -95,6 +103,7 @@ PLATAFORMA_PHONE_NUMBER_ID    # el del paso 2.2
 RECORDATORIO_TEMPLATE         # VACÍA hasta que Meta apruebe la plantilla
 RECORDATORIO_TEMPLATE_LANG    # es_AR
 REPROGRAMADO_TEMPLATE         # VACÍA hasta que Meta apruebe la plantilla
+AVISO_TEMPLATE                # VACÍA hasta que Meta apruebe la plantilla
 RECORDATORIO_INTERVALO_MIN    # 10 (opcional, es el default)
 ```
 

@@ -29,6 +29,16 @@
       </div>
       {% endfor %}
     </div>
+    {% if fechas_semana %}
+    <h4 class="subtitulo">Fechas de esta semana</h4>
+    {% for x in fechas_semana %}
+    <div class="semana-fecha" role="button" tabindex="0" data-ficha="{{ x.ficha.dom }}">
+      <strong>{{ x.ficha.nombre }}</strong> · {{ x.fecha.titulo }}, {{ x.fecha._falta }}
+      {% if x.fecha.animo == 'bien' %}<span class="chip chip-ok">le hace bien</span>
+      {% elif x.fecha.animo == 'mal' %}<span class="chip chip-alerta">le hace mal</span>{% endif %}
+    </div>
+    {% endfor %}
+    {% endif %}
   </div>
 
   <div class="tablero">
@@ -201,6 +211,7 @@
   </div>
 
   <div class="tablero abajo">
+  <div>
   <div class="card">
     <h3>Generar horarios disponibles</h3>
     <form method="post" action="{{ url_for('agenda_generar') }}">
@@ -239,6 +250,17 @@
         <button class="btn" type="submit">Generar</button>
       </div>
     </form>
+  </div>
+
+  <div class="card">
+    <h3>Avisos a tu WhatsApp</h3>
+    <form method="post" action="{{ url_for('agenda_avisos') }}" class="fila">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+      <div><label>Tu número</label><input type="text" name="telefono" placeholder="54 9 11 2345 6789" value="{{ tenant.aviso_telefono or '' }}"></div>
+      <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
+    </form>
+  </div>
   </div>
 
   <div class="card">

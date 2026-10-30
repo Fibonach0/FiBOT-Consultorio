@@ -445,6 +445,14 @@ def marcar_recordatorio_enviado(turno_id: str) -> None:
     _client.table("turnos").update({"recordatorio_enviado": True}).eq("id", turno_id).execute()
 
 
+def guardar_aviso_telefono(tenant_id: str, telefono: str | None) -> None:
+    _client.table("tenants").update({"aviso_telefono": telefono}).eq("id", tenant_id).execute()
+
+
+def marcar_aviso_enviado(tenant_id: str, dia: str) -> None:
+    _client.table("tenants").update({"ultimo_aviso": dia}).eq("id", tenant_id).execute()
+
+
 def tenants_activos() -> list[dict]:
     res = _client.table("tenants").select("*").eq("activo", True).execute()
     return res.data
