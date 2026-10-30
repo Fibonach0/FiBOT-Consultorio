@@ -124,7 +124,7 @@ class _Query:
                     continue
                 fila = {"id": f"turno-{len(filas) + 1}", "paciente_telefono": None, "paciente_nombre": None,
                         "recordatorio_enviado": False, "asistencia": None, "pago": "pendiente",
-                        "reprogramado_desde": None, **nueva}
+                        "reprogramado_desde": None, "valor": None, "frecuencia": None, **nueva}
                 filas.append(fila)
                 creadas.append(dict(fila))
             return _Res(creadas)
@@ -160,7 +160,8 @@ def turno(id_, tenant_id, inicio, **extra):
     base = {"id": id_, "tenant_id": tenant_id, "inicio": inicio.isoformat(),
             "fin": (inicio + timedelta(minutes=50)).isoformat(), "estado": "libre",
             "paciente_telefono": None, "paciente_nombre": None, "recordatorio_enviado": False,
-            "asistencia": None, "pago": "pendiente", "reprogramado_desde": None}
+            "asistencia": None, "pago": "pendiente", "reprogramado_desde": None,
+            "valor": None, "frecuencia": None}
     return {**base, **extra}
 
 
@@ -271,6 +272,16 @@ chequear("vuelve a ofrecerse al cancelar la sesión",
          "libre-manana" in [t["id"] for t in db.turnos_libres("t1", ahora)])
 chequear("y se puede reservar de nuevo", db.reservar_turno("t1", "libre-manana", "5491100000003", "Eva") is True)
 
+print("Valor de sesión")
+reset()
+db.marcar_valor("t1", "futuro", 25000)
+chequear("se guarda el valor", fila("futuro")["valor"] == 25000)
+db.marcar_valor("t2", "futuro", 1)
+chequear("otro tenant no lo toca", fila("futuro")["valor"] == 25000)
+db.reprogramar_turno("t1", "futuro", manana + timedelta(hours=2), 50)
+chequear("viaja con la sesión", fila("libre-manana")["valor"] == 25000)
+chequear("el horario viejo queda sin valor", fila("futuro")["valor"] is None)
+
 print("Generar horarios no pisa reservas")
 reset()
 creados = db.crear_turnos_libres("t1", [ayer, manana, manana + timedelta(days=5)], 50)
@@ -344,6 +355,34 @@ chequear("agendar a mano en un horario libre", fila("futuro")["paciente_telefono
          and fila("futuro")["estado"] == "reservado")
 r = client.post("/agenda/agendar/futuro", data={"nombre": "Otro", "telefono": "5491100000000"}, follow_redirects=True)
 chequear("agendar sobre uno ocupado avisa", "ya no está libre" in r.data.decode() and fila("futuro")["paciente_nombre"] == "Pedro")
+
+print("Pacientes fijos")
+reset()
+primero = manana + timedelta(days=30, hours=3)
+TABLAS["turnos"].append(turno("fijo-1", "t1", primero))
+TABLAS["turnos"].append(turno("ocupado", "t1", primero + timedelta(days=28), estado="reservado",
+                              paciente_nombre="Otra", paciente_telefono="5491100000005"))
+r = client.post("/agenda/agendar/fijo-1", data={"nombre": "Eva", "telefono": "5491100000003", "valor": "$ 30.000",
+                                                "frecuencia": "quincenal", "cantidad": "4"}, follow_redirects=True)
+html = r.data.decode()
+de_eva = sorted(_norm(f["inicio"]) for f in TABLAS["turnos"] if f["paciente_nombre"] == "Eva")
+chequear("agenda cada 14 días y saltea la ocupada",
+         de_eva == [primero, primero + timedelta(days=14), primero + timedelta(days=42)], de_eva)
+chequear("todas con valor y frecuencia", all(f["valor"] == 30000 and f["frecuencia"] == "quincenal"
+                                             for f in TABLAS["turnos"] if f["paciente_nombre"] == "Eva"))
+chequear("avisa la que quedó sin agendar", "sin agendar" in html and "3 sesiones" in html)
+r = client.post("/agenda/agendar/libre-manana", data={"nombre": "Una", "telefono": "5491100000006", "cantidad": "9"})
+chequear("sin frecuencia es una sola", sum(f["paciente_nombre"] == "Una" for f in TABLAS["turnos"]) == 1)
+
+print("Calendario")
+reset()
+html = client.get("/agenda").data.decode()
+chequear("entra por el mes", 'class="cal"' in html and "Ana" in html)
+chequear("el mes no muestra otro tenant", "De otra" not in html)
+chequear("mes inválido cae al actual", client.get("/agenda?mes=basura").status_code == 200)
+html = client.get(f"/agenda?semana={manana.astimezone(app.ZoneInfo(TZ)):%Y-%m-%d}").data.decode()
+chequear("la semana tiene la cascada con Asistió primero",
+         "Acciones" in html and html.index("Asistió") < html.index("Marcar sin pagar"))
 
 with client.session_transaction() as s:
     s.clear()
