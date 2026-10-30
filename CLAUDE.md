@@ -161,12 +161,26 @@ por la página pública) — es el mismo `db.reservar_turno` atómico.
   por `estado = 'libre'`) y recién después libera el viejo: si el nuevo
   estaba ocupado, no se tocó nada. Si a esa hora no había turno generado, lo
   crea. El pago viaja con la sesión; la asistencia no. Se rechaza si se pisa
-  con otra sesión reservada, aunque no coincida el `inicio`.
+  con otra sesión reservada, aunque no coincida el `inicio`. Si la sesión
+  queda en el futuro, se le avisa al paciente en el momento (tilde en el panel,
+  `REPROGRAMADO_TEMPLATE`).
+- Un horario libre que se pisa con una sesión sigue en `libre`, pero
+  `db.turnos_libres` lee de la vista `turnos_disponibles` (`migrations/005`) y
+  no lo ofrece; `db.reservar_turno` también lo rechaza. Vuelve solo si la
+  sesión se mueve. El chequeo no es atómico: dos reservas al mismo milisegundo
+  sobre horarios solapados podrían entrar, y sólo existen horarios solapados
+  después de pasar una sesión a una hora fuera de la grilla.
 - `reprogramado_desde` guarda el **horario** viejo, no un id al turno viejo:
   ese horario queda libre y puede tomarlo otro paciente.
 - `db.crear_turnos_libres` usa `ignore_duplicates=True` (ON CONFLICT DO
   NOTHING): antes, regenerar una semana con sesiones reservadas las pisaba
   con `estado = 'libre'`.
+
+### CSRF del panel
+
+`app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier
+form nuevo del panel lleva `<input type="hidden" name="csrf_token" value="{{ csrf_token() }}">`.
+El webhook (firma de Meta) y la reserva pública (sin sesión) no lo usan.
 
 ## Lo que NO tiene esta v1 (a propósito)
 
