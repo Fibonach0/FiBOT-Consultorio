@@ -26,6 +26,7 @@ esquema ahí les pega a los dos.
    - `migrations/008_notas_y_fechas.sql`
    - `migrations/009_avisos.sql`
    - `migrations/010_recordatorio_pago.sql`
+   - `migrations/011_lista_de_espera.sql`
 3. Anotar de Settings → API: la **URL** y la **service role key**.
 
 > La service role key saltea las políticas de RLS. Es correcto acá —
@@ -87,6 +88,13 @@ Y otra para el recordatorio de pago (`RECORDATORIO_PAGO_TEMPLATE`), **UTILITY** 
 Hola. Te recuerdo que tenés {{2}} pendientes de sesiones con {{1}}.
 ```
 
+Y otra para ofrecer horarios a la lista de espera (`LISTA_ESPERA_TEMPLATE`),
+**UTILITY** y **es_AR**, con `{{1}}` el profesional, `{{2}}` cuándo y `{{3}}` el link:
+
+```
+Se liberó un horario con {{1}}: {{2}}. Si lo querés, reservalo acá: {{3}}
+```
+
 La aprobación tarda de minutos a un par de días. **Hasta que esté aprobada,
 dejar `RECORDATORIO_TEMPLATE` vacía** — con la plantilla a medio aprobar los
 envíos fallan; con la variable vacía el bot cae a texto libre y al menos
@@ -113,6 +121,7 @@ RECORDATORIO_TEMPLATE_LANG    # es_AR
 REPROGRAMADO_TEMPLATE         # VACÍA hasta que Meta apruebe la plantilla
 AVISO_TEMPLATE                # VACÍA hasta que Meta apruebe la plantilla
 RECORDATORIO_PAGO_TEMPLATE    # VACÍA hasta que Meta apruebe la plantilla
+LISTA_ESPERA_TEMPLATE         # VACÍA hasta que Meta apruebe la plantilla
 RECORDATORIO_INTERVALO_MIN    # 10 (opcional, es el default)
 ```
 

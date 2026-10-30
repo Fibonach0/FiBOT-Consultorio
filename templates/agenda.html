@@ -293,6 +293,39 @@
   </div>
 
   <div class="card">
+    <h3>Lista de espera{% if espera %} <span class="contador">{{ espera|length }}</span>{% endif %}</h3>
+    {% for p in espera %}
+    <div class="turno">
+      <span><strong>{{ p.nombre }}</strong>{% if p.preferencia %} <span class="tenue">· {{ p.preferencia }}</span>{% endif %}</span>
+      <span class="acciones">
+        <form method="post" action="{{ url_for('agenda_espera_ofrecer', espera_id=p.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          {% if p.ofrecido_en == hoy_iso %}<span class="chip">ofrecido hoy</span>
+          {% else %}<button class="btn chico" type="submit" onclick="return confirm('¿Ofrecerle por WhatsApp el próximo horario libre?')">Ofrecer horario</button>{% endif %}
+        </form>
+        <form method="post" action="{{ url_for('agenda_espera_quitar', espera_id=p.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="quitar" type="submit" aria-label="Quitar">×</button>
+        </form>
+      </span>
+    </div>
+    {% endfor %}
+    <details>
+      <summary class="tenue">Agregar a la lista ▾</summary>
+      <form method="post" action="{{ url_for('agenda_espera') }}" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div><label>Nombre</label><input type="text" name="nombre" required></div>
+        <div><label>WhatsApp</label><input type="text" name="telefono" required></div>
+        <div class="ancho"><label>Qué horario prefiere</label><input type="text" name="preferencia" placeholder="Martes a la tarde"></div>
+        <div class="al-pie"><button class="btn chico" type="submit">Agregar</button></div>
+      </form>
+    </details>
+  </div>
+
+  <div class="card">
     <h3>Avisos a tu WhatsApp</h3>
     <form method="post" action="{{ url_for('agenda_avisos') }}" class="fila">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

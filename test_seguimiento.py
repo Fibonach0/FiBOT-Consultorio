@@ -191,6 +191,7 @@ def reset():
     TABLAS["pacientes"] = []
     TABLAS["paciente_personas"] = []
     TABLAS["paciente_fechas"] = []
+    TABLAS["lista_espera"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -613,6 +614,28 @@ reset()
 TABLAS["turnos"].append(turno("lejos", "t1", ahora - timedelta(days=45), estado="reservado", paciente_nombre="Lejana",
                               paciente_telefono="5491100000020"))
 chequear("el panel lo muestra", "Para mirar" in client.get("/agenda").data.decode())
+
+print("Lista de espera")
+reset()
+enviados.clear()
+TABLAS["tenants"][0]["slug"] = "marcos"
+client.post("/agenda/espera", data={"nombre": "Eva", "telefono": "54 9 11 1234", "preferencia": "Martes"})
+espera = TABLAS["lista_espera"][0]
+chequear("agrega con el número limpio", espera["telefono"] == "54911" + "1234")
+r = client.post("/agenda/cancelar/futuro", follow_redirects=True).data.decode()
+chequear("al cancelar avisa que hay lista", "1 en lista de espera" in r)
+html = client.post(f"/agenda/espera/{espera['id']}/ofrecer", follow_redirects=True).data.decode()
+chequear("ofrece el próximo libre con el link", len(enviados) == 1 and "/marcos" in enviados[0][2] and enviados[0][1] == espera["telefono"], enviados)
+client.post(f"/agenda/espera/{espera['id']}/ofrecer")
+chequear("no lo ofrece dos veces el mismo día", len(enviados) == 1)
+TABLAS["lista_espera"].append({"id": "ajena", "tenant_id": "t2", "nombre": "De la otra", "telefono": "9", "preferencia": None,
+                               "ofrecido_en": None, "created_at": ahora.isoformat()})
+client.post("/agenda/espera/ajena/ofrecer")
+client.post("/agenda/espera/ajena/quitar")
+chequear("no toca la lista de otro tenant", len(enviados) == 1 and any(p["id"] == "ajena" for p in TABLAS["lista_espera"]))
+chequear("no muestra la de otro tenant", "De la otra" not in client.get("/agenda").data.decode())
+client.post(f"/agenda/espera/{espera['id']}/quitar")
+chequear("se puede quitar", not any(p["id"] == espera["id"] for p in TABLAS["lista_espera"]))
 
 print("Calendario")
 reset()

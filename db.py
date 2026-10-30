@@ -445,6 +445,26 @@ def marcar_recordatorio_enviado(turno_id: str) -> None:
     _client.table("turnos").update({"recordatorio_enviado": True}).eq("id", turno_id).execute()
 
 
+def lista_de_espera(tenant_id: str) -> list[dict]:
+    res = _client.table("lista_espera").select("*").eq("tenant_id", tenant_id).order("created_at").execute()
+    return res.data
+
+
+def agregar_a_espera(tenant_id: str, nombre: str, telefono: str, preferencia: str | None) -> None:
+    _client.table("lista_espera").insert(
+        {"tenant_id": tenant_id, "nombre": nombre, "telefono": telefono, "preferencia": preferencia,
+         "created_at": datetime.now(timezone.utc).isoformat()}
+    ).execute()
+
+
+def quitar_de_espera(tenant_id: str, espera_id: str) -> None:
+    _client.table("lista_espera").delete().eq("tenant_id", tenant_id).eq("id", espera_id).execute()
+
+
+def marcar_ofrecido(tenant_id: str, espera_id: str, dia: str) -> None:
+    _client.table("lista_espera").update({"ofrecido_en": dia}).eq("tenant_id", tenant_id).eq("id", espera_id).execute()
+
+
 def guardar_aviso_telefono(tenant_id: str, telefono: str | None) -> None:
     _client.table("tenants").update({"aviso_telefono": telefono}).eq("id", tenant_id).execute()
 
