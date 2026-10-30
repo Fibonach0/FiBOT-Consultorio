@@ -566,6 +566,42 @@ chequear("si estaba cortada retoma en el futuro", cortas[1] > ahora and cortas[1
 html = client.post("/agenda/paciente/renovar", data={"telefono": "5491100000001"}, follow_redirects=True).data.decode()
 chequear("sin frecuencia avisa", "no tiene una frecuencia fija" in html)
 
+print("Cobros")
+reset()
+enviados.clear()
+mes = ahora.astimezone(zona).date().replace(day=15)
+def del_mes(hora):
+    return app.datetime.combine(mes, app.dtime(hora), tzinfo=zona).astimezone(timezone.utc)
+for f in list(TABLAS["turnos"]):
+    if f["id"] != "ajeno":
+        TABLAS["turnos"].remove(f)
+TABLAS["turnos"] += [
+    turno("c1", "t1", del_mes(9), estado="reservado", paciente_nombre="Ana", paciente_telefono="1", valor=1000, pago="pagado"),
+    turno("c2", "t1", del_mes(10), estado="reservado", paciente_nombre="Ana", paciente_telefono="1", valor=2000),
+    turno("c3", "t1", del_mes(11), estado="reservado", paciente_nombre="Beto", paciente_telefono="2", valor=4000, pago="no_cobra"),
+    turno("c4", "t1", del_mes(12), estado="reservado", paciente_nombre="Beto", paciente_telefono="2"),
+]
+reloj = app.datetime.combine(mes, app.dtime(11, 30), tzinfo=zona)
+fichas = app._fichas(TENANT, zona, reloj)
+c = app._cobros(fichas, mes.replace(day=1), zona, reloj)
+chequear("separa cobrado y a cobrar", c["cobrado"] == 1000 and c["a_cobrar"] == 2000)
+chequear("lo que no se cobra no cuenta", c["agendado"] == 0)
+chequear("marca las sesiones sin valor", c["sin_valor"] == 1)
+chequear("lista quién debe", [f["nombre"] for f in c["deudores"]] == ["Ana"])
+otro = app._cobros(fichas, (mes.replace(day=1) + timedelta(days=40)).replace(day=1), zona, reloj)
+chequear("otro mes no suma este", otro["cobrado"] == 0 and otro["a_cobrar"] == 0)
+for f in TABLAS["turnos"]:
+    if f["id"] in ("c2",):
+        f.update(inicio=ayer.isoformat(), fin=(ayer + timedelta(minutes=50)).isoformat())
+html = client.get("/agenda").data.decode()
+chequear("el panel muestra los cobros", "Cobros de" in html and "Quién debe" in html)
+html = client.post("/agenda/paciente/recordar-pago", data={"telefono": "1"}, follow_redirects=True).data.decode()
+chequear("recuerda el pago con el monto de la base", len(enviados) == 1 and enviados[0][1] == "1" and "$ 2.000" in enviados[0][2], enviados)
+html = client.post("/agenda/paciente/recordar-pago", data={"telefono": "1"}, follow_redirects=True).data.decode()
+chequear("no lo manda dos veces el mismo día", len(enviados) == 1 and "ya se le recordó" in html)
+html = client.post("/agenda/paciente/recordar-pago", data={"telefono": "ajeno"}, follow_redirects=True).data.decode()
+chequear("sin deuda no manda nada", len(enviados) == 1 and "no tiene deuda" in html)
+
 print("Calendario")
 reset()
 html = client.get("/agenda").data.decode()

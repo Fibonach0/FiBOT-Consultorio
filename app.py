@@ -310,12 +310,38 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "adeudado": sum(t.get("valor") or 0 for t in sin_pagar),
                 "historial": pasadas[:-11:-1],
                 "quedan": sesiones_que_quedan(sesiones, ahora),
+                "sesiones": sesiones,
+                "recordado_hoy": datos.get(telefono, {}).get("ultimo_recordatorio_pago") == hoy.isoformat(),
             }
         )
     lista.sort(key=lambda f: f["nombre"].casefold())
     for i, f in enumerate(lista, start=1):
         f["dom"] = f"ficha-{i}"
     return lista
+
+
+def _cobros(fichas: list[dict], primero: date, tz: ZoneInfo, ahora: datetime) -> dict:
+    """Las cuentas del mes. Lo adeudado por paciente es histórico, no del mes:
+    una deuda de marzo se sigue debiendo en abril."""
+    cuentas = {"cobrado": 0, "a_cobrar": 0, "agendado": 0, "sin_valor": 0}
+    for ficha in fichas:
+        for t in ficha["sesiones"]:
+            inicio = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+            if (inicio.year, inicio.month) != (primero.year, primero.month) or t.get("pago") == "no_cobra":
+                continue
+            if t.get("valor") is None:
+                cuentas["sin_valor"] += 1
+            elif t.get("pago") == "pagado":
+                cuentas["cobrado"] += t["valor"]
+            elif inicio <= ahora:
+                cuentas["a_cobrar"] += t["valor"]
+            else:
+                cuentas["agendado"] += t["valor"]
+    return {
+        **cuentas,
+        "titulo": _meses_label(primero),
+        "deudores": sorted((f for f in fichas if f["adeudado"]), key=lambda f: -f["adeudado"]),
+    }
 
 
 def _fechas_semana(fichas: list[dict]) -> list[dict]:
@@ -372,6 +398,7 @@ def agenda():
         "fichas": fichas,
         "hoy": _hoy(tenant, fichas, tz, ahora),
         "fechas_semana": _fechas_semana(fichas),
+        "cobros": _cobros(fichas, _mes_de(request.args.get("mes") or request.args.get("semana", "")[:7], ahora.date()), tz, ahora),
         "meses": MESES_LABEL,
         "duracion_default": tenant.get("duracion_turno_minutos") or 50,
     }
@@ -596,6 +623,39 @@ def agenda_paciente():
         campos["notas"] = request.form["notas"].strip() or None
     db.guardar_paciente(session["tenant_id"], telefono, campos)
     return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/recordar-pago")
+@login_required
+def agenda_recordar_pago():
+    """Sólo sale cuando el profesional toca el botón: un mensaje de plata a un
+    paciente nunca se manda solo. El monto se calcula acá, no viene del form."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    telefono = request.form.get("telefono") or ""
+    ficha = next((f for f in _fichas(tenant, tz, datetime.now(tz)) if f["telefono"] == telefono), None)
+    if not ficha or not ficha["adeudado"]:
+        flash("Ese paciente no tiene deuda con valor cargado.")
+    elif ficha["recordado_hoy"]:
+        flash(f"A {ficha['nombre']} ya se le recordó hoy.")
+    else:
+        db.guardar_paciente(tenant["id"], telefono, {"ultimo_recordatorio_pago": datetime.now(tz).date().isoformat()})
+        monto = app.jinja_env.filters["pesos"](ficha["adeudado"])
+        if _recordar_pago(tenant, telefono, monto):
+            flash(f"Le recordamos a {ficha['nombre']} que tiene {monto} pendientes.")
+        else:
+            flash(f"No se pudo mandar el recordatorio a {ficha['nombre']}.")
+    return _volver_a_agenda()
+
+
+def _recordar_pago(tenant: dict, telefono: str, monto: str) -> bool:
+    numero = whatsapp.numero_de(tenant)
+    if not numero:
+        return False
+    if config.RECORDATORIO_PAGO_TEMPLATE:
+        return whatsapp.enviar_plantilla(numero, telefono, config.RECORDATORIO_PAGO_TEMPLATE,
+                                         config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], monto])
+    return whatsapp.enviar_texto(numero, telefono, f"Hola. Te recuerdo que tenés {monto} pendientes de sesiones con *{tenant['nombre']}*.")
 
 
 @app.post("/agenda/paciente/persona")

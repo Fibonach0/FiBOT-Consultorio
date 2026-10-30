@@ -71,13 +71,16 @@
     .hoy-sesion:hover, .hoy-sesion:focus-visible { background:#faf7f0; outline:none; }
     .hoy-sesion .debe { color:#c1652f; font-weight:600; font-size:.84rem; }
     .hoy-nota { margin-top:4px; font-family:Georgia, serif; font-style:italic; font-size:.82rem; color:var(--muted); }
+    .cobros { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; margin-bottom:6px; }
+    .cobros div { display:flex; flex-direction:column; }
+    .cobros .debe { color:#c1652f; }
     .subtitulo { margin:14px 0 4px; font-size:.92rem; }
     .semana-fecha { padding:4px 0; font-size:.88rem; cursor:pointer; }
     .semana-fecha:hover { color:var(--green); }
     .tablero { display:grid; grid-template-columns:minmax(0, 1.7fr) minmax(0, 1fr); gap:16px; align-items:start; margin-bottom:16px; }
     .tablero.abajo { grid-template-columns:minmax(0, 1fr) minmax(0, 1.7fr); }
     .tablero > .card { margin-bottom:0; }
-    .lista-larga { max-height:620px; overflow-y:auto; }
+    .lista-larga { max-height:340px; overflow-y:auto; }
     .fichero { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:14px; align-items:start; }
     #buscar-ficha { margin-bottom:12px; }
     .ficha[hidden] { display:none; }
