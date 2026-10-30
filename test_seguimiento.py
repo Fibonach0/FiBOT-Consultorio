@@ -466,6 +466,31 @@ chequear("borra la fecha propia", not any(f["id"] == primera for f in TABLAS["pa
 client.post(f"/agenda/paciente/persona/{TABLAS['paciente_personas'][0]['id']}/borrar")
 chequear("borra la persona propia", TABLAS["paciente_personas"] == [])
 
+print("Hoy")
+reset()
+zona = app.ZoneInfo(TZ)
+local = ahora.astimezone(zona).replace(hour=12, minute=0)
+TABLAS["turnos"].append(turno("de-hoy", "t1", local.astimezone(timezone.utc), estado="reservado",
+                              paciente_nombre="Hoya", paciente_telefono="5491100000005"))
+TABLAS["turnos"].append(turno("libre-hoy", "t1", (local + timedelta(hours=2)).astimezone(timezone.utc)))
+TABLAS["pacientes"].append({"tenant_id": "t1", "paciente_telefono": "5491100000005", "fecha_nacimiento": None,
+                            "notas": "Retomar lo de la mudanza"})
+hoy_local = ahora.astimezone(zona).date()
+cerca, lejos = hoy_local + timedelta(days=3), hoy_local + timedelta(days=40)
+TABLAS["paciente_fechas"] += [
+    {"id": "c", "tenant_id": "t1", "paciente_telefono": "5491100000005", "titulo": "Fecha cerca", "dia": cerca.day,
+     "mes": cerca.month, "anio": None, "animo": "mal"},
+    {"id": "l", "tenant_id": "t1", "paciente_telefono": "5491100000005", "titulo": "Fecha lejos", "dia": lejos.day,
+     "mes": lejos.month, "anio": None, "animo": None}]
+fichas = app._fichas(TENANT, zona, ahora.astimezone(zona))
+filas = app._hoy(TENANT, fichas, zona, ahora.astimezone(zona))
+fila_hoy = next(f for f in filas if f["ficha"]["nombre"] == "Hoya")
+chequear("no cuenta horarios libres", all(f["ficha"] for f in filas) and sum(f["ficha"]["nombre"] == "Hoya" for f in filas) == 1)
+chequear("sólo las fechas cercanas", [c["titulo"] for c in fila_hoy["fechas"]] == ["Fecha cerca"])
+html = client.get("/agenda").data.decode()
+chequear("el panel abre la ficha desde Hoy", "Retomar lo de la mudanza" in html and f'data-ficha="{fila_hoy["ficha"]["dom"]}"' in html
+         and f'id="{fila_hoy["ficha"]["dom"]}"' in html)
+
 print("Calendario")
 reset()
 html = client.get("/agenda").data.decode()

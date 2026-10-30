@@ -234,6 +234,9 @@ def _edad(nacimiento: str | None, hoy: date) -> int | None:
     return hoy.year - n.year - ((hoy.month, hoy.day) < (n.month, n.day))
 
 
+DIAS_FECHA_CERCA = 14
+
+
 def _proxima_vez(mes: int, dia: int, hoy: date) -> date:
     """Próxima vez que cae esta fecha, hoy incluido. Un 29/2 se festeja el 28
     en los años que no son bisiestos."""
@@ -320,7 +323,25 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "historial": pasadas[:-11:-1],
             }
         )
-    return sorted(lista, key=lambda f: f["nombre"].casefold())
+    lista.sort(key=lambda f: f["nombre"].casefold())
+    for i, f in enumerate(lista, start=1):
+        f["dom"] = f"ficha-{i}"
+    return lista
+
+
+def _hoy(tenant: dict, fichas: list[dict], tz: ZoneInfo, ahora: datetime) -> list[dict]:
+    """Lo que el profesional quiere repasar antes de cada sesión del día."""
+    inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+    utc = ZoneInfo("UTC")
+    turnos = db.agenda_semana(tenant["id"], inicio.astimezone(utc), (inicio + timedelta(days=1)).astimezone(utc))
+    por_telefono = {f["telefono"]: f for f in fichas}
+    filas = []
+    for t in _con_hora_local([t for t in turnos if t["estado"] == "reservado"], tz):
+        ficha = por_telefono.get(t["paciente_telefono"])
+        if ficha:
+            cerca = [c for c in ficha["fechas"] if c["_dias"] <= DIAS_FECHA_CERCA]
+            filas.append({"hora": t["_hora"], "asistencia": t.get("asistencia"), "ficha": ficha, "fechas": cerca})
+    return filas
 
 
 def _volver_a_agenda():
@@ -349,11 +370,13 @@ def agenda():
     tz = _tz_de(tenant)
     ahora = datetime.now(tz)
     pendientes = _con_hora_local(db.pendientes_de_pago(tenant["id"], ahora.astimezone(ZoneInfo("UTC"))), tz)
+    fichas = _fichas(tenant, tz, ahora)
     comunes = {
         "tenant": tenant,
         "pendientes": pendientes,
         "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
-        "fichas": _fichas(tenant, tz, ahora),
+        "fichas": fichas,
+        "hoy": _hoy(tenant, fichas, tz, ahora),
         "meses": MESES_LABEL,
         "duracion_default": tenant.get("duracion_turno_minutos") or 50,
     }

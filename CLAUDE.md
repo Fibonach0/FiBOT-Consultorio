@@ -197,6 +197,11 @@ teléfono; lo guardado aparte es lo que anota el profesional (`pacientes`,
 un popup (`<dialog>`) con notas, fechas con cuenta regresiva y cómo le pegan,
 personas y mascotas.
 
+### Hoy
+
+`app._hoy` arma, arriba del panel, una tarjeta por sesión del día con deuda,
+fechas de los próximos 14 días y el inicio de las notas. Abre la ficha.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier

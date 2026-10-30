@@ -66,6 +66,11 @@
     .cal-sesion.ok { background:var(--green-bg); color:var(--green); }
     .cal-sesion.alerta { background:#fbeee4; color:#c1652f; }
     .cal-libres { font-size:.7rem; color:var(--muted); }
+    .hoy-grilla { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px; }
+    .hoy-sesion { padding:10px 12px; border:1px solid var(--rule); border-left:3px solid var(--green); border-radius:6px; font-size:.88rem; cursor:pointer; }
+    .hoy-sesion:hover, .hoy-sesion:focus-visible { background:#faf7f0; outline:none; }
+    .hoy-sesion .debe { color:#c1652f; font-weight:600; font-size:.84rem; }
+    .hoy-nota { margin-top:4px; font-family:Georgia, serif; font-style:italic; font-size:.82rem; color:var(--muted); }
     .tablero { display:grid; grid-template-columns:minmax(0, 1.7fr) minmax(0, 1fr); gap:16px; align-items:start; margin-bottom:16px; }
     .tablero.abajo { grid-template-columns:minmax(0, 1fr) minmax(0, 1.7fr); }
     .tablero .card { margin-bottom:0; }
