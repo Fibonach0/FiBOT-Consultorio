@@ -55,3 +55,8 @@ REPROGRAMADO_TEMPLATE = os.environ.get("REPROGRAMADO_TEMPLATE", "")
 # Resumen diario al profesional, con un parámetro: {{1}} el resumen en una línea.
 # Vacía = texto libre, con la misma limitación de las 24 h.
 AVISO_TEMPLATE = os.environ.get("AVISO_TEMPLATE", "")
+
+# Recordatorio de pago, lo dispara el profesional a mano desde la ficha:
+#   {{1}} nombre del profesional      {{2}} cuánto debe
+# Vacía = texto libre, con la misma limitación de las 24 h.
+RECORDATORIO_PAGO_TEMPLATE = os.environ.get("RECORDATORIO_PAGO_TEMPLATE", "")

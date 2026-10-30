@@ -210,6 +210,12 @@ fechas de los próximos 14 días y el inicio de las notas. Abre la ficha.
 por día con **sólo cuentas**: ningún nombre ni dato de paciente sale por ahí. El
 detalle está en el panel. Se marca antes de enviar, para no mandarlo dos veces.
 
+### Cobros (`migrations/010`)
+
+`app._cobros` resume el mes que se está mirando; «Quién debe» es histórico. El
+recordatorio de pago sale **sólo** cuando el profesional toca el botón de la
+ficha, con el monto calculado en el servidor y una vez por día como máximo.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier

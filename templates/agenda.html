@@ -198,6 +198,23 @@
   </div>
   {% endif %}
 
+  <div>
+  <div class="card">
+    <h3>Cobros de {{ cobros.titulo }}</h3>
+    <div class="cobros">
+      <div><span class="tenue">Cobrado</span><strong>{{ cobros.cobrado|pesos }}</strong></div>
+      <div><span class="tenue">A cobrar</span><strong class="debe">{{ cobros.a_cobrar|pesos }}</strong></div>
+      <div><span class="tenue">Agendado</span><strong>{{ cobros.agendado|pesos }}</strong></div>
+    </div>
+    {% if cobros.sin_valor %}<div class="tenue">{{ cobros.sin_valor }} sesi{{ 'ones' if cobros.sin_valor > 1 else 'ón' }} sin valor cargado.</div>{% endif %}
+    {% if cobros.deudores %}
+    <h4 class="subtitulo">Quién debe</h4>
+    {% for f in cobros.deudores %}
+    <div class="semana-fecha" role="button" tabindex="0" data-ficha="{{ f.dom }}"><strong>{{ f.nombre }}</strong> · {{ f.adeudado|pesos }}</div>
+    {% endfor %}
+    {% endif %}
+  </div>
+
   <div class="card">
     <h3>Pendientes de cobro{% if pendientes %} <span class="contador">{{ pendientes|length }}</span>{% endif %}{% if por_cobrar %} <span class="tenue">· {{ por_cobrar|pesos }}</span>{% endif %}</h3>
     {% if not pendientes %}<div class="tenue">Nada pendiente.</div>{% endif %}
@@ -222,6 +239,7 @@
     </div>
     {% endfor %}
     </div>
+  </div>
   </div>
   </div>
 
@@ -326,6 +344,14 @@
         <dt>Asistió</dt><dd>{{ f.asistio }}{% if f.falto %} · faltó {{ f.falto }}{% endif %}</dd>
         <dt>Debe</dt><dd{% if f.sin_pagar %} class="debe"{% endif %}>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}Nada{% endif %}</dd>
       </dl>
+
+      {% if f.adeudado %}
+      <form method="post" action="{{ url_for('agenda_recordar_pago') }}">
+        {{ ocultos(f.telefono) }}
+        {% if f.recordado_hoy %}<span class="tenue">Ya se le recordó el pago hoy.</span>
+        {% else %}<button class="btn chico secundario" type="submit" onclick="return confirm('¿Mandarle por WhatsApp un recordatorio de {{ f.adeudado|pesos }}?')">Recordar pago por WhatsApp</button>{% endif %}
+      </form>
+      {% endif %}
 
       <form method="post" action="{{ url_for('agenda_paciente') }}">
         {{ ocultos(f.telefono) }}
