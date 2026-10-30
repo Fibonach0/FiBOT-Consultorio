@@ -143,18 +143,146 @@ def turno_reservado_de(tenant_id: str, telefono: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+# Todo lo que describe a la RESERVA (no al horario) se limpia cuando el turno
+# vuelve a 'libre'. Si quedara algo, el próximo paciente que reserve ese
+# horario heredaría el "pagó" o el "ya le mandamos el recordatorio" del
+# anterior.
+_LIBERADO = {
+    "estado": "libre",
+    "paciente_telefono": None,
+    "paciente_nombre": None,
+    "recordatorio_enviado": False,
+    "asistencia": None,
+    "pago": "pendiente",
+    "reprogramado_desde": None,
+}
+
+
 def cancelar_turno(tenant_id: str, turno_id: str) -> None:
     """Libera el slot en vez de borrarlo — así vuelve a aparecer en
     turnos_libres() para que otro paciente lo pueda tomar."""
-    _client.table("turnos").update(
-        {"estado": "libre", "paciente_telefono": None, "paciente_nombre": None}
-    ).eq("tenant_id", tenant_id).eq("id", turno_id).execute()
+    _client.table("turnos").update(_LIBERADO).eq("tenant_id", tenant_id).eq("id", turno_id).execute()
+
+
+ASISTENCIAS = (None, "vino", "no_vino")
+PAGOS = ("pendiente", "pagado", "no_cobra")
+
+
+def marcar_asistencia(tenant_id: str, turno_id: str, asistencia: str | None) -> None:
+    """Sólo sobre turnos reservados: un horario libre no tiene a nadie que
+    pueda haber venido o no."""
+    if asistencia not in ASISTENCIAS:
+        raise ValueError(f"asistencia inválida: {asistencia!r}")
+    _client.table("turnos").update({"asistencia": asistencia}).eq("tenant_id", tenant_id).eq(
+        "id", turno_id
+    ).eq("estado", "reservado").execute()
+
+
+def marcar_pago(tenant_id: str, turno_id: str, pago: str) -> None:
+    if pago not in PAGOS:
+        raise ValueError(f"pago inválido: {pago!r}")
+    _client.table("turnos").update({"pago": pago}).eq("tenant_id", tenant_id).eq(
+        "id", turno_id
+    ).eq("estado", "reservado").execute()
+
+
+def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, duracion_minutos: int) -> str | None:
+    """Pasa la sesión a otro horario. Devuelve None si salió bien, o el motivo
+    por el que no se pudo (para mostrárselo al profesional).
+
+    El orden importa: PRIMERO se toma el horario nuevo (con el mismo UPDATE
+    atómico de reservar_turno, que filtra por estado = 'libre') y RECIÉN
+    DESPUÉS se libera el viejo. Si el nuevo ya estaba ocupado, no se tocó
+    nada y el paciente sigue teniendo su sesión original.
+
+    Si en ese horario no había un turno generado, se crea — el profesional
+    puede pasar una sesión a cualquier hora, no sólo a las que cargó como
+    disponibles. El pago viaja con la sesión (si ya la había pagado, sigue
+    pagada); la asistencia no, porque la sesión nueva todavía no pasó."""
+    original = turno_por_id(tenant_id, turno_id)
+    if not original or original["estado"] != "reservado":
+        return "Esa sesión ya no está reservada."
+    if datetime.fromisoformat(original["inicio"]) == nuevo_inicio:
+        return "Es el mismo horario que ya tenía."
+
+    # Como se puede elegir cualquier hora, el nuevo horario puede pisarse con
+    # otra sesión sin coincidir en `inicio` (15:30 contra una de 15:00 a
+    # 15:50). La sesión que se está moviendo no cuenta: puede correrse 20 min.
+    choque = (
+        _client.table("turnos")
+        .select("id")
+        .eq("tenant_id", tenant_id)
+        .eq("estado", "reservado")
+        .neq("id", turno_id)
+        .lt("inicio", (nuevo_inicio + timedelta(minutes=duracion_minutos)).isoformat())
+        .gt("fin", nuevo_inicio.isoformat())
+        .limit(1)
+        .execute()
+    )
+    if choque.data:
+        return "Ese horario ya está ocupado por otra sesión."
+
+    crear_turnos_libres(tenant_id, [nuevo_inicio], duracion_minutos)
+    res = (
+        _client.table("turnos")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .eq("inicio", nuevo_inicio.isoformat())
+        .limit(1)
+        .execute()
+    )
+    if not res.data:
+        return "No se pudo crear el horario nuevo."
+    destino = res.data[0]
+
+    tomado = (
+        _client.table("turnos")
+        .update(
+            {
+                "estado": "reservado",
+                "paciente_telefono": original["paciente_telefono"],
+                "paciente_nombre": original["paciente_nombre"],
+                "pago": original.get("pago") or "pendiente",
+                "reprogramado_desde": original["inicio"],
+            }
+        )
+        .eq("tenant_id", tenant_id)
+        .eq("id", destino["id"])
+        .eq("estado", "libre")
+        .execute()
+    )
+    if not tomado.data:
+        return "Ese horario ya está ocupado por otra sesión."
+    cancelar_turno(tenant_id, turno_id)
+    return None
+
+
+def pendientes_de_pago(tenant_id: str, hasta: datetime, limite: int = 50) -> list[dict]:
+    """Sesiones reservadas que ya pasaron y siguen sin cobrar, de la más vieja
+    a la más nueva. Incluye a los que no vinieron: si a ese no se le cobra,
+    el profesional lo marca 'no_cobra' y sale de la lista."""
+    res = (
+        _client.table("turnos")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .eq("estado", "reservado")
+        .eq("pago", "pendiente")
+        .lt("inicio", hasta.isoformat())
+        .order("inicio")
+        .limit(limite)
+        .execute()
+    )
+    return res.data
 
 
 def crear_turnos_libres(tenant_id: str, inicios: list[datetime], duracion_minutos: int) -> int:
     """Alta en lote de horarios disponibles. `inicios` ya viene con timezone.
     Usa upsert por (tenant_id, inicio) para que correr esto dos veces con el
-    mismo rango no duplique turnos."""
+    mismo rango no duplique turnos.
+
+    `ignore_duplicates` es lo que hace que sea ON CONFLICT DO NOTHING y no
+    DO UPDATE: sin eso, regenerar una semana que ya tenía sesiones
+    reservadas las pisaba con estado = 'libre'. Devuelve sólo los creados."""
     filas = [
         {
             "tenant_id": tenant_id,
@@ -166,7 +294,11 @@ def crear_turnos_libres(tenant_id: str, inicios: list[datetime], duracion_minuto
     ]
     if not filas:
         return 0
-    res = _client.table("turnos").upsert(filas, on_conflict="tenant_id,inicio").execute()
+    res = (
+        _client.table("turnos")
+        .upsert(filas, on_conflict="tenant_id,inicio", ignore_duplicates=True)
+        .execute()
+    )
     return len(res.data)
 
 

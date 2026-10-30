@@ -22,8 +22,8 @@ Dar de alta un profesional (tenant):
 python scripts/crear_tenant.py
 ```
 
-Aplicar el esquema en Supabase, en orden: `migrations/001_init.sql`,
-`migrations/002_slug.sql`.
+Aplicar el esquema en Supabase, en orden numérico: `migrations/001_init.sql`
+… `migrations/004_seguimiento_sesiones.sql`.
 
 ## Deploy
 

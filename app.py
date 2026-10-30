@@ -130,21 +130,59 @@ def logout():
     return redirect(url_for("login"))
 
 
+def _tz_de(tenant: dict) -> ZoneInfo:
+    return ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+
+
+def _lunes_de(valor: str | None, tz: ZoneInfo) -> datetime:
+    """Lunes 00:00 (hora local) de la semana que contiene `valor` (YYYY-MM-DD),
+    o de la semana actual si no viene o no se entiende."""
+    try:
+        dia = datetime.strptime(valor or "", "%Y-%m-%d").replace(tzinfo=tz)
+    except ValueError:
+        dia = datetime.now(tz)
+    dia = dia.replace(hour=0, minute=0, second=0, microsecond=0)
+    return dia - timedelta(days=dia.weekday())
+
+
+def _volver_a_agenda():
+    """Después de tocar una sesión, volver a la misma semana que se estaba
+    mirando (viene como campo oculto del form). Se reconstruye la URL con
+    url_for en vez de usar el Referer: así nunca redirige afuera del panel."""
+    semana = request.form.get("semana") or ""
+    try:
+        datetime.strptime(semana, "%Y-%m-%d")
+    except ValueError:
+        return redirect(url_for("agenda"))
+    return redirect(url_for("agenda", semana=semana))
+
+
 @app.get("/agenda")
 @login_required
 def agenda():
     tenant = db.get_tenant_by_id(session["tenant_id"])
-    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
-    hoy = datetime.now(tz).replace(hour=0, minute=0, second=0, microsecond=0)
-    desde = hoy
-    hasta = hoy + timedelta(days=14)
+    tz = _tz_de(tenant)
+    ahora = datetime.now(tz)
+    desde = _lunes_de(request.args.get("semana"), tz)
+    hasta = desde + timedelta(days=7)
     turnos = db.agenda_semana(tenant["id"], desde.astimezone(ZoneInfo("UTC")), hasta.astimezone(ZoneInfo("UTC")))
 
     por_dia: dict[str, list[dict]] = {}
+    resumen = {"sesiones": 0, "vino": 0, "no_vino": 0, "pagado": 0}
     for t in turnos:
         inicio_local = datetime.fromisoformat(t["inicio"]).astimezone(tz)
         clave = inicio_local.strftime("%Y-%m-%d")
-        por_dia.setdefault(clave, []).append({**t, "_hora": inicio_local.strftime("%H:%M")})
+        extra = {"_hora": inicio_local.strftime("%H:%M"), "_paso": inicio_local <= ahora}
+        if t.get("reprogramado_desde"):
+            antes = datetime.fromisoformat(t["reprogramado_desde"]).astimezone(tz)
+            extra["_reprogramado_desde"] = f"{DIAS_LABEL[antes.weekday()]} {antes.day}/{antes.month:02d} {antes:%H:%M}"
+        por_dia.setdefault(clave, []).append({**t, **extra})
+        if t["estado"] == "reservado":
+            resumen["sesiones"] += 1
+            if t.get("asistencia") in ("vino", "no_vino"):
+                resumen[t["asistencia"]] += 1
+            if t.get("pago") == "pagado":
+                resumen["pagado"] += 1
 
     dias = []
     cursor = desde
@@ -153,14 +191,26 @@ def agenda():
         dias.append(
             {
                 "fecha": clave,
-                "titulo": f"{DIAS_LABEL[cursor.weekday()]} {cursor.day}",
+                "titulo": f"{DIAS_LABEL[cursor.weekday()]} {cursor.day}/{cursor.month:02d}",
+                "es_hoy": clave == ahora.strftime("%Y-%m-%d"),
                 "turnos": por_dia.get(clave, []),
             }
         )
         cursor += timedelta(days=1)
 
+    pendientes = _con_hora_local(db.pendientes_de_pago(tenant["id"], ahora.astimezone(ZoneInfo("UTC"))), tz)
+
     return render_template(
-        "agenda.html", tenant=tenant, dias=dias, duracion_default=tenant.get("duracion_turno_minutos") or 50
+        "agenda.html",
+        tenant=tenant,
+        dias=dias,
+        resumen=resumen,
+        pendientes=pendientes,
+        semana=desde.strftime("%Y-%m-%d"),
+        semana_titulo=f"{desde.day}/{desde.month:02d} – {(hasta - timedelta(days=1)).day}/{(hasta - timedelta(days=1)).month:02d}",
+        semana_anterior=(desde - timedelta(days=7)).strftime("%Y-%m-%d"),
+        semana_siguiente=hasta.strftime("%Y-%m-%d"),
+        duracion_default=tenant.get("duracion_turno_minutos") or 50,
     )
 
 
@@ -168,7 +218,7 @@ def agenda():
 @login_required
 def agenda_generar():
     tenant = db.get_tenant_by_id(session["tenant_id"])
-    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    tz = _tz_de(tenant)
 
     fecha_desde = datetime.strptime(request.form["fecha_desde"], "%Y-%m-%d").date()
     fecha_hasta = datetime.strptime(request.form["fecha_hasta"], "%Y-%m-%d").date()
@@ -199,7 +249,72 @@ def agenda_cancelar(turno_id):
     # db.cancelar_turno() filtra por tenant_id, así que un tenant nunca puede
     # tocar un turno que no es suyo aunque adivine el id de otro.
     db.cancelar_turno(session["tenant_id"], turno_id)
-    return redirect(url_for("agenda"))
+    return _volver_a_agenda()
+
+
+# Seguimiento de cada sesión: si vino, si pagó, y pasarla a otro horario.
+# Igual que cancelar, todo va por db.* con el tenant_id de la sesión de
+# login — un id de turno ajeno simplemente no matchea ninguna fila.
+
+@app.post("/agenda/asistencia/<turno_id>")
+@login_required
+def agenda_asistencia(turno_id):
+    valor = request.form.get("asistencia") or None
+    if valor not in db.ASISTENCIAS:
+        return "asistencia inválida", 400
+    db.marcar_asistencia(session["tenant_id"], turno_id, valor)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/pago/<turno_id>")
+@login_required
+def agenda_pago(turno_id):
+    valor = request.form.get("pago")
+    if valor not in db.PAGOS:
+        return "pago inválido", 400
+    db.marcar_pago(session["tenant_id"], turno_id, valor)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/reprogramar/<turno_id>")
+@login_required
+def agenda_reprogramar(turno_id):
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    try:
+        fecha = datetime.strptime(request.form.get("fecha") or "", "%Y-%m-%d").date()
+        hora = dtime.fromisoformat(request.form.get("hora") or "")
+    except ValueError:
+        flash("Elegí día y hora para pasar la sesión.")
+        return _volver_a_agenda()
+    nuevo_inicio = datetime.combine(fecha, hora, tzinfo=tz).astimezone(ZoneInfo("UTC"))
+    duracion = tenant.get("duracion_turno_minutos") or 50
+    error = db.reprogramar_turno(tenant["id"], turno_id, nuevo_inicio, duracion)
+    if error:
+        flash(error)
+        return _volver_a_agenda()
+    flash(f"Sesión pasada al {DIAS_LABEL[fecha.weekday()]} {fecha.day}/{fecha.month:02d} a las {hora:%H:%M}.")
+    # Se va a la semana del horario NUEVO: es donde el profesional quiere
+    # ver que quedó bien.
+    return redirect(url_for("agenda", semana=fecha.strftime("%Y-%m-%d")))
+
+
+@app.post("/agenda/agendar/<turno_id>")
+@login_required
+def agenda_agendar(turno_id):
+    """El profesional anota a un paciente en un horario libre — sus pacientes
+    fijos no van a entrar por la página pública a reservar cada semana. Es la
+    misma reserva atómica que usan WhatsApp y la página pública."""
+    nombre = (request.form.get("nombre") or "").strip()
+    # Solo dígitos, mismo motivo que en la página pública: el recordatorio
+    # sale a este número tal cual.
+    telefono = "".join(ch for ch in (request.form.get("telefono") or "") if ch.isdigit())
+    if not nombre or not telefono:
+        flash("Para agendar hacen falta nombre y WhatsApp del paciente.")
+        return _volver_a_agenda()
+    if not db.reservar_turno(session["tenant_id"], turno_id, telefono, nombre):
+        flash("Ese horario ya no está libre.")
+    return _volver_a_agenda()
 
 
 # ---------- página pública de reserva (sin login) ----------

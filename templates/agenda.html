@@ -6,6 +6,125 @@
   <a href="{{ url_for('logout') }}">Salir</a>
 </header>
 <main>
+  {% with mensajes = get_flashed_messages() %}
+    {% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}
+  {% endwith %}
+
+  {% if pendientes %}
+  <div class="card">
+    <h3>Pendientes de cobro <span class="contador">{{ pendientes|length }}</span></h3>
+    {% for t in pendientes %}
+    <div class="turno">
+      <span>
+        <strong>{{ t.paciente_nombre or t.paciente_telefono }}</strong>
+        <span class="tenue">· {{ t._dia }} {{ t._hora }}</span>
+        {% if t.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
+      </span>
+      <span class="acciones">
+        <form method="post" action="{{ url_for('agenda_pago', turno_id=t.id) }}">
+          <input type="hidden" name="semana" value="{{ semana }}">
+          <button class="btn chico" name="pago" value="pagado">Pagó</button>
+          {% if t.asistencia == 'no_vino' %}
+          <button class="btn chico secundario" name="pago" value="no_cobra">No se cobra</button>
+          {% endif %}
+        </form>
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <div class="semana-nav">
+      <a class="btn secundario chico" href="{{ url_for('agenda', semana=semana_anterior) }}">‹</a>
+      <h3>Semana {{ semana_titulo }}</h3>
+      <a class="btn secundario chico" href="{{ url_for('agenda', semana=semana_siguiente) }}">›</a>
+      <a class="tenue" href="{{ url_for('agenda') }}">Hoy</a>
+    </div>
+    <div class="resumen">
+      <span><strong>{{ resumen.sesiones }}</strong> sesiones</span>
+      <span><strong>{{ resumen.vino }}</strong> vinieron</span>
+      <span><strong>{{ resumen.no_vino }}</strong> no vinieron</span>
+      <span><strong>{{ resumen.pagado }}</strong> pagadas</span>
+    </div>
+
+    {% for dia in dias %}
+    <div class="dia{% if dia.es_hoy %} hoy{% endif %}">
+      <strong>{{ dia.titulo }}{% if dia.es_hoy %} · hoy{% endif %}</strong>
+      {% if not dia.turnos %}
+        <div class="tenue">sin horarios cargados</div>
+      {% endif %}
+      {% for t in dia.turnos %}
+      {% if t.estado == 'reservado' %}
+      <div class="sesion">
+        <div class="turno">
+          <span>
+            {{ t._hora }} — <span class="estado-reservado">{{ t.paciente_nombre or t.paciente_telefono }}</span>
+            {% if t._reprogramado_desde %}<span class="chip">pasada del {{ t._reprogramado_desde }}</span>{% endif %}
+            {% if t.asistencia == 'vino' %}<span class="chip chip-ok">vino</span>
+            {% elif t.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
+            {% if t.pago == 'pagado' %}<span class="chip chip-ok">pagó</span>
+            {% elif t.pago == 'no_cobra' %}<span class="chip">no se cobra</span>
+            {% elif t._paso %}<span class="chip chip-alerta">sin pagar</span>{% endif %}
+          </span>
+        </div>
+        <div class="acciones">
+          {% if t._paso %}
+          <form method="post" action="{{ url_for('agenda_asistencia', turno_id=t.id) }}">
+            <input type="hidden" name="semana" value="{{ semana }}">
+            <button class="btn chico {% if t.asistencia != 'vino' %}secundario{% endif %}" name="asistencia" value="{{ '' if t.asistencia == 'vino' else 'vino' }}">Vino</button>
+            <button class="btn chico {% if t.asistencia != 'no_vino' %}secundario{% endif %}" name="asistencia" value="{{ '' if t.asistencia == 'no_vino' else 'no_vino' }}">No vino</button>
+          </form>
+          {% endif %}
+          <form method="post" action="{{ url_for('agenda_pago', turno_id=t.id) }}">
+            <input type="hidden" name="semana" value="{{ semana }}">
+            {% if t.pago == 'pendiente' %}
+            <button class="btn chico secundario" name="pago" value="pagado">Pagó</button>
+            {% else %}
+            <button class="btn chico secundario" name="pago" value="pendiente">Marcar sin pagar</button>
+            {% endif %}
+            {% if t.pago == 'pendiente' and t.asistencia == 'no_vino' %}
+            <button class="btn chico secundario" name="pago" value="no_cobra">No se cobra</button>
+            {% endif %}
+          </form>
+          <details>
+            <summary class="btn chico secundario">Pasar a otro día</summary>
+            <form method="post" action="{{ url_for('agenda_reprogramar', turno_id=t.id) }}" class="fila">
+              <input type="hidden" name="semana" value="{{ semana }}">
+              <div><label>Día</label><input type="date" name="fecha" value="{{ dia.fecha }}" required></div>
+              <div><label>Hora</label><input type="time" name="hora" value="{{ t._hora }}" required></div>
+              <div class="al-pie"><button class="btn chico" type="submit">Pasar</button></div>
+            </form>
+          </details>
+          {% if not t._paso %}
+          <form method="post" action="{{ url_for('agenda_cancelar', turno_id=t.id) }}">
+            <input type="hidden" name="semana" value="{{ semana }}">
+            <button class="btn chico secundario" type="submit" onclick="return confirm('¿Cancelar esta sesión? El horario vuelve a quedar libre.')">Cancelar</button>
+          </form>
+          {% endif %}
+        </div>
+      </div>
+      {% else %}
+      <div class="turno">
+        <span>{{ t._hora }} — <span class="estado-libre">libre</span></span>
+        {% if not t._paso %}
+        <details class="acciones">
+          <summary class="btn chico secundario">Agendar paciente</summary>
+          <form method="post" action="{{ url_for('agenda_agendar', turno_id=t.id) }}" class="fila">
+            <input type="hidden" name="semana" value="{{ semana }}">
+            <div><label>Nombre</label><input type="text" name="nombre" required></div>
+            <div><label>WhatsApp</label><input type="text" name="telefono" placeholder="54 9 11 2345 6789" required></div>
+            <div class="al-pie"><button class="btn chico" type="submit">Agendar</button></div>
+          </form>
+        </details>
+        {% endif %}
+      </div>
+      {% endif %}
+      {% endfor %}
+    </div>
+    {% endfor %}
+  </div>
+
   <div class="card">
     <h3>Generar horarios disponibles</h3>
     <form method="post" action="{{ url_for('agenda_generar') }}">
@@ -43,36 +162,6 @@
         <button class="btn" type="submit">Generar</button>
       </div>
     </form>
-  </div>
-
-  <div class="card">
-    <h3>Próximos 14 días</h3>
-    {% for dia in dias %}
-    <div class="dia">
-      <strong>{{ dia.titulo }}</strong>
-      {% if not dia.turnos %}
-        <div style="color:var(--muted); font-size:.88rem;">sin horarios cargados</div>
-      {% else %}
-        {% for t in dia.turnos %}
-        <div class="turno">
-          <span>
-            {{ t._hora }} —
-            {% if t.estado == 'reservado' %}
-              <span class="estado-reservado">{{ t.paciente_nombre or t.paciente_telefono }}</span>
-            {% else %}
-              <span class="estado-libre">libre</span>
-            {% endif %}
-          </span>
-          {% if t.estado == 'reservado' %}
-          <form method="post" action="{{ url_for('agenda_cancelar', turno_id=t.id) }}" style="margin:0;">
-            <button class="btn secundario" type="submit" onclick="return confirm('¿Cancelar este turno?')">Cancelar</button>
-          </form>
-          {% endif %}
-        </div>
-        {% endfor %}
-      {% endif %}
-    </div>
-    {% endfor %}
   </div>
 </main>
 {% endblock %}
