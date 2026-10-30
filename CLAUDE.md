@@ -143,11 +143,37 @@ Cancelar un turno lo vuelve a poner en `libre` en vez de borrar la fila. Así
 reaparece solo en la próxima consulta de horarios disponibles — no hace falta
 que el profesional regenere nada.
 
+### Seguimiento de sesiones: asistencia, pago, reprogramar (`migrations/004`)
+
+El panel (`/agenda`) muestra una semana por vez (`?semana=YYYY-MM-DD`, con
+‹ ›) y, sobre cada sesión reservada, deja marcar **si vino**, **si pagó** y
+**pasarla a otro día**. Arriba de todo, "Pendientes de cobro": sesiones ya
+pasadas con `pago = 'pendiente'`. También se puede **agendar a un paciente a
+mano** en un horario libre (los pacientes fijos no van a reservar cada semana
+por la página pública) — es el mismo `db.reservar_turno` atómico.
+
+- `asistencia` (NULL / `vino` / `no_vino`), `pago` (`pendiente` / `pagado` /
+  `no_cobra`) y `reprogramado_desde` describen a la **reserva**, no al
+  horario. Cuando un turno vuelve a `libre` se limpian junto con `paciente_*`
+  (`db._LIBERADO`) — si no, el próximo que reserve ese horario heredaría el
+  "pagó" del anterior. `recordatorio_enviado` también se resetea ahí.
+- `db.reprogramar_turno` **toma el horario nuevo primero** (UPDATE filtrado
+  por `estado = 'libre'`) y recién después libera el viejo: si el nuevo
+  estaba ocupado, no se tocó nada. Si a esa hora no había turno generado, lo
+  crea. El pago viaja con la sesión; la asistencia no.
+- `reprogramado_desde` guarda el **horario** viejo, no un id al turno viejo:
+  ese horario queda libre y puede tomarlo otro paciente.
+- `db.crear_turnos_libres` usa `ignore_duplicates=True` (ON CONFLICT DO
+  NOTHING): antes, regenerar una semana con sesiones reservadas las pisaba
+  con `estado = 'libre'`.
+
 ## Lo que NO tiene esta v1 (a propósito)
 
-- **Pagos**: no hay integración con MercadoPago ni nadie. El canon a los
-  profesionales se cobra a mano, fuera del sistema — "como todo se hace a
-  mano, se cobra primero y se arma después".
+- **Cobro integrado**: no hay integración con MercadoPago ni nadie. El panel
+  sólo **registra** si el paciente pagó (lo marca el profesional a mano); el
+  sistema no cobra ni conoce montos todavía. El canon a los profesionales
+  también se cobra a mano, fuera del sistema — "como todo se hace a mano, se
+  cobra primero y se arma después".
 - **Notas clínicas / historia clínica**: fuera de alcance, es una superficie
   de datos sensibles (secreto profesional) que no vale la pena tocar hasta
   no tener validado que el negocio de turnos + recordatorios solo ya sirve.
