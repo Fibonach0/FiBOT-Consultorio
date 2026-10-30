@@ -5,11 +5,12 @@
   <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
   <a href="{{ url_for('logout') }}">Salir</a>
 </header>
-<main>
+<main class="panel">
   {% with mensajes = get_flashed_messages() %}
     {% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}
   {% endwith %}
 
+  <div class="tablero">
   {% if vista == 'mes' %}
   <div class="card">
     <div class="semana-nav">
@@ -151,9 +152,10 @@
   </div>
   {% endif %}
 
-  {% if pendientes %}
   <div class="card">
-    <h3>Pendientes de cobro <span class="contador">{{ pendientes|length }}</span>{% if por_cobrar %} <span class="tenue">· {{ por_cobrar|pesos }}</span>{% endif %}</h3>
+    <h3>Pendientes de cobro{% if pendientes %} <span class="contador">{{ pendientes|length }}</span>{% endif %}{% if por_cobrar %} <span class="tenue">· {{ por_cobrar|pesos }}</span>{% endif %}</h3>
+    {% if not pendientes %}<div class="tenue">Nada pendiente.</div>{% endif %}
+    <div class="lista-larga">
     {% for t in pendientes %}
     <div class="turno">
       <span>
@@ -164,7 +166,7 @@
       <span class="acciones">
         <form method="post" action="{{ url_for('agenda_pago', turno_id=t.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="semana" value="{{ semana }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
           <button class="btn chico" name="pago" value="pagado">Pagó</button>
           {% if t.asistencia == 'no_vino' %}
           <button class="btn chico secundario" name="pago" value="no_cobra">No se cobra</button>
@@ -173,10 +175,11 @@
       </span>
     </div>
     {% endfor %}
+    </div>
   </div>
-  {% endif %}
+  </div>
 
-
+  <div class="tablero abajo">
   <div class="card">
     <h3>Generar horarios disponibles</h3>
     <form method="post" action="{{ url_for('agenda_generar') }}">
@@ -215,6 +218,53 @@
         <button class="btn" type="submit">Generar</button>
       </div>
     </form>
+  </div>
+
+  <div class="card">
+    <h3>Fichas de pacientes <span class="contador">{{ fichas|length }}</span></h3>
+    {% if not fichas %}<div class="tenue">Cuando agendes un paciente, acá aparece su ficha.</div>{% endif %}
+    <div class="fichero">
+      {% for f in fichas %}
+      <article class="ficha">
+        <h4>{{ f.nombre }}</h4>
+        <dl>
+          <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
+          <dt>Valor</dt><dd>{{ f.valor|pesos if f.valor is not none else '—' }}</dd>
+          <dt>Edad</dt><dd>{{ f.edad if f.edad is not none else '—' }}</dd>
+          <dt>WhatsApp</dt><dd>{{ f.telefono }}</dd>
+          <dt>Desde</dt><dd>{{ f.desde }}</dd>
+          <dt>Próxima</dt><dd>{{ f.proxima or '—' }}</dd>
+          <dt>Asistió</dt><dd>{{ f.asistio }}{% if f.falto %} · faltó {{ f.falto }}{% endif %}</dd>
+          <dt>Debe</dt><dd{% if f.sin_pagar %} class="debe"{% endif %}>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}Nada{% endif %}</dd>
+        </dl>
+        <details>
+          <summary class="tenue">Historial ▾</summary>
+          {% for h in f.historial %}
+          <div class="ficha-sesion">{{ h._dia }} {{ h._hora }}
+            {% if h.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
+            {% elif h.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
+            {% if h.pago == 'pagado' %}<span class="chip chip-ok">pagó</span>
+            {% elif h.pago == 'pendiente' %}<span class="chip chip-alerta">sin pagar</span>{% endif %}
+          </div>
+          {% else %}
+          <div class="tenue">Todavía no tuvo sesiones.</div>
+          {% endfor %}
+        </details>
+        <details>
+          <summary class="tenue">Editar ▾</summary>
+          <form method="post" action="{{ url_for('agenda_paciente') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+            <input type="hidden" name="telefono" value="{{ f.telefono }}">
+            <label>Fecha de nacimiento</label>
+            <input type="date" name="fecha_nacimiento" value="{{ f.fecha_nacimiento or '' }}">
+            <button class="btn chico" type="submit">Guardar</button>
+          </form>
+        </details>
+      </article>
+      {% endfor %}
+    </div>
+  </div>
   </div>
 </main>
 {% endblock %}

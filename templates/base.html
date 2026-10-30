@@ -11,6 +11,7 @@
     header { background: var(--green); color: #fff; padding: 14px 20px; display:flex; justify-content:space-between; align-items:center; }
     header a { color:#fff; text-decoration:none; font-weight:600; }
     main { max-width: 880px; margin: 0 auto; padding: 20px; }
+    main.panel { max-width:1600px; }
     .card { background:#fff; border:1px solid var(--rule); border-radius:10px; padding:16px 18px; margin-bottom:16px; }
     h1,h2,h3 { margin-top:0; }
     label { display:block; font-size: .85rem; color: var(--muted); margin-top:10px; margin-bottom:4px; }
@@ -65,6 +66,25 @@
     .cal-sesion.ok { background:var(--green-bg); color:var(--green); }
     .cal-sesion.alerta { background:#fbeee4; color:#c1652f; }
     .cal-libres { font-size:.7rem; color:var(--muted); }
+    .tablero { display:grid; grid-template-columns:minmax(0, 1.7fr) minmax(0, 1fr); gap:16px; align-items:start; margin-bottom:16px; }
+    .tablero.abajo { grid-template-columns:minmax(0, 1fr) minmax(0, 1.7fr); }
+    .tablero .card { margin-bottom:0; }
+    .lista-larga { max-height:620px; overflow-y:auto; }
+    .fichero { display:grid; grid-template-columns:repeat(auto-fill, minmax(230px, 1fr)); gap:14px; align-items:start; }
+    .ficha { aspect-ratio:148 / 210; padding:14px 14px 12px; background:#fffdf5; border:1px solid var(--rule); border-radius:3px; box-shadow:1px 2px 4px rgba(60, 50, 30, .16); font-size:.8rem; }
+    .ficha h4 { margin:0 0 8px; padding-bottom:6px; font-family:Georgia, serif; font-size:1.1rem; border-bottom:3px double #b5533c; }
+    .ficha dl { display:grid; grid-template-columns:auto 1fr; gap:0 8px; margin:0 0 8px; }
+    .ficha dt, .ficha dd { margin:0; padding:4px 0; border-bottom:1px dotted var(--rule); }
+    .ficha dt { color:var(--muted); }
+    .ficha dd { font-family:"Courier New", monospace; font-size:.76rem; text-align:right; overflow-wrap:anywhere; }
+    .ficha dd.debe { color:#c1652f; font-weight:700; }
+    .ficha details { margin-top:4px; }
+    .ficha summary { cursor:pointer; font-size:.78rem; }
+    .ficha form .btn { margin-top:6px; }
+    .ficha-sesion { padding:3px 0; font-size:.74rem; border-bottom:1px dotted var(--rule); }
+    @media (max-width: 1000px) {
+      .tablero, .tablero.abajo { grid-template-columns:minmax(0, 1fr); }
+    }
     @media (max-width: 640px) {
       .cal-dia { min-height:64px; padding:2px; }
       .cal-sesion { font-size:.62rem; padding:0 2px; }
