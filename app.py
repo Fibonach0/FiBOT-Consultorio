@@ -20,7 +20,7 @@ from flask import Flask, flash, jsonify, redirect, render_template, request, ses
 import config
 import conversation
 import db
-from fechas import proxima_vez, sesiones_que_quedan
+from fechas import alerta_de_seguimiento, proxima_vez, sesiones_que_quedan
 import scheduler
 import whatsapp
 
@@ -310,6 +310,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "adeudado": sum(t.get("valor") or 0 for t in sin_pagar),
                 "historial": pasadas[:-11:-1],
                 "quedan": sesiones_que_quedan(sesiones, ahora),
+                "alerta": alerta_de_seguimiento(sesiones, ahora),
                 "sesiones": sesiones,
                 "recordado_hoy": datos.get(telefono, {}).get("ultimo_recordatorio_pago") == hoy.isoformat(),
             }

@@ -602,6 +602,18 @@ chequear("no lo manda dos veces el mismo día", len(enviados) == 1 and "ya se le
 html = client.post("/agenda/paciente/recordar-pago", data={"telefono": "ajeno"}, follow_redirects=True).data.decode()
 chequear("sin deuda no manda nada", len(enviados) == 1 and "no tiene deuda" in html)
 
+print("Para mirar")
+a = lambda dias, **k: turno(f"a{dias}", "t1", ahora - timedelta(days=dias), **k)
+chequear("dos faltas seguidas", app.alerta_de_seguimiento([a(14, asistencia="no_vino"), a(7, asistencia="no_vino")], ahora) == "faltó 2 veces seguidas")
+chequear("una falta suelta no", app.alerta_de_seguimiento([a(14, asistencia="no_vino"), a(7, asistencia="vino")], ahora) is None)
+chequear("un mes sin venir ni turno", "45 días" in (app.alerta_de_seguimiento([a(45)], ahora) or ""))
+chequear("con turno agendado no molesta", app.alerta_de_seguimiento([a(45), turno("f", "t1", manana)], ahora) is None)
+chequear("el que se fue hace meses no aparece", app.alerta_de_seguimiento([a(200)], ahora) is None)
+reset()
+TABLAS["turnos"].append(turno("lejos", "t1", ahora - timedelta(days=45), estado="reservado", paciente_nombre="Lejana",
+                              paciente_telefono="5491100000020"))
+chequear("el panel lo muestra", "Para mirar" in client.get("/agenda").data.decode())
+
 print("Calendario")
 reset()
 html = client.get("/agenda").data.decode()
