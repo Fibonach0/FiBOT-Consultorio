@@ -39,6 +39,21 @@
     </div>
     {% endfor %}
     {% endif %}
+    {% set por_renovar = fichas|rejectattr('quedan', 'none')|list %}
+    {% if por_renovar %}
+    <h4 class="subtitulo">Por renovar</h4>
+    {% for f in por_renovar %}
+    <div class="turno">
+      <span><strong>{{ f.nombre }}</strong> <span class="tenue">· {{ f.frecuencia }} · {% if f.quedan == 0 %}no le quedan sesiones{% elif f.quedan == 1 %}le queda 1 sesión{% else %}le quedan {{ f.quedan }} sesiones{% endif %}</span></span>
+      <form method="post" action="{{ url_for('agenda_renovar') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <input type="hidden" name="telefono" value="{{ f.telefono }}">
+        <button class="btn chico" type="submit">Renovar 8 sesiones</button>
+      </form>
+    </div>
+    {% endfor %}
+    {% endif %}
   </div>
 
   <div class="tablero">

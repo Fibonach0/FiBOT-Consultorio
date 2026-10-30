@@ -528,9 +528,43 @@ TABLAS["tenants"][0].update(ultimo_aviso=None)
 TABLAS["paciente_fechas"].clear()
 scheduler._resumen_diario(t, zona)
 chequear("sin nada que contar no manda", len(enviados) == 1)
+TABLAS["tenants"][0].update(ultimo_aviso=None)
+TABLAS["turnos"].append(turno("serie", "t1", manana, estado="reservado", paciente_nombre="Serie Nombre",
+                              paciente_telefono="5491100000008", frecuencia="semanal"))
+scheduler._resumen_diario(t, zona)
+chequear("cuenta los que hay que renovar", "1 paciente por renovar" in enviados[-1][2] and "Serie Nombre" not in enviados[-1][2], enviados)
 client.post("/agenda/avisos", data={"telefono": ""})
 chequear("se puede apagar", TABLAS["tenants"][0]["aviso_telefono"] is None)
 scheduler.datetime = app.datetime
+
+print("Renovar pacientes fijos")
+reset()
+semana = timedelta(days=7)
+for i in range(-3, 2):
+    TABLAS["turnos"].append(turno(f"fijo{i}", "t1", manana + semana * i, estado="reservado", paciente_nombre="Fija",
+                                  paciente_telefono="5491100000006", frecuencia="semanal", valor=30000))
+fijas = [f for f in TABLAS["turnos"] if f["paciente_nombre"] == "Fija"]
+chequear("avisa cuando quedan 2", app.sesiones_que_quedan(fijas, ahora) == 2)
+chequear("con varias todavía no", app.sesiones_que_quedan(fijas + [turno("m", "t1", manana + semana * 5, frecuencia="semanal")], ahora) is None)
+chequear("una suelta no se renueva", app.sesiones_que_quedan([turno("s", "t1", manana)], ahora) is None)
+chequear("el que se fue hace rato no molesta",
+         app.sesiones_que_quedan([turno("v", "t1", ahora - timedelta(days=60), frecuencia="semanal")], ahora) is None)
+chequear("si se le acabó hace poco, sí", app.sesiones_que_quedan([turno("v", "t1", ayer, frecuencia="semanal")], ahora) == 0)
+html = client.get("/agenda").data.decode()
+chequear("el panel lo muestra", "Por renovar" in html and "le quedan 2 sesiones" in html)
+html = client.post("/agenda/paciente/renovar", data={"telefono": "5491100000006"}, follow_redirects=True).data.decode()
+nuevas = sorted(_norm(f["inicio"]) for f in TABLAS["turnos"] if f["paciente_nombre"] == "Fija")
+chequear("renueva 8 más, cada 7 días", len(nuevas) == 13 and nuevas[-1] - nuevas[4] == semana * 8, len(nuevas))
+chequear("con el mismo valor", all(f["valor"] == 30000 for f in TABLAS["turnos"] if f["paciente_nombre"] == "Fija"))
+chequear("avisa cuántas", "Se renovaron 8 sesiones" in html)
+reset()
+TABLAS["turnos"].append(turno("cortada", "t1", ahora - timedelta(days=10), estado="reservado", paciente_nombre="Corta",
+                              paciente_telefono="5491100000007", frecuencia="semanal"))
+client.post("/agenda/paciente/renovar", data={"telefono": "5491100000007"})
+cortas = sorted(_norm(f["inicio"]) for f in TABLAS["turnos"] if f["paciente_nombre"] == "Corta")
+chequear("si estaba cortada retoma en el futuro", cortas[1] > ahora and cortas[1] - ahora <= semana)
+html = client.post("/agenda/paciente/renovar", data={"telefono": "5491100000001"}, follow_redirects=True).data.decode()
+chequear("sin frecuencia avisa", "no tiene una frecuencia fija" in html)
 
 print("Calendario")
 reset()

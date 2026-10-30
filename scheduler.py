@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 
 import config
 import db
-from fechas import proxima_vez
+from fechas import proxima_vez, sesiones_que_quedan
 import whatsapp
 
 logger = logging.getLogger("scheduler")
@@ -32,7 +32,15 @@ def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
         (proxima_vez(f["mes"], f["dia"], hoy) - hoy).days <= DIAS_AVISO
         for f in db.fechas_de_pacientes(tenant["id"])
     )
-    return [f"{fechas} fecha{'s' if fechas > 1 else ''} importante{'s' if fechas > 1 else ''} en la semana"] if fechas else []
+    partes = [f"{fechas} fecha{'s' if fechas > 1 else ''} importante{'s' if fechas > 1 else ''} en la semana"] if fechas else []
+    por_paciente: dict[str, list[dict]] = {}
+    for t in db.sesiones_reservadas(tenant["id"]):
+        por_paciente.setdefault(t["paciente_telefono"], []).append(t)
+    ahora = datetime.now(timezone.utc)
+    renovar = sum(sesiones_que_quedan(s, ahora) is not None for s in por_paciente.values())
+    if renovar:
+        partes.append(f"{renovar} paciente{'s' if renovar > 1 else ''} por renovar")
+    return partes
 
 
 def _resumen_diario(tenant: dict, tz: ZoneInfo) -> None:
