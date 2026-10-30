@@ -60,3 +60,8 @@ AVISO_TEMPLATE = os.environ.get("AVISO_TEMPLATE", "")
 #   {{1}} nombre del profesional      {{2}} cuánto debe
 # Vacía = texto libre, con la misma limitación de las 24 h.
 RECORDATORIO_PAGO_TEMPLATE = os.environ.get("RECORDATORIO_PAGO_TEMPLATE", "")
+
+# Ofrecer un horario a alguien de la lista de espera:
+#   {{1}} nombre del profesional      {{2}} cuándo es      {{3}} link para reservar
+# Vacía = texto libre, con la misma limitación de las 24 h.
+LISTA_ESPERA_TEMPLATE = os.environ.get("LISTA_ESPERA_TEMPLATE", "")

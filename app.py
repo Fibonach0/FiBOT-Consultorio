@@ -397,6 +397,8 @@ def agenda():
         "pendientes": pendientes,
         "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
         "fichas": fichas,
+        "espera": db.lista_de_espera(tenant["id"]),
+        "hoy_iso": ahora.date().isoformat(),
         "hoy": _hoy(tenant, fichas, tz, ahora),
         "fechas_semana": _fechas_semana(fichas),
         "cobros": _cobros(fichas, _mes_de(request.args.get("mes") or request.args.get("semana", "")[:7], ahora.date()), tz, ahora),
@@ -505,6 +507,9 @@ def agenda_cancelar(turno_id):
     # db.cancelar_turno() filtra por tenant_id, así que un tenant nunca puede
     # tocar un turno que no es suyo aunque adivine el id de otro.
     db.cancelar_turno(session["tenant_id"], turno_id)
+    esperando = len(db.lista_de_espera(session["tenant_id"]))
+    if esperando:
+        flash(f"Se liberó el horario. Tenés {esperando} en lista de espera.")
     return _volver_a_agenda()
 
 
@@ -595,6 +600,64 @@ def _valor_del_form() -> int | None:
 def agenda_valor(turno_id):
     db.marcar_valor(session["tenant_id"], turno_id, _valor_del_form())
     return _volver_a_agenda()
+
+
+@app.post("/agenda/espera")
+@login_required
+def agenda_espera():
+    nombre = (request.form.get("nombre") or "").strip()
+    telefono = "".join(ch for ch in (request.form.get("telefono") or "") if ch.isdigit())
+    if not nombre or not telefono:
+        flash("Para la lista de espera hacen falta nombre y WhatsApp.")
+        return _volver_a_agenda()
+    db.agregar_a_espera(session["tenant_id"], nombre, telefono, (request.form.get("preferencia") or "").strip() or None)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/espera/<espera_id>/quitar")
+@login_required
+def agenda_espera_quitar(espera_id):
+    db.quitar_de_espera(session["tenant_id"], espera_id)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/espera/<espera_id>/ofrecer")
+@login_required
+def agenda_espera_ofrecer(espera_id):
+    """Le ofrece el próximo horario libre. Lo dispara el profesional: él sabe
+    a quién le conviene ese horario, y no se manda solo a toda la lista."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    hoy = datetime.now(tz).date().isoformat()
+    persona = next((p for p in db.lista_de_espera(tenant["id"]) if p["id"] == espera_id), None)
+    libres = db.turnos_libres(tenant["id"], datetime.now(ZoneInfo("UTC")), limite=1)
+    if not persona:
+        flash("Esa persona ya no está en la lista.")
+    elif persona.get("ofrecido_en") == hoy:
+        flash(f"A {persona['nombre']} ya se le ofreció un horario hoy.")
+    elif not libres:
+        flash("No hay ningún horario libre para ofrecer.")
+    elif not tenant.get("slug"):
+        flash("Falta la página pública de reservas para mandarle el link.")
+    else:
+        db.marcar_ofrecido(tenant["id"], espera_id, hoy)
+        cuando = scheduler._fmt(libres[0]["inicio"], tz)
+        link = url_for("publico", slug=tenant["slug"], _external=True, _scheme="https")
+        if _ofrecer_horario(tenant, persona["telefono"], cuando, link):
+            flash(f"Le ofrecimos a {persona['nombre']} el {cuando}.")
+        else:
+            flash(f"No se pudo escribirle a {persona['nombre']}.")
+    return _volver_a_agenda()
+
+
+def _ofrecer_horario(tenant: dict, telefono: str, cuando: str, link: str) -> bool:
+    numero = whatsapp.numero_de(tenant)
+    if not numero:
+        return False
+    if config.LISTA_ESPERA_TEMPLATE:
+        return whatsapp.enviar_plantilla(numero, telefono, config.LISTA_ESPERA_TEMPLATE,
+                                         config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], cuando, link])
+    return whatsapp.enviar_texto(numero, telefono, f"Hola. Se liberó un horario con *{tenant['nombre']}*: {cuando}. Si lo querés, reservalo acá: {link}")
 
 
 @app.post("/agenda/avisos")

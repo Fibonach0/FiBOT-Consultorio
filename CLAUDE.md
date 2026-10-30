@@ -216,6 +216,12 @@ detalle está en el panel. Se marca antes de enviar, para no mandarlo dos veces.
 recordatorio de pago sale **sólo** cuando el profesional toca el botón de la
 ficha, con el monto calculado en el servidor y una vez por día como máximo.
 
+### Lista de espera (`migrations/011`)
+
+Al cancelar desde el panel se avisa si hay gente esperando. Ofrecer el próximo
+horario libre es manual, persona por persona, y manda el link de la página
+pública: quien está en la lista quizá nunca tuvo turno y el bot no lo reconoce.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier
