@@ -77,6 +77,14 @@ class _Query:
         self.filtros.append(lambda f: _norm(f.get(c)) == _norm(v))
         return self
 
+    def neq(self, c, v):
+        self.filtros.append(lambda f: _norm(f.get(c)) != _norm(v))
+        return self
+
+    def gt(self, c, v):
+        self.filtros.append(lambda f: f.get(c) is not None and _norm(f[c]) > _norm(v))
+        return self
+
     def lt(self, c, v):
         self.filtros.append(lambda f: f.get(c) is not None and _norm(f[c]) < _norm(v))
         return self
@@ -229,6 +237,20 @@ chequear("la sesión original sigue intacta",
 chequear("la otra sesión sigue intacta", fila("futuro")["paciente_nombre"] == "Ana")
 err = db.reprogramar_turno("t2", "pasado", manana + timedelta(days=3), 50)
 chequear("no se puede reprogramar un turno de otro tenant", err is not None and fila("pasado")["estado"] == "reservado")
+
+print("Reprogramar a una hora que se pisa con otra sesión")
+reset()
+cantidad = len(TABLAS["turnos"])
+err = db.reprogramar_turno("t1", "pasado", manana + timedelta(minutes=20), 50)
+chequear("se rechaza aunque no coincida el inicio", err is not None and "ocupado" in err, err)
+chequear("no deja un horario suelto creado", len(TABLAS["turnos"]) == cantidad)
+chequear("la sesión original sigue intacta", fila("pasado")["paciente_nombre"] == "Juan")
+reset()
+err = db.reprogramar_turno("t1", "futuro", manana + timedelta(minutes=20), 50)
+chequear("correr una sesión no choca consigo misma", err is None, err)
+reset()
+err = db.reprogramar_turno("t1", "pasado", manana + timedelta(minutes=50), 50)
+chequear("pegada a otra sesión se permite", err is None, err)
 
 print("Generar horarios no pisa reservas")
 reset()

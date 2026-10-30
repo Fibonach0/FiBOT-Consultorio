@@ -160,7 +160,8 @@ por la página pública) — es el mismo `db.reservar_turno` atómico.
 - `db.reprogramar_turno` **toma el horario nuevo primero** (UPDATE filtrado
   por `estado = 'libre'`) y recién después libera el viejo: si el nuevo
   estaba ocupado, no se tocó nada. Si a esa hora no había turno generado, lo
-  crea. El pago viaja con la sesión; la asistencia no.
+  crea. El pago viaja con la sesión; la asistencia no. Se rechaza si se pisa
+  con otra sesión reservada, aunque no coincida el `inicio`.
 - `reprogramado_desde` guarda el **horario** viejo, no un id al turno viejo:
   ese horario queda libre y puede tomarlo otro paciente.
 - `db.crear_turnos_libres` usa `ignore_duplicates=True` (ON CONFLICT DO

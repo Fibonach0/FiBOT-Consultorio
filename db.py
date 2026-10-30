@@ -205,6 +205,23 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
     if datetime.fromisoformat(original["inicio"]) == nuevo_inicio:
         return "Es el mismo horario que ya tenía."
 
+    # Como se puede elegir cualquier hora, el nuevo horario puede pisarse con
+    # otra sesión sin coincidir en `inicio` (15:30 contra una de 15:00 a
+    # 15:50). La sesión que se está moviendo no cuenta: puede correrse 20 min.
+    choque = (
+        _client.table("turnos")
+        .select("id")
+        .eq("tenant_id", tenant_id)
+        .eq("estado", "reservado")
+        .neq("id", turno_id)
+        .lt("inicio", (nuevo_inicio + timedelta(minutes=duracion_minutos)).isoformat())
+        .gt("fin", nuevo_inicio.isoformat())
+        .limit(1)
+        .execute()
+    )
+    if choque.data:
+        return "Ese horario ya está ocupado por otra sesión."
+
     crear_turnos_libres(tenant_id, [nuevo_inicio], duracion_minutos)
     res = (
         _client.table("turnos")
