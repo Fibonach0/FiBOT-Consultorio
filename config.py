@@ -51,3 +51,7 @@ RECORDATORIO_TEMPLATE_LANG = os.environ.get("RECORDATORIO_TEMPLATE_LANG", "es_AR
 # parámetros: {{1}} nombre del profesional   {{2}} cuándo es el nuevo horario.
 # Vacía = texto libre, con la misma limitación de las 24 h.
 REPROGRAMADO_TEMPLATE = os.environ.get("REPROGRAMADO_TEMPLATE", "")
+
+# Resumen diario al profesional, con un parámetro: {{1}} el resumen en una línea.
+# Vacía = texto libre, con la misma limitación de las 24 h.
+AVISO_TEMPLATE = os.environ.get("AVISO_TEMPLATE", "")

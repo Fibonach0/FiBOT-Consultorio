@@ -20,6 +20,7 @@ from flask import Flask, flash, jsonify, redirect, render_template, request, ses
 import config
 import conversation
 import db
+from fechas import proxima_vez
 import scheduler
 import whatsapp
 
@@ -237,19 +238,6 @@ def _edad(nacimiento: str | None, hoy: date) -> int | None:
 DIAS_FECHA_CERCA = 14
 
 
-def _proxima_vez(mes: int, dia: int, hoy: date) -> date:
-    """Próxima vez que cae esta fecha, hoy incluido. Un 29/2 se festeja el 28
-    en los años que no son bisiestos."""
-    for anio in (hoy.year, hoy.year + 1):
-        try:
-            cae = date(anio, mes, dia)
-        except ValueError:
-            cae = date(anio, 2, 28)
-        if cae >= hoy:
-            return cae
-    raise AssertionError("una fecha siempre cae dentro del año que viene")
-
-
 def _falta(dias: int) -> str:
     return {0: "hoy", 1: "mañana"}.get(dias, f"en {dias} días")
 
@@ -258,14 +246,14 @@ def _cumpleanios(nacimiento: str | None, hoy: date) -> str | None:
     if not nacimiento:
         return None
     n = date.fromisoformat(nacimiento)
-    cae = _proxima_vez(n.month, n.day, hoy)
+    cae = proxima_vez(n.month, n.day, hoy)
     return f"{cae.year - n.year} años, {_falta((cae - hoy).days)}"
 
 
 def _con_cuenta_regresiva(fechas: list[dict], hoy: date) -> list[dict]:
     resultado = []
     for f in fechas:
-        cae = _proxima_vez(f["mes"], f["dia"], hoy)
+        cae = proxima_vez(f["mes"], f["dia"], hoy)
         resultado.append(
             {
                 **f,
@@ -329,6 +317,11 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     return lista
 
 
+def _fechas_semana(fichas: list[dict]) -> list[dict]:
+    cercanas = [{"ficha": f, "fecha": c} for f in fichas for c in f["fechas"] if c["_dias"] <= scheduler.DIAS_AVISO]
+    return sorted(cercanas, key=lambda x: x["fecha"]["_dias"])
+
+
 def _hoy(tenant: dict, fichas: list[dict], tz: ZoneInfo, ahora: datetime) -> list[dict]:
     """Lo que el profesional quiere repasar antes de cada sesión del día."""
     inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -377,6 +370,7 @@ def agenda():
         "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
         "fichas": fichas,
         "hoy": _hoy(tenant, fichas, tz, ahora),
+        "fechas_semana": _fechas_semana(fichas),
         "meses": MESES_LABEL,
         "duracion_default": tenant.get("duracion_turno_minutos") or 50,
     }
@@ -570,6 +564,15 @@ def _valor_del_form() -> int | None:
 @login_required
 def agenda_valor(turno_id):
     db.marcar_valor(session["tenant_id"], turno_id, _valor_del_form())
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/avisos")
+@login_required
+def agenda_avisos():
+    telefono = "".join(ch for ch in (request.form.get("telefono") or "") if ch.isdigit())
+    db.guardar_aviso_telefono(session["tenant_id"], telefono or None)
+    flash("Listo, te avisamos a ese WhatsApp." if telefono else "Avisos apagados.")
     return _volver_a_agenda()
 
 

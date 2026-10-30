@@ -202,6 +202,12 @@ personas y mascotas.
 `app._hoy` arma, arriba del panel, una tarjeta por sesión del día con deuda,
 fechas de los próximos 14 días y el inicio de las notas. Abre la ficha.
 
+### Resumen diario (`migrations/009`)
+
+`scheduler._resumen_diario` le manda al profesional, desde las 8, un WhatsApp
+por día con **sólo cuentas**: ningún nombre ni dato de paciente sale por ahí. El
+detalle está en el panel. Se marca antes de enviar, para no mandarlo dos veces.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier
