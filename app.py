@@ -11,7 +11,7 @@ import hmac
 import logging
 import os
 import secrets
-from datetime import datetime, timedelta, time as dtime
+from datetime import date, datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 
 import bcrypt
@@ -35,6 +35,8 @@ app.config.update(
 )
 
 DIAS_LABEL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
+MESES_LABEL = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "Agosto",
+               "Septiembre", "Octubre", "Noviembre", "Diciembre"]
 
 
 # ---------- salud ----------
@@ -112,6 +114,7 @@ def _csrf_token() -> str:
 
 
 app.jinja_env.globals["csrf_token"] = _csrf_token
+app.jinja_env.filters["pesos"] = lambda v: f"$ {v:,}".replace(",", ".")
 
 
 @app.before_request
@@ -176,6 +179,54 @@ def _lunes_de(valor: str | None, tz: ZoneInfo) -> datetime:
     return dia - timedelta(days=dia.weekday())
 
 
+def _meses_label(primero: date) -> str:
+    return f"{MESES_LABEL[primero.month - 1]} {primero.year}"
+
+
+def _mes_de(valor: str | None, hoy: date) -> date:
+    """Primer día del mes `valor` (YYYY-MM), o del mes actual si no se entiende."""
+    try:
+        return datetime.strptime(valor or "", "%Y-%m").date()
+    except ValueError:
+        return hoy.replace(day=1)
+
+
+def _calendario(tenant: dict, primero: date, tz: ZoneInfo, ahora: datetime) -> list[list[dict]]:
+    """Las semanas completas (de lunes a domingo) que tocan el mes, con las
+    sesiones de cada día. Trae también los días de los meses vecinos que
+    completan la grilla, igual que Google Calendar."""
+    siguiente = (primero + timedelta(days=32)).replace(day=1)
+    inicio = primero - timedelta(days=primero.weekday())
+    fin = siguiente + timedelta(days=(7 - siguiente.weekday()) % 7)
+    desde = datetime.combine(inicio, dtime.min, tzinfo=tz).astimezone(ZoneInfo("UTC"))
+    hasta = datetime.combine(fin, dtime.min, tzinfo=tz).astimezone(ZoneInfo("UTC"))
+
+    por_dia: dict[date, list[dict]] = {}
+    for t in db.agenda_semana(tenant["id"], desde, hasta):
+        local = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+        por_dia.setdefault(local.date(), []).append({**t, "_hora": local.strftime("%H:%M")})
+
+    semanas = []
+    cursor = inicio
+    while cursor < fin:
+        semana = []
+        for _ in range(7):
+            turnos = por_dia.get(cursor, [])
+            semana.append(
+                {
+                    "fecha": cursor.strftime("%Y-%m-%d"),
+                    "numero": cursor.day,
+                    "es_hoy": cursor == ahora.date(),
+                    "de_otro_mes": cursor.month != primero.month,
+                    "sesiones": [t for t in turnos if t["estado"] == "reservado"],
+                    "libres": sum(t["estado"] == "libre" for t in turnos),
+                }
+            )
+            cursor += timedelta(days=1)
+        semanas.append(semana)
+    return semanas
+
+
 def _volver_a_agenda():
     """Después de tocar una sesión, volver a la misma semana que se estaba
     mirando (viene como campo oculto del form). Se reconstruye la URL con
@@ -201,6 +252,29 @@ def agenda():
     tenant = db.get_tenant_by_id(session["tenant_id"])
     tz = _tz_de(tenant)
     ahora = datetime.now(tz)
+    pendientes = _con_hora_local(db.pendientes_de_pago(tenant["id"], ahora.astimezone(ZoneInfo("UTC"))), tz)
+    comunes = {
+        "tenant": tenant,
+        "pendientes": pendientes,
+        "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
+        "duracion_default": tenant.get("duracion_turno_minutos") or 50,
+    }
+
+    # El calendario es la vista de entrada; la semana (con las acciones de
+    # cada sesión) se abre al tocar un día.
+    if not request.args.get("semana"):
+        primero = _mes_de(request.args.get("mes"), ahora.date())
+        return render_template(
+            "agenda.html",
+            vista="mes",
+            semanas=_calendario(tenant, primero, tz, ahora),
+            mes_titulo=_meses_label(primero),
+            mes_anterior=(primero - timedelta(days=1)).strftime("%Y-%m"),
+            mes_siguiente=(primero + timedelta(days=32)).strftime("%Y-%m"),
+            semana=_lunes_de(None, tz).strftime("%Y-%m-%d"),
+            **comunes,
+        )
+
     desde = _lunes_de(request.args.get("semana"), tz)
     hasta = desde + timedelta(days=7)
     turnos = db.agenda_semana(tenant["id"], desde.astimezone(ZoneInfo("UTC")), hasta.astimezone(ZoneInfo("UTC")))
@@ -239,19 +313,16 @@ def agenda():
         )
         cursor += timedelta(days=1)
 
-    pendientes = _con_hora_local(db.pendientes_de_pago(tenant["id"], ahora.astimezone(ZoneInfo("UTC"))), tz)
-
     return render_template(
         "agenda.html",
-        tenant=tenant,
+        vista="semana",
         dias=dias,
         resumen=resumen,
-        pendientes=pendientes,
         semana=desde.strftime("%Y-%m-%d"),
         semana_titulo=f"{desde.day}/{desde.month:02d} – {(hasta - timedelta(days=1)).day}/{(hasta - timedelta(days=1)).month:02d}",
         semana_anterior=(desde - timedelta(days=7)).strftime("%Y-%m-%d"),
         semana_siguiente=hasta.strftime("%Y-%m-%d"),
-        duracion_default=tenant.get("duracion_turno_minutos") or 50,
+        **comunes,
     )
 
 
@@ -292,6 +363,9 @@ def agenda_cancelar(turno_id):
     db.cancelar_turno(session["tenant_id"], turno_id)
     return _volver_a_agenda()
 
+
+FRECUENCIAS = {"semanal": 7, "quincenal": 14}
+MAX_SESIONES_FIJAS = 26
 
 # Seguimiento de cada sesión: si vino, si pagó, y pasarla a otro horario.
 # Igual que cancelar, todo va por db.* con el tenant_id de la sesión de
@@ -366,6 +440,18 @@ def agenda_reprogramar(turno_id):
     return redirect(url_for("agenda", semana=fecha.strftime("%Y-%m-%d")))
 
 
+def _valor_del_form() -> int | None:
+    digitos = "".join(ch for ch in (request.form.get("valor") or "") if ch.isdigit())
+    return int(digitos) if digitos else None
+
+
+@app.post("/agenda/valor/<turno_id>")
+@login_required
+def agenda_valor(turno_id):
+    db.marcar_valor(session["tenant_id"], turno_id, _valor_del_form())
+    return _volver_a_agenda()
+
+
 @app.post("/agenda/agendar/<turno_id>")
 @login_required
 def agenda_agendar(turno_id):
@@ -379,8 +465,37 @@ def agenda_agendar(turno_id):
     if not nombre or not telefono:
         flash("Para agendar hacen falta nombre y WhatsApp del paciente.")
         return _volver_a_agenda()
-    if not db.reservar_turno(session["tenant_id"], turno_id, telefono, nombre):
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    valor = _valor_del_form()
+    frecuencia = request.form.get("frecuencia") or None
+    if frecuencia not in FRECUENCIAS:
+        frecuencia = None
+    turno = db.turno_por_id(tenant["id"], turno_id)
+    if not turno or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre, valor, frecuencia):
         flash("Ese horario ya no está libre.")
+        return _volver_a_agenda()
+    if not frecuencia:
+        return _volver_a_agenda()
+
+    # Cada sesión es su propia fila: si después una se mueve o se cancela, las
+    # demás no se enteran. Un horario ocupado se saltea y se avisa, para que el
+    # profesional decida qué hacer con esa semana.
+    try:
+        cantidad = min(int(request.form.get("cantidad") or 1), MAX_SESIONES_FIJAS)
+    except ValueError:
+        cantidad = 1
+    tz = _tz_de(tenant)
+    primera = datetime.fromisoformat(turno["inicio"]).astimezone(tz)
+    duracion = int((datetime.fromisoformat(turno["fin"]) - primera).total_seconds() // 60)
+    salteadas = []
+    for i in range(1, cantidad):
+        siguiente = primera + timedelta(days=FRECUENCIAS[frecuencia] * i)
+        if not db.reservar_en_horario(tenant["id"], siguiente.astimezone(ZoneInfo("UTC")), duracion,
+                                      telefono, nombre, valor, frecuencia):
+            salteadas.append(f"{siguiente.day}/{siguiente.month:02d}")
+    flash(f"Se agendaron {cantidad - len(salteadas)} sesiones ({frecuencia}).")
+    if salteadas:
+        flash(f"Quedaron sin agendar por estar ocupadas: {', '.join(salteadas)}.")
     return _volver_a_agenda()
 
 

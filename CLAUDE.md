@@ -176,6 +176,18 @@ por la página pública) — es el mismo `db.reservar_turno` atómico.
   NOTHING): antes, regenerar una semana con sesiones reservadas las pisaba
   con `estado = 'libre'`.
 
+### Calendario, valor de sesión y pacientes fijos (`migrations/006`)
+
+`/agenda` entra por el **mes** (`?mes=YYYY-MM`), tipo Google Calendar; tocar un
+día abre la **semana** (`?semana=...`), que es donde están las acciones de cada
+sesión, en cascada y con Asistió arriba de todo.
+
+- `turnos.valor` (pesos enteros) y `turnos.frecuencia` describen a la reserva:
+  van en `db._LIBERADO` y viajan al reprogramar.
+- **Semanal/quincenal no es una serie**: agendar crea N filas sueltas por
+  adelantado (`MAX_SESIONES_FIJAS`), y cada una se mueve o cancela sola. Las
+  fechas ocupadas se saltean y se avisan. No se renuevan solas.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier
@@ -185,8 +197,8 @@ El webhook (firma de Meta) y la reserva pública (sin sesión) no lo usan.
 ## Lo que NO tiene esta v1 (a propósito)
 
 - **Cobro integrado**: no hay integración con MercadoPago ni nadie. El panel
-  sólo **registra** si el paciente pagó (lo marca el profesional a mano); el
-  sistema no cobra ni conoce montos todavía. El canon a los profesionales
+  sólo **registra** cuánto vale la sesión y si el paciente pagó (lo carga el
+  profesional a mano); el sistema no cobra. El canon a los profesionales
   también se cobra a mano, fuera del sistema — "como todo se hace a mano, se
   cobra primero y se arma después".
 - **Notas clínicas / historia clínica**: fuera de alcance, es una superficie

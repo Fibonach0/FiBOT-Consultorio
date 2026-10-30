@@ -21,6 +21,7 @@ esquema ahí les pega a los dos.
    - `migrations/003_numero_compartido.sql`
    - `migrations/004_seguimiento_sesiones.sql`
    - `migrations/005_horarios_disponibles.sql`
+   - `migrations/006_valor_y_frecuencia.sql`
 3. Anotar de Settings → API: la **URL** y la **service role key**.
 
 > La service role key saltea las políticas de RLS. Es correcto acá —
