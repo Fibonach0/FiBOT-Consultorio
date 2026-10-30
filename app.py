@@ -20,7 +20,7 @@ from flask import Flask, flash, jsonify, redirect, render_template, request, ses
 import config
 import conversation
 import db
-from fechas import proxima_vez
+from fechas import proxima_vez, sesiones_que_quedan
 import scheduler
 import whatsapp
 
@@ -309,6 +309,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "sin_pagar": len(sin_pagar),
                 "adeudado": sum(t.get("valor") or 0 for t in sin_pagar),
                 "historial": pasadas[:-11:-1],
+                "quedan": sesiones_que_quedan(sesiones, ahora),
             }
         )
     lista.sort(key=lambda f: f["nombre"].casefold())
@@ -481,6 +482,7 @@ def agenda_cancelar(turno_id):
 
 FRECUENCIAS = {"semanal": 7, "quincenal": 14}
 MAX_SESIONES_FIJAS = 26
+SESIONES_AL_RENOVAR = 8
 
 # Seguimiento de cada sesión: si vino, si pagó, y pasarla a otro horario.
 # Igual que cancelar, todo va por db.* con el tenant_id de la sesión de
@@ -670,9 +672,6 @@ def agenda_agendar(turno_id):
     if not frecuencia:
         return _volver_a_agenda()
 
-    # Cada sesión es su propia fila: si después una se mueve o se cancela, las
-    # demás no se enteran. Un horario ocupado se saltea y se avisa, para que el
-    # profesional decida qué hacer con esa semana.
     try:
         cantidad = min(int(request.form.get("cantidad") or 1), MAX_SESIONES_FIJAS)
     except ValueError:
@@ -680,13 +679,49 @@ def agenda_agendar(turno_id):
     tz = _tz_de(tenant)
     primera = datetime.fromisoformat(turno["inicio"]).astimezone(tz)
     duracion = int((datetime.fromisoformat(turno["fin"]) - primera).total_seconds() // 60)
+    salteadas = _agendar_serie(tenant, primera, duracion, range(1, cantidad), telefono, nombre, valor, frecuencia)
+    flash(f"Se agendaron {cantidad - len(salteadas)} sesiones ({frecuencia}).")
+    if salteadas:
+        flash(f"Quedaron sin agendar por estar ocupadas: {', '.join(salteadas)}.")
+    return _volver_a_agenda()
+
+
+def _agendar_serie(tenant: dict, base: datetime, duracion: int, pasos: range, telefono: str,
+                   nombre: str, valor: int | None, frecuencia: str) -> list[str]:
+    """Cada sesión es su propia fila: si después una se mueve o se cancela, las
+    demás no se enteran. Un horario ocupado se saltea y se devuelve, para que
+    el profesional decida qué hacer con esa semana."""
     salteadas = []
-    for i in range(1, cantidad):
-        siguiente = primera + timedelta(days=FRECUENCIAS[frecuencia] * i)
+    for i in pasos:
+        siguiente = base + timedelta(days=FRECUENCIAS[frecuencia] * i)
         if not db.reservar_en_horario(tenant["id"], siguiente.astimezone(ZoneInfo("UTC")), duracion,
                                       telefono, nombre, valor, frecuencia):
             salteadas.append(f"{siguiente.day}/{siguiente.month:02d}")
-    flash(f"Se agendaron {cantidad - len(salteadas)} sesiones ({frecuencia}).")
+    return salteadas
+
+
+@app.post("/agenda/paciente/renovar")
+@login_required
+def agenda_renovar():
+    """Sigue la serie desde la última sesión, con el mismo horario y valor. Si
+    ya se cortó hace unas semanas, retoma desde la próxima fecha que le toca."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    telefono = request.form.get("telefono") or ""
+    sesiones = [t for t in db.sesiones_reservadas(tenant["id"]) if t["paciente_telefono"] == telefono]
+    if not sesiones or sesiones[-1].get("frecuencia") not in FRECUENCIAS:
+        flash("Ese paciente no tiene una frecuencia fija.")
+        return _volver_a_agenda()
+    ultima = sesiones[-1]
+    tz = _tz_de(tenant)
+    base = datetime.fromisoformat(ultima["inicio"]).astimezone(tz)
+    duracion = int((datetime.fromisoformat(ultima["fin"]).astimezone(tz) - base).total_seconds() // 60)
+    paso = timedelta(days=FRECUENCIAS[ultima["frecuencia"]])
+    ahora = datetime.now(tz)
+    while base + paso <= ahora:
+        base += paso
+    salteadas = _agendar_serie(tenant, base, duracion, range(1, SESIONES_AL_RENOVAR + 1), telefono,
+                               ultima.get("paciente_nombre"), ultima.get("valor"), ultima["frecuencia"])
+    flash(f"Se renovaron {SESIONES_AL_RENOVAR - len(salteadas)} sesiones de {ultima.get('paciente_nombre') or telefono}.")
     if salteadas:
         flash(f"Quedaron sin agendar por estar ocupadas: {', '.join(salteadas)}.")
     return _volver_a_agenda()

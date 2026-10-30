@@ -186,7 +186,9 @@ sesión, en cascada y con Asistió arriba de todo.
   van en `db._LIBERADO` y viajan al reprogramar.
 - **Semanal/quincenal no es una serie**: agendar crea N filas sueltas por
   adelantado (`MAX_SESIONES_FIJAS`), y cada una se mueve o cancela sola. Las
-  fechas ocupadas se saltean y se avisan. No se renuevan solas.
+  fechas ocupadas se saltean y se avisan. No se renuevan solas: el panel y el
+  resumen diario avisan cuando quedan 2 o menos (`fechas.sesiones_que_quedan`)
+  y se renuevan con un botón.
 
 ### Fichas de pacientes (`migrations/007`)
 
