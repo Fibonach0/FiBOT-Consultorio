@@ -660,6 +660,23 @@ client.post("/agenda/modalidad/pasado", data={"modalidad": "virtual"})
 chequear("se cambia desde la sesión", fila("pasado")["modalidad"] == "virtual")
 chequear("modalidad inválida -> 400", client.post("/agenda/modalidad/pasado", data={"modalidad": "x"}).status_code == 400)
 
+print("Obra social y constancia")
+reset()
+tel = "5491100000002"
+client.post("/agenda/paciente", data={"telefono": tel, "obra_social": "OSDE", "numero_afiliado": "123"})
+fila("futuro").update(valor=1500)
+chequear("guarda la obra social", TABLAS["pacientes"][0]["obra_social"] == "OSDE")
+mes_pago = _norm(fila("futuro")["inicio"]).astimezone(zona).strftime("%Y-%m")
+r = client.post("/agenda/paciente/constancia", data={"telefono": tel, "mes": mes_pago})
+html = r.data.decode()
+chequear("la constancia lista lo pagado", r.status_code == 200 and "OSDE" in html and "$ 1.500" in html and "Ana" in html)
+chequear("no trae notas", TABLAS["pacientes"][0].update(notas="Nota secreta") is None
+         and "Nota secreta" not in client.post("/agenda/paciente/constancia", data={"telefono": tel, "mes": mes_pago}).data.decode())
+html = client.post("/agenda/paciente/constancia", data={"telefono": tel, "mes": "2001-01"}).data.decode()
+chequear("un mes sin pagos lo dice", "No hay sesiones pagas" in html)
+chequear("otro paciente de otro tenant -> 404",
+         client.post("/agenda/paciente/constancia", data={"telefono": "5491100000009", "mes": mes_pago}).status_code == 404)
+
 print("Calendario")
 reset()
 html = client.get("/agenda").data.decode()

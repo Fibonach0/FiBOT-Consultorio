@@ -228,6 +228,12 @@ pública: quien está en la lista quizá nunca tuvo turno y el bot no lo reconoc
 reprogramar y renovar. El link del profesional entra en el parámetro `{{2}}` de
 las plantillas de recordatorio y cambio (`scheduler.cuando_de`).
 
+### Obra social y constancia (`migrations/013`)
+
+La ficha guarda obra social y número de afiliado. La constancia es una página
+imprimible de las sesiones pagas de un mes: **no es factura** y nunca lleva
+notas ni fechas personales. Va por POST para no dejar el teléfono en la URL.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier

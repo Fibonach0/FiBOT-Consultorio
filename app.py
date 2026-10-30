@@ -300,6 +300,8 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "edad": _edad(nacimiento, hoy),
                 "cumpleanios": _cumpleanios(nacimiento, hoy),
                 "notas": datos.get(telefono, {}).get("notas"),
+                "obra_social": datos.get(telefono, {}).get("obra_social"),
+                "numero_afiliado": datos.get(telefono, {}).get("numero_afiliado"),
                 "personas": personas.get(telefono, []),
                 "fechas": _con_cuenta_regresiva(fechas.get(telefono, []), hoy),
                 "desde": datetime.fromisoformat(sesiones[0]["inicio"]).astimezone(tz).strftime("%d/%m/%Y"),
@@ -399,6 +401,7 @@ def agenda():
         "fichas": fichas,
         "espera": db.lista_de_espera(tenant["id"]),
         "hoy_iso": ahora.date().isoformat(),
+        "mes_actual": ahora.strftime("%Y-%m"),
         "hoy": _hoy(tenant, fichas, tz, ahora),
         "fechas_semana": _fechas_semana(fichas),
         "cobros": _cobros(fichas, _mes_de(request.args.get("mes") or request.args.get("semana", "")[:7], ahora.date()), tz, ahora),
@@ -693,10 +696,31 @@ def agenda_paciente():
             flash("La fecha de nacimiento no es válida.")
             return _volver_a_agenda()
     campos = {"fecha_nacimiento": fecha}
-    if "notas" in request.form:
-        campos["notas"] = request.form["notas"].strip() or None
+    for campo in ("notas", "obra_social", "numero_afiliado"):
+        if campo in request.form:
+            campos[campo] = request.form[campo].strip() or None
     db.guardar_paciente(session["tenant_id"], telefono, campos)
     return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/constancia")
+@login_required
+def agenda_constancia():
+    """Por POST para que el teléfono del paciente no quede en la URL."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    ahora = datetime.now(tz)
+    telefono = request.form.get("telefono") or ""
+    ficha = next((f for f in _fichas(tenant, tz, ahora) if f["telefono"] == telefono), None)
+    if not ficha:
+        return "No encontrado.", 404
+    primero = _mes_de(request.form.get("mes"), ahora.date())
+    sesiones = [
+        t for t in ficha["sesiones"]
+        if t.get("pago") == "pagado" and datetime.fromisoformat(t["inicio"]).astimezone(tz).strftime("%Y-%m") == primero.strftime("%Y-%m")
+    ]
+    return render_template("constancia.html", tenant=tenant, ficha=ficha, sesiones=sesiones,
+                           titulo=_meses_label(primero), total=sum(t.get("valor") or 0 for t in sesiones))
 
 
 @app.post("/agenda/paciente/recordar-pago")
