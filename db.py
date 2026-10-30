@@ -130,7 +130,8 @@ def _se_pisa(tenant_id: str, inicio: str, fin: str, excluir_id: str) -> bool:
 
 
 def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | None,
-                   valor: int | None = None, frecuencia: str | None = None) -> bool:
+                   valor: int | None = None, frecuencia: str | None = None,
+                   modalidad: str | None = None) -> bool:
     """Devuelve False si el turno ya no estaba libre (alguien se adelantó) —
     el llamador tiene que chequear esto y avisarle al paciente, nunca asumir
     éxito. También si se pisa con otra sesión: alguien pudo tener abierto ese
@@ -141,7 +142,7 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
     res = (
         _client.table("turnos")
         .update({"estado": "reservado", "paciente_telefono": telefono, "paciente_nombre": nombre,
-                 "valor": valor, "frecuencia": frecuencia})
+                 "valor": valor, "frecuencia": frecuencia, "modalidad": modalidad})
         .eq("tenant_id", tenant_id)
         .eq("id", turno_id)
         .eq("estado", "libre")
@@ -181,6 +182,7 @@ _LIBERADO = {
     "reprogramado_desde": None,
     "valor": None,
     "frecuencia": None,
+    "modalidad": None,
 }
 
 
@@ -218,8 +220,15 @@ def marcar_valor(tenant_id: str, turno_id: str, valor: int | None) -> None:
     ).eq("estado", "reservado").execute()
 
 
+def marcar_modalidad(tenant_id: str, turno_id: str, modalidad: str) -> None:
+    _client.table("turnos").update({"modalidad": modalidad}).eq("tenant_id", tenant_id).eq(
+        "id", turno_id
+    ).eq("estado", "reservado").execute()
+
+
 def reservar_en_horario(tenant_id: str, inicio: datetime, duracion_minutos: int, telefono: str,
-                        nombre: str | None, valor: int | None, frecuencia: str | None) -> bool:
+                        nombre: str | None, valor: int | None, frecuencia: str | None,
+                        modalidad: str | None = None) -> bool:
     """Agenda una sesión a una hora dada, creando el horario si no estaba
     cargado. Es lo que usan los pacientes fijos: la sesión de dentro de dos
     meses seguramente todavía no tiene horario generado. False si está ocupado."""
@@ -234,7 +243,7 @@ def reservar_en_horario(tenant_id: str, inicio: datetime, duracion_minutos: int,
     )
     if not res.data:
         return False
-    return reservar_turno(tenant_id, res.data[0]["id"], telefono, nombre, valor, frecuencia)
+    return reservar_turno(tenant_id, res.data[0]["id"], telefono, nombre, valor, frecuencia, modalidad)
 
 
 def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, duracion_minutos: int) -> str | None:
@@ -286,6 +295,7 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
                 "pago": original.get("pago") or "pendiente",
                 "valor": original.get("valor"),
                 "frecuencia": original.get("frecuencia"),
+                "modalidad": original.get("modalidad"),
                 "reprogramado_desde": original["inicio"],
             }
         )
@@ -465,8 +475,8 @@ def marcar_ofrecido(tenant_id: str, espera_id: str, dia: str) -> None:
     _client.table("lista_espera").update({"ofrecido_en": dia}).eq("tenant_id", tenant_id).eq("id", espera_id).execute()
 
 
-def guardar_aviso_telefono(tenant_id: str, telefono: str | None) -> None:
-    _client.table("tenants").update({"aviso_telefono": telefono}).eq("id", tenant_id).execute()
+def guardar_ajustes(tenant_id: str, campos: dict) -> None:
+    _client.table("tenants").update(campos).eq("id", tenant_id).execute()
 
 
 def marcar_aviso_enviado(tenant_id: str, dia: str) -> None:

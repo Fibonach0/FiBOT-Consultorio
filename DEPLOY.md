@@ -27,6 +27,7 @@ esquema ahí les pega a los dos.
    - `migrations/009_avisos.sql`
    - `migrations/010_recordatorio_pago.sql`
    - `migrations/011_lista_de_espera.sql`
+   - `migrations/012_modalidad.sql`
 3. Anotar de Settings → API: la **URL** y la **service role key**.
 
 > La service role key saltea las políticas de RLS. Es correcto acá —

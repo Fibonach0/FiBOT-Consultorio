@@ -516,6 +516,7 @@ def agenda_cancelar(turno_id):
 FRECUENCIAS = {"semanal": 7, "quincenal": 14}
 MAX_SESIONES_FIJAS = 26
 SESIONES_AL_RENOVAR = 8
+MODALIDADES = ("presencial", "virtual")
 
 # Seguimiento de cada sesión: si vino, si pagó, y pasarla a otro horario.
 # Igual que cancelar, todo va por db.* con el tenant_id de la sesión de
@@ -541,13 +542,14 @@ def agenda_pago(turno_id):
     return _volver_a_agenda()
 
 
-def _avisar_cambio(tenant: dict, telefono: str, nuevo_inicio: datetime, tz: ZoneInfo) -> bool:
+def _avisar_cambio(tenant: dict, turno: dict, nuevo_inicio: datetime, tz: ZoneInfo) -> bool:
     """Avisa al paciente el horario nuevo. Es aparte del recordatorio: si la
     sesión es en dos semanas, sin esto se enteraría recién la noche anterior."""
     numero = whatsapp.numero_de(tenant)
     if not numero:
         return False
-    cuando = scheduler._fmt(nuevo_inicio.isoformat(), tz)
+    telefono = turno["paciente_telefono"]
+    cuando = scheduler.cuando_de({**turno, "inicio": nuevo_inicio.isoformat()}, tenant, tz)
     if config.REPROGRAMADO_TEMPLATE:
         return whatsapp.enviar_plantilla(
             numero, telefono, config.REPROGRAMADO_TEMPLATE,
@@ -580,7 +582,7 @@ def agenda_reprogramar(turno_id):
         return _volver_a_agenda()
     aviso = ""
     if request.form.get("avisar") and nuevo_inicio > datetime.now(ZoneInfo("UTC")):
-        if _avisar_cambio(tenant, original["paciente_telefono"], nuevo_inicio, tz):
+        if _avisar_cambio(tenant, original, nuevo_inicio, tz):
             aviso = " Le avisamos al paciente."
         else:
             aviso = " No se le pudo avisar al paciente: escribile vos."
@@ -663,9 +665,17 @@ def _ofrecer_horario(tenant: dict, telefono: str, cuando: str, link: str) -> boo
 @app.post("/agenda/avisos")
 @login_required
 def agenda_avisos():
-    telefono = "".join(ch for ch in (request.form.get("telefono") or "") if ch.isdigit())
-    db.guardar_aviso_telefono(session["tenant_id"], telefono or None)
-    flash("Listo, te avisamos a ese WhatsApp." if telefono else "Avisos apagados.")
+    campos = {}
+    if "telefono" in request.form:
+        campos["aviso_telefono"] = "".join(ch for ch in request.form["telefono"] if ch.isdigit()) or None
+    if "link_videollamada" in request.form:
+        link = request.form["link_videollamada"].strip()
+        if link and not link.startswith("https://"):
+            flash("El link de videollamada tiene que empezar con https://")
+            return _volver_a_agenda()
+        campos["link_videollamada"] = link or None
+    db.guardar_ajustes(session["tenant_id"], campos)
+    flash("Listo, guardado.")
     return _volver_a_agenda()
 
 
@@ -771,6 +781,16 @@ def agenda_fecha_borrar(fecha_id):
     return _volver_a_agenda()
 
 
+@app.post("/agenda/modalidad/<turno_id>")
+@login_required
+def agenda_modalidad(turno_id):
+    modalidad = request.form.get("modalidad")
+    if modalidad not in MODALIDADES:
+        return "modalidad inválida", 400
+    db.marcar_modalidad(session["tenant_id"], turno_id, modalidad)
+    return _volver_a_agenda()
+
+
 @app.post("/agenda/agendar/<turno_id>")
 @login_required
 def agenda_agendar(turno_id):
@@ -789,8 +809,11 @@ def agenda_agendar(turno_id):
     frecuencia = request.form.get("frecuencia") or None
     if frecuencia not in FRECUENCIAS:
         frecuencia = None
+    modalidad = request.form.get("modalidad")
+    if modalidad not in MODALIDADES:
+        modalidad = None
     turno = db.turno_por_id(tenant["id"], turno_id)
-    if not turno or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre, valor, frecuencia):
+    if not turno or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre, valor, frecuencia, modalidad):
         flash("Ese horario ya no está libre.")
         return _volver_a_agenda()
     if not frecuencia:
@@ -803,7 +826,7 @@ def agenda_agendar(turno_id):
     tz = _tz_de(tenant)
     primera = datetime.fromisoformat(turno["inicio"]).astimezone(tz)
     duracion = int((datetime.fromisoformat(turno["fin"]) - primera).total_seconds() // 60)
-    salteadas = _agendar_serie(tenant, primera, duracion, range(1, cantidad), telefono, nombre, valor, frecuencia)
+    salteadas = _agendar_serie(tenant, primera, duracion, range(1, cantidad), telefono, nombre, valor, frecuencia, modalidad)
     flash(f"Se agendaron {cantidad - len(salteadas)} sesiones ({frecuencia}).")
     if salteadas:
         flash(f"Quedaron sin agendar por estar ocupadas: {', '.join(salteadas)}.")
@@ -811,7 +834,7 @@ def agenda_agendar(turno_id):
 
 
 def _agendar_serie(tenant: dict, base: datetime, duracion: int, pasos: range, telefono: str,
-                   nombre: str, valor: int | None, frecuencia: str) -> list[str]:
+                   nombre: str, valor: int | None, frecuencia: str, modalidad: str | None = None) -> list[str]:
     """Cada sesión es su propia fila: si después una se mueve o se cancela, las
     demás no se enteran. Un horario ocupado se saltea y se devuelve, para que
     el profesional decida qué hacer con esa semana."""
@@ -819,7 +842,7 @@ def _agendar_serie(tenant: dict, base: datetime, duracion: int, pasos: range, te
     for i in pasos:
         siguiente = base + timedelta(days=FRECUENCIAS[frecuencia] * i)
         if not db.reservar_en_horario(tenant["id"], siguiente.astimezone(ZoneInfo("UTC")), duracion,
-                                      telefono, nombre, valor, frecuencia):
+                                      telefono, nombre, valor, frecuencia, modalidad):
             salteadas.append(f"{siguiente.day}/{siguiente.month:02d}")
     return salteadas
 
@@ -844,7 +867,7 @@ def agenda_renovar():
     while base + paso <= ahora:
         base += paso
     salteadas = _agendar_serie(tenant, base, duracion, range(1, SESIONES_AL_RENOVAR + 1), telefono,
-                               ultima.get("paciente_nombre"), ultima.get("valor"), ultima["frecuencia"])
+                               ultima.get("paciente_nombre"), ultima.get("valor"), ultima["frecuencia"], ultima.get("modalidad"))
     flash(f"Se renovaron {SESIONES_AL_RENOVAR - len(salteadas)} sesiones de {ultima.get('paciente_nombre') or telefono}.")
     if salteadas:
         flash(f"Quedaron sin agendar por estar ocupadas: {', '.join(salteadas)}.")

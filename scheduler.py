@@ -25,6 +25,15 @@ def _fmt(dt_iso: str, tz: ZoneInfo) -> str:
     return f"{DIAS[dt.weekday()]} {dt.day} de {MESES[dt.month - 1]}, {dt.hour:02d}:{dt.minute:02d}"
 
 
+def cuando_de(turno: dict, tenant: dict, tz: ZoneInfo) -> str:
+    """Va dentro del parámetro {{2}} de las plantillas ya aprobadas: así las
+    virtuales llevan el link sin tener que aprobar plantillas nuevas."""
+    cuando = _fmt(turno["inicio"], tz)
+    if turno.get("modalidad") == "virtual" and tenant.get("link_videollamada"):
+        return f"{cuando}, por videollamada: {tenant['link_videollamada']}"
+    return cuando
+
+
 def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
     """Sólo cuentas: el detalle queda en el panel. Por WhatsApp no sale ningún
     nombre ni dato de un paciente."""
@@ -85,7 +94,7 @@ def _tick() -> None:
                 "no hay desde dónde mandar el recordatorio", tenant["id"])
             continue
         for turno in pendientes:
-            cuando = _fmt(turno["inicio"], tz)
+            cuando = cuando_de(turno, tenant, tz)
             # El recordatorio siempre cae fuera de la ventana de 24 h de Meta
             # (el paciente reservó por la web y nunca escribió), así que sin
             # plantilla aprobada esto NO llega. Ver config.RECORDATORIO_TEMPLATE.
