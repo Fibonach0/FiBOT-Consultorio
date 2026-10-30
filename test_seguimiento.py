@@ -106,7 +106,12 @@ class _Query:
         return self
 
     def execute(self):
-        filas = TABLAS[self.tabla]
+        filas = TABLAS["turnos"] if self.tabla == "turnos_disponibles" else TABLAS[self.tabla]
+        if self.tabla == "turnos_disponibles":
+            reservados = [r for r in filas if r["estado"] == "reservado"]
+            filas = [t for t in filas if t["estado"] == "libre" and not any(
+                r["tenant_id"] == t["tenant_id"] and _norm(r["inicio"]) < _norm(t["fin"])
+                and _norm(r["fin"]) > _norm(t["inicio"]) for r in reservados)]
         if self.op == "upsert":
             claves = self._on_conflict.split(",")
             creadas = []
@@ -252,6 +257,20 @@ reset()
 err = db.reprogramar_turno("t1", "pasado", manana + timedelta(minutes=50), 50)
 chequear("pegada a otra sesión se permite", err is None, err)
 
+print("Horarios libres que se pisan con una sesión")
+reset()
+libre = manana + timedelta(hours=2)
+db.reprogramar_turno("t1", "pasado", libre + timedelta(minutes=30), 50)
+ids = [t["id"] for t in db.turnos_libres("t1", ahora)]
+chequear("no se ofrece el horario pisado", "libre-manana" not in ids, ids)
+chequear("reservarlo igual se rechaza", db.reservar_turno("t1", "libre-manana", "5491100000003", "Eva") is False)
+chequear("sigue libre", fila("libre-manana")["estado"] == "libre")
+reservada = next(f for f in TABLAS["turnos"] if f["paciente_nombre"] == "Juan")
+db.cancelar_turno("t1", reservada["id"])
+chequear("vuelve a ofrecerse al cancelar la sesión",
+         "libre-manana" in [t["id"] for t in db.turnos_libres("t1", ahora)])
+chequear("y se puede reservar de nuevo", db.reservar_turno("t1", "libre-manana", "5491100000003", "Eva") is True)
+
 print("Generar horarios no pisa reservas")
 reset()
 creados = db.crear_turnos_libres("t1", [ayer, manana, manana + timedelta(days=5)], 50)
@@ -266,12 +285,31 @@ db.get_tenant_by_id = lambda tid: next((dict(t) for t in TABLAS["tenants"] if t[
 client = app.app.test_client()
 with client.session_transaction() as s:
     s["tenant_id"] = "t1"
+    s["csrf_token"] = "tok"
+
+_post_sin_token = client.post
+
+
+def _post(url, data=None, **kw):
+    return _post_sin_token(url, data={"csrf_token": "tok", **(data or {})}, **kw)
+
+
+client.post = _post
+enviados = []
+app.whatsapp.enviar_texto = lambda numero, to, texto: enviados.append((numero, to, texto)) or True
+app.config.PLATAFORMA_PHONE_NUMBER_ID = "plataforma"
 
 r = client.get("/agenda")
 html = r.data.decode()
 chequear("GET /agenda -> 200", r.status_code == 200, r.status_code)
 chequear("muestra pendientes de cobro", "Pendientes de cobro" in html and "Juan" in html)
 chequear("no muestra pacientes de otro tenant", "De otra" not in html)
+
+chequear("los forms llevan el token", 'name="csrf_token" value="tok"' in html)
+r = _post_sin_token("/agenda/pago/pasado", data={"pago": "pagado"})
+chequear("POST sin token -> 403", r.status_code == 403, r.status_code)
+r = _post_sin_token("/agenda/pago/pasado", data={"pago": "pagado", "csrf_token": "otro"})
+chequear("POST con token ajeno -> 403", r.status_code == 403 and fila("pasado")["pago"] == "pendiente")
 
 r = client.get("/agenda?semana=basura")
 chequear("semana inválida cae a la actual", r.status_code == 200)
@@ -289,10 +327,16 @@ r = client.post("/agenda/pago/pasado", data={"pago": "pagado", "semana": "https:
 chequear("'semana' basura no redirige afuera", r.headers["Location"].endswith("/agenda"), r.headers.get("Location"))
 
 local = (manana + timedelta(hours=2)).astimezone(app.ZoneInfo(TZ))
-r = client.post("/agenda/reprogramar/futuro", data={"fecha": local.strftime("%Y-%m-%d"), "hora": local.strftime("%H:%M")})
+r = client.post("/agenda/reprogramar/futuro", data={"fecha": local.strftime("%Y-%m-%d"), "hora": local.strftime("%H:%M"), "avisar": "1"})
+chequear("le avisa el cambio al paciente", len(enviados) == 1 and enviados[0][1] == "5491100000002"
+         and "cambió de horario" in enviados[0][2], enviados)
 chequear("POST reprogramar -> va a la semana nueva", r.status_code == 302 and "semana=" in r.headers["Location"])
 chequear("quedó en el horario nuevo", fila("libre-manana")["paciente_nombre"] == "Ana")
-r = client.post("/agenda/reprogramar/libre-manana", data={"fecha": "", "hora": ""}, follow_redirects=True)
+otra = local + timedelta(hours=3)
+client.post("/agenda/reprogramar/libre-manana", data={"fecha": otra.strftime("%Y-%m-%d"), "hora": otra.strftime("%H:%M")})
+chequear("sin el tilde no avisa", len(enviados) == 1, enviados)
+reservada = next(f for f in TABLAS["turnos"] if f["paciente_nombre"] == "Ana")
+r = client.post(f"/agenda/reprogramar/{reservada['id']}", data={"fecha": "", "hora": ""}, follow_redirects=True)
 chequear("sin fecha -> aviso, no rompe", r.status_code == 200 and "Elegí día y hora" in r.data.decode())
 
 r = client.post("/agenda/agendar/futuro", data={"nombre": "Pedro", "telefono": "+54 9 11 5555-0000"})
@@ -303,6 +347,7 @@ chequear("agendar sobre uno ocupado avisa", "ya no está libre" in r.data.decode
 
 with client.session_transaction() as s:
     s.clear()
+    s["csrf_token"] = "tok"
 r = client.post("/agenda/pago/pasado", data={"pago": "pagado"})
 chequear("sin login -> redirige al login", r.status_code == 302 and "/login" in r.headers["Location"])
 

@@ -7,7 +7,10 @@ db.get_tenant_by_phone_number_id). Nada de esto tiene nada de un cliente en
 particular — lo particular vive en la tabla `tenants` y se carga con
 scripts/crear_tenant.py, nunca hardcodeado acá."""
 import functools
+import hmac
 import logging
+import os
+import secrets
 from datetime import datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 
@@ -25,6 +28,11 @@ logger = logging.getLogger("app")
 
 app = Flask(__name__)
 app.secret_key = config.FLASK_SECRET_KEY
+# Secure sólo en Railway: en local el panel corre por http y no habría login.
+app.config.update(
+    SESSION_COOKIE_SAMESITE="Lax",
+    SESSION_COOKIE_SECURE=bool(os.environ.get("RAILWAY_ENVIRONMENT_NAME")),
+)
 
 DIAS_LABEL = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado", "Domingo"]
 
@@ -97,6 +105,29 @@ def webhook_receive():
 
 # ---------- panel ----------
 
+def _csrf_token() -> str:
+    if "csrf_token" not in session:
+        session["csrf_token"] = secrets.token_urlsafe(32)
+    return session["csrf_token"]
+
+
+app.jinja_env.globals["csrf_token"] = _csrf_token
+
+
+@app.before_request
+def verificar_csrf():
+    """Toda acción del panel tiene que traer el token de la sesión, para que
+    otra página no pueda disparar un POST con la cookie del profesional. El
+    webhook tiene su firma y la reserva pública no usa sesión."""
+    if request.method != "POST" or not request.path.startswith("/agenda"):
+        return None
+    esperado = session.get("csrf_token")
+    recibido = request.form.get("csrf_token") or ""
+    if not esperado or not hmac.compare_digest(esperado, recibido):
+        return "sesión vencida, volvé a cargar la página", 403
+    return None
+
+
 def login_required(vista):
     @functools.wraps(vista)
     def envoltorio(*args, **kwargs):
@@ -157,6 +188,13 @@ def _volver_a_agenda():
     return redirect(url_for("agenda", semana=semana))
 
 
+def _se_superponen(a: dict, b: dict) -> bool:
+    return (
+        datetime.fromisoformat(a["inicio"]) < datetime.fromisoformat(b["fin"])
+        and datetime.fromisoformat(b["inicio"]) < datetime.fromisoformat(a["fin"])
+    )
+
+
 @app.get("/agenda")
 @login_required
 def agenda():
@@ -168,6 +206,7 @@ def agenda():
     turnos = db.agenda_semana(tenant["id"], desde.astimezone(ZoneInfo("UTC")), hasta.astimezone(ZoneInfo("UTC")))
 
     por_dia: dict[str, list[dict]] = {}
+    reservados = [t for t in turnos if t["estado"] == "reservado"]
     resumen = {"sesiones": 0, "vino": 0, "no_vino": 0, "pagado": 0}
     for t in turnos:
         inicio_local = datetime.fromisoformat(t["inicio"]).astimezone(tz)
@@ -176,6 +215,8 @@ def agenda():
         if t.get("reprogramado_desde"):
             antes = datetime.fromisoformat(t["reprogramado_desde"]).astimezone(tz)
             extra["_reprogramado_desde"] = f"{DIAS_LABEL[antes.weekday()]} {antes.day}/{antes.month:02d} {antes:%H:%M}"
+        if t["estado"] == "libre":
+            extra["_pisado"] = any(_se_superponen(t, r) for r in reservados)
         por_dia.setdefault(clave, []).append({**t, **extra})
         if t["estado"] == "reservado":
             resumen["sesiones"] += 1
@@ -276,6 +317,25 @@ def agenda_pago(turno_id):
     return _volver_a_agenda()
 
 
+def _avisar_cambio(tenant: dict, telefono: str, nuevo_inicio: datetime, tz: ZoneInfo) -> bool:
+    """Avisa al paciente el horario nuevo. Es aparte del recordatorio: si la
+    sesión es en dos semanas, sin esto se enteraría recién la noche anterior."""
+    numero = whatsapp.numero_de(tenant)
+    if not numero:
+        return False
+    cuando = scheduler._fmt(nuevo_inicio.isoformat(), tz)
+    if config.REPROGRAMADO_TEMPLATE:
+        return whatsapp.enviar_plantilla(
+            numero, telefono, config.REPROGRAMADO_TEMPLATE,
+            config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], cuando],
+        )
+    texto = (
+        f"Tu turno con *{tenant['nombre']}* cambió de horario: ahora es el {cuando}. "
+        "Si no podés ir, respondé *cancelar*."
+    )
+    return whatsapp.enviar_texto(numero, telefono, texto)
+
+
 @app.post("/agenda/reprogramar/<turno_id>")
 @login_required
 def agenda_reprogramar(turno_id):
@@ -289,11 +349,18 @@ def agenda_reprogramar(turno_id):
         return _volver_a_agenda()
     nuevo_inicio = datetime.combine(fecha, hora, tzinfo=tz).astimezone(ZoneInfo("UTC"))
     duracion = tenant.get("duracion_turno_minutos") or 50
+    original = db.turno_por_id(tenant["id"], turno_id)
     error = db.reprogramar_turno(tenant["id"], turno_id, nuevo_inicio, duracion)
     if error:
         flash(error)
         return _volver_a_agenda()
-    flash(f"Sesión pasada al {DIAS_LABEL[fecha.weekday()]} {fecha.day}/{fecha.month:02d} a las {hora:%H:%M}.")
+    aviso = ""
+    if request.form.get("avisar") and nuevo_inicio > datetime.now(ZoneInfo("UTC")):
+        if _avisar_cambio(tenant, original["paciente_telefono"], nuevo_inicio, tz):
+            aviso = " Le avisamos al paciente."
+        else:
+            aviso = " No se le pudo avisar al paciente: escribile vos."
+    flash(f"Sesión pasada al {DIAS_LABEL[fecha.weekday()]} {fecha.day}/{fecha.month:02d} a las {hora:%H:%M}.{aviso}")
     # Se va a la semana del horario NUEVO: es donde el profesional quiere
     # ver que quedó bien.
     return redirect(url_for("agenda", semana=fecha.strftime("%Y-%m-%d")))

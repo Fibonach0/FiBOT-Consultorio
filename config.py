@@ -46,3 +46,8 @@ PLATAFORMA_PHONE_NUMBER_ID = os.environ.get("PLATAFORMA_PHONE_NUMBER_ID", "")
 # las últimas 24 h. Sirve para probar, no para producción.
 RECORDATORIO_TEMPLATE = os.environ.get("RECORDATORIO_TEMPLATE", "")
 RECORDATORIO_TEMPLATE_LANG = os.environ.get("RECORDATORIO_TEMPLATE_LANG", "es_AR")
+
+# Lo mismo para avisar que una sesión cambió de horario, con los mismos dos
+# parámetros: {{1}} nombre del profesional   {{2}} cuándo es el nuevo horario.
+# Vacía = texto libre, con la misma limitación de las 24 h.
+REPROGRAMADO_TEMPLATE = os.environ.get("REPROGRAMADO_TEMPLATE", "")

@@ -85,12 +85,13 @@ def get_tenant_by_slug(slug: str) -> dict | None:
 
 
 def turnos_libres(tenant_id: str, desde: datetime, limite: int = 8) -> list[dict]:
-    """Próximos turnos libres de ESTE tenant, a partir de `desde`."""
+    """Próximos turnos libres de ESTE tenant, a partir de `desde`. Sale de la
+    vista turnos_disponibles (migrations/005): no incluye los horarios que se
+    pisan con una sesión reservada."""
     res = (
-        _client.table("turnos")
+        _client.table("turnos_disponibles")
         .select("*")
         .eq("tenant_id", tenant_id)
-        .eq("estado", "libre")
         .gte("inicio", desde.isoformat())
         .order("inicio")
         .limit(limite)
@@ -111,10 +112,31 @@ def turno_por_id(tenant_id: str, turno_id: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+def _se_pisa(tenant_id: str, inicio: str, fin: str, excluir_id: str) -> bool:
+    """True si ya hay otra sesión reservada de ESTE tenant que se superpone con
+    [inicio, fin). Una sesión que termina justo cuando empieza otra no se pisa."""
+    res = (
+        _client.table("turnos")
+        .select("id")
+        .eq("tenant_id", tenant_id)
+        .eq("estado", "reservado")
+        .neq("id", excluir_id)
+        .lt("inicio", fin)
+        .gt("fin", inicio)
+        .limit(1)
+        .execute()
+    )
+    return bool(res.data)
+
+
 def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | None) -> bool:
     """Devuelve False si el turno ya no estaba libre (alguien se adelantó) —
     el llamador tiene que chequear esto y avisarle al paciente, nunca asumir
-    éxito."""
+    éxito. También si se pisa con otra sesión: alguien pudo tener abierto ese
+    horario desde antes de que la pasaran a esa hora."""
+    turno = turno_por_id(tenant_id, turno_id)
+    if not turno or _se_pisa(tenant_id, turno["inicio"], turno["fin"], turno_id):
+        return False
     res = (
         _client.table("turnos")
         .update({"estado": "reservado", "paciente_telefono": telefono, "paciente_nombre": nombre})
@@ -208,18 +230,8 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
     # Como se puede elegir cualquier hora, el nuevo horario puede pisarse con
     # otra sesión sin coincidir en `inicio` (15:30 contra una de 15:00 a
     # 15:50). La sesión que se está moviendo no cuenta: puede correrse 20 min.
-    choque = (
-        _client.table("turnos")
-        .select("id")
-        .eq("tenant_id", tenant_id)
-        .eq("estado", "reservado")
-        .neq("id", turno_id)
-        .lt("inicio", (nuevo_inicio + timedelta(minutes=duracion_minutos)).isoformat())
-        .gt("fin", nuevo_inicio.isoformat())
-        .limit(1)
-        .execute()
-    )
-    if choque.data:
+    nuevo_fin = nuevo_inicio + timedelta(minutes=duracion_minutos)
+    if _se_pisa(tenant_id, nuevo_inicio.isoformat(), nuevo_fin.isoformat(), turno_id):
         return "Ese horario ya está ocupado por otra sesión."
 
     crear_turnos_libres(tenant_id, [nuevo_inicio], duracion_minutos)

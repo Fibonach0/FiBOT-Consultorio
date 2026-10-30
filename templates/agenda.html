@@ -22,6 +22,7 @@
       </span>
       <span class="acciones">
         <form method="post" action="{{ url_for('agenda_pago', turno_id=t.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="semana" value="{{ semana }}">
           <button class="btn chico" name="pago" value="pagado">Pagó</button>
           {% if t.asistencia == 'no_vino' %}
@@ -71,12 +72,14 @@
         <div class="acciones">
           {% if t._paso %}
           <form method="post" action="{{ url_for('agenda_asistencia', turno_id=t.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="semana" value="{{ semana }}">
             <button class="btn chico {% if t.asistencia != 'vino' %}secundario{% endif %}" name="asistencia" value="{{ '' if t.asistencia == 'vino' else 'vino' }}">Vino</button>
             <button class="btn chico {% if t.asistencia != 'no_vino' %}secundario{% endif %}" name="asistencia" value="{{ '' if t.asistencia == 'no_vino' else 'no_vino' }}">No vino</button>
           </form>
           {% endif %}
           <form method="post" action="{{ url_for('agenda_pago', turno_id=t.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="semana" value="{{ semana }}">
             {% if t.pago == 'pendiente' %}
             <button class="btn chico secundario" name="pago" value="pagado">Pagó</button>
@@ -90,14 +93,17 @@
           <details>
             <summary class="btn chico secundario">Pasar a otro día</summary>
             <form method="post" action="{{ url_for('agenda_reprogramar', turno_id=t.id) }}" class="fila">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="semana" value="{{ semana }}">
               <div><label>Día</label><input type="date" name="fecha" value="{{ dia.fecha }}" required></div>
               <div><label>Hora</label><input type="time" name="hora" value="{{ t._hora }}" required></div>
               <div class="al-pie"><button class="btn chico" type="submit">Pasar</button></div>
+              <div><label><input type="checkbox" name="avisar" value="1" checked> Avisarle al paciente por WhatsApp</label></div>
             </form>
           </details>
           {% if not t._paso %}
           <form method="post" action="{{ url_for('agenda_cancelar', turno_id=t.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="semana" value="{{ semana }}">
             <button class="btn chico secundario" type="submit" onclick="return confirm('¿Cancelar esta sesión? El horario vuelve a quedar libre.')">Cancelar</button>
           </form>
@@ -107,10 +113,13 @@
       {% else %}
       <div class="turno">
         <span>{{ t._hora }} — <span class="estado-libre">libre</span></span>
-        {% if not t._paso %}
+        {% if t._pisado %}
+        <span class="chip">se pisa con otra sesión</span>
+        {% elif not t._paso %}
         <details class="acciones">
           <summary class="btn chico secundario">Agendar paciente</summary>
           <form method="post" action="{{ url_for('agenda_agendar', turno_id=t.id) }}" class="fila">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="semana" value="{{ semana }}">
             <div><label>Nombre</label><input type="text" name="nombre" required></div>
             <div><label>WhatsApp</label><input type="text" name="telefono" placeholder="54 9 11 2345 6789" required></div>
@@ -128,6 +137,7 @@
   <div class="card">
     <h3>Generar horarios disponibles</h3>
     <form method="post" action="{{ url_for('agenda_generar') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="fila">
         <div>
           <label for="fecha_desde">Desde</label>
