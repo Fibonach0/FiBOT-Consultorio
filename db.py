@@ -378,21 +378,49 @@ def sesiones_reservadas(tenant_id: str) -> list[dict]:
             return filas
 
 
-def nacimientos_de_pacientes(tenant_id: str) -> dict[str, str]:
-    res = (
-        _client.table("pacientes")
-        .select("paciente_telefono, fecha_nacimiento")
-        .eq("tenant_id", tenant_id)
-        .execute()
-    )
-    return {p["paciente_telefono"]: p["fecha_nacimiento"] for p in res.data if p["fecha_nacimiento"]}
+def datos_de_pacientes(tenant_id: str) -> dict[str, dict]:
+    res = _client.table("pacientes").select("*").eq("tenant_id", tenant_id).execute()
+    return {p["paciente_telefono"]: p for p in res.data}
 
 
-def guardar_nacimiento(tenant_id: str, telefono: str, fecha_nacimiento: str | None) -> None:
+def guardar_paciente(tenant_id: str, telefono: str, campos: dict) -> None:
+    """Sólo pisa las columnas que vienen en `campos`."""
     _client.table("pacientes").upsert(
-        {"tenant_id": tenant_id, "paciente_telefono": telefono, "fecha_nacimiento": fecha_nacimiento},
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, **campos},
         on_conflict="tenant_id,paciente_telefono",
     ).execute()
+
+
+def personas_de_pacientes(tenant_id: str) -> list[dict]:
+    res = _client.table("paciente_personas").select("*").eq("tenant_id", tenant_id).order("nombre").execute()
+    return res.data
+
+
+def agregar_persona(tenant_id: str, telefono: str, nombre: str, vinculo: str | None) -> None:
+    _client.table("paciente_personas").insert(
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "nombre": nombre, "vinculo": vinculo}
+    ).execute()
+
+
+def borrar_persona(tenant_id: str, persona_id: str) -> None:
+    _client.table("paciente_personas").delete().eq("tenant_id", tenant_id).eq("id", persona_id).execute()
+
+
+def fechas_de_pacientes(tenant_id: str) -> list[dict]:
+    res = _client.table("paciente_fechas").select("*").eq("tenant_id", tenant_id).execute()
+    return res.data
+
+
+def agregar_fecha(tenant_id: str, telefono: str, titulo: str, dia: int, mes: int,
+                  anio: int | None, animo: str | None) -> None:
+    _client.table("paciente_fechas").insert(
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "titulo": titulo,
+         "dia": dia, "mes": mes, "anio": anio, "animo": animo}
+    ).execute()
+
+
+def borrar_fecha(tenant_id: str, fecha_id: str) -> None:
+    _client.table("paciente_fechas").delete().eq("tenant_id", tenant_id).eq("id", fecha_id).execute()
 
 
 def turnos_para_recordar(tenant_id: str, horas_antes: int) -> list[dict]:

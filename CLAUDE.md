@@ -192,8 +192,10 @@ sesión, en cascada y con Asistió arriba de todo.
 
 El panel es un tablero: calendario y pendientes arriba, generar horarios y
 fichas abajo. Cada ficha (`app._fichas`) se arma con las sesiones de ese
-teléfono; lo único guardado aparte es `pacientes.fecha_nacimiento`. **Sin datos
-clínicos**: no agregar diagnóstico ni notas sin resolver lo de abajo.
+teléfono; lo guardado aparte es lo que anota el profesional (`pacientes`,
+`paciente_personas`, `paciente_fechas`, `migrations/008`). Al tocarla se abre en
+un popup (`<dialog>`) con notas, fechas con cuenta regresiva y cómo le pegan,
+personas y mascotas.
 
 ### CSRF del panel
 
@@ -208,9 +210,11 @@ El webhook (firma de Meta) y la reserva pública (sin sesión) no lo usan.
   profesional a mano); el sistema no cobra. El canon a los profesionales
   también se cobra a mano, fuera del sistema — "como todo se hace a mano, se
   cobra primero y se arma después".
-- **Notas clínicas / historia clínica**: fuera de alcance, es una superficie
-  de datos sensibles (secreto profesional) que no vale la pena tocar hasta
-  no tener validado que el negocio de turnos + recordatorios solo ya sirve.
+- **Historia clínica / diagnóstico**: fuera de alcance. Las notas de la ficha
+  existen por pedido explícito, pero son información sensible bajo secreto
+  profesional. **Antes de cargar pacientes reales** hace falta: base propia
+  (hoy comparte `vencimetro`), cifrar notas y fechas, sacar la clave `demo/demo`,
+  backups y consulta legal. Hasta entonces, sólo datos ficticios.
 - **Alta self-service**: los profesionales no se dan de alta solos. Es
   deliberado para la etapa de pilotos con conocidos — automatizar el alta es
   trabajo para cuando haya más de un puñado de tenants.

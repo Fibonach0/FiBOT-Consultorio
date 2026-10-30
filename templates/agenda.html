@@ -225,46 +225,148 @@
     {% if not fichas %}<div class="tenue">Cuando agendes un paciente, acá aparece su ficha.</div>{% endif %}
     <div class="fichero">
       {% for f in fichas %}
-      <article class="ficha">
+      <article class="ficha" role="button" tabindex="0" data-ficha="ficha-{{ loop.index }}">
         <h4>{{ f.nombre }}</h4>
         <dl>
           <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
           <dt>Valor</dt><dd>{{ f.valor|pesos if f.valor is not none else '—' }}</dd>
           <dt>Edad</dt><dd>{{ f.edad if f.edad is not none else '—' }}</dd>
-          <dt>WhatsApp</dt><dd>{{ f.telefono }}</dd>
-          <dt>Desde</dt><dd>{{ f.desde }}</dd>
+          <dt>Cumple</dt><dd>{{ f.cumpleanios or '—' }}</dd>
           <dt>Próxima</dt><dd>{{ f.proxima or '—' }}</dd>
-          <dt>Asistió</dt><dd>{{ f.asistio }}{% if f.falto %} · faltó {{ f.falto }}{% endif %}</dd>
           <dt>Debe</dt><dd{% if f.sin_pagar %} class="debe"{% endif %}>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}Nada{% endif %}</dd>
+          {% if f.fechas %}{% set c = f.fechas[0] %}
+          <dt>Se viene</dt><dd{% if c.animo == 'mal' %} class="debe"{% endif %}>{{ c.titulo }}, {{ c._falta }}</dd>
+          {% endif %}
         </dl>
-        <details>
-          <summary class="tenue">Historial ▾</summary>
-          {% for h in f.historial %}
-          <div class="ficha-sesion">{{ h._dia }} {{ h._hora }}
-            {% if h.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
-            {% elif h.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
-            {% if h.pago == 'pagado' %}<span class="chip chip-ok">pagó</span>
-            {% elif h.pago == 'pendiente' %}<span class="chip chip-alerta">sin pagar</span>{% endif %}
-          </div>
-          {% else %}
-          <div class="tenue">Todavía no tuvo sesiones.</div>
-          {% endfor %}
-        </details>
-        <details>
-          <summary class="tenue">Editar ▾</summary>
-          <form method="post" action="{{ url_for('agenda_paciente') }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
-            <input type="hidden" name="telefono" value="{{ f.telefono }}">
-            <label>Fecha de nacimiento</label>
-            <input type="date" name="fecha_nacimiento" value="{{ f.fecha_nacimiento or '' }}">
-            <button class="btn chico" type="submit">Guardar</button>
-          </form>
-        </details>
       </article>
       {% endfor %}
     </div>
   </div>
   </div>
+
+  {% macro ocultos(telefono) %}
+  <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+  {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+  <input type="hidden" name="telefono" value="{{ telefono }}">
+  {% endmacro %}
+
+  {% for f in fichas %}
+  <dialog class="ficha-dialogo" id="ficha-{{ loop.index }}">
+    <div class="ficha">
+      <button class="cerrar" type="button" aria-label="Cerrar">×</button>
+      <h4>{{ f.nombre }}</h4>
+      <dl>
+        <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
+        <dt>Valor</dt><dd>{{ f.valor|pesos if f.valor is not none else '—' }}</dd>
+        <dt>Edad</dt><dd>{{ f.edad if f.edad is not none else '—' }}</dd>
+        <dt>Cumple</dt><dd>{{ f.cumpleanios or '—' }}</dd>
+        <dt>WhatsApp</dt><dd>{{ f.telefono }}</dd>
+        <dt>Desde</dt><dd>{{ f.desde }}</dd>
+        <dt>Próxima</dt><dd>{{ f.proxima or '—' }}</dd>
+        <dt>Asistió</dt><dd>{{ f.asistio }}{% if f.falto %} · faltó {{ f.falto }}{% endif %}</dd>
+        <dt>Debe</dt><dd{% if f.sin_pagar %} class="debe"{% endif %}>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}Nada{% endif %}</dd>
+      </dl>
+
+      <form method="post" action="{{ url_for('agenda_paciente') }}">
+        {{ ocultos(f.telefono) }}
+        <label>Fecha de nacimiento</label>
+        <input type="date" name="fecha_nacimiento" value="{{ f.fecha_nacimiento or '' }}">
+        <label>Notas</label>
+        <textarea name="notas" rows="5">{{ f.notas or '' }}</textarea>
+        <button class="btn chico" type="submit">Guardar</button>
+      </form>
+
+      <h5>Fechas importantes</h5>
+      {% for c in f.fechas %}
+      <div class="ficha-item">
+        <span>
+          <strong>{{ c.titulo }}</strong> <span class="tenue">{{ c._cuando }} · {{ c._falta }}{% if c._anios %} · {{ c._anios }} años{% endif %}</span>
+          {% if c.animo == 'bien' %}<span class="chip chip-ok">le hace bien</span>
+          {% elif c.animo == 'mal' %}<span class="chip chip-alerta">le hace mal</span>{% endif %}
+        </span>
+        <form method="post" action="{{ url_for('agenda_fecha_borrar', fecha_id=c.id) }}">
+          {{ ocultos(f.telefono) }}
+          <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar esta fecha?')">×</button>
+        </form>
+      </div>
+      {% endfor %}
+      <details>
+        <summary class="tenue">Agregar fecha ▾</summary>
+        <form method="post" action="{{ url_for('agenda_fecha') }}" class="fila">
+          {{ ocultos(f.telefono) }}
+          <div class="ancho"><label>Qué fecha es</label><input type="text" name="titulo" placeholder="Navidad, aniversario, fallecimiento de…" required></div>
+          <div><label>Día</label><input type="number" name="dia" min="1" max="31" required></div>
+          <div><label>Mes</label>
+            <select name="mes" required>{% for m in meses %}<option value="{{ loop.index }}">{{ m }}</option>{% endfor %}</select>
+          </div>
+          <div><label>Año (opcional)</label><input type="number" name="anio" min="1900" max="2100"></div>
+          <div><label>¿Cómo le pega?</label>
+            <select name="animo">
+              <option value="">No sé</option>
+              <option value="bien">Le hace bien</option>
+              <option value="mal">Le hace mal</option>
+            </select>
+          </div>
+          <div class="al-pie"><button class="btn chico" type="submit">Agregar</button></div>
+        </form>
+      </details>
+
+      <h5>Personas y mascotas</h5>
+      {% for p in f.personas %}
+      <div class="ficha-item">
+        <span><strong>{{ p.nombre }}</strong>{% if p.vinculo %} <span class="tenue">{{ p.vinculo }}</span>{% endif %}</span>
+        <form method="post" action="{{ url_for('agenda_persona_borrar', persona_id=p.id) }}">
+          {{ ocultos(f.telefono) }}
+          <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar de la ficha?')">×</button>
+        </form>
+      </div>
+      {% endfor %}
+      <details>
+        <summary class="tenue">Agregar persona o mascota ▾</summary>
+        <form method="post" action="{{ url_for('agenda_persona') }}" class="fila">
+          {{ ocultos(f.telefono) }}
+          <div><label>Nombre</label><input type="text" name="nombre" required></div>
+          <div><label>Parentesco o qué es</label><input type="text" name="vinculo" placeholder="Madre, perro…"></div>
+          <div class="al-pie"><button class="btn chico" type="submit">Agregar</button></div>
+        </form>
+      </details>
+
+      <h5>Últimas sesiones</h5>
+      {% for h in f.historial %}
+      <div class="ficha-sesion">{{ h._dia }} {{ h._hora }}
+        {% if h.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
+        {% elif h.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
+        {% if h.pago == 'pagado' %}<span class="chip chip-ok">pagó</span>
+        {% elif h.pago == 'pendiente' %}<span class="chip chip-alerta">sin pagar</span>{% endif %}
+      </div>
+      {% else %}
+      <div class="tenue">Todavía no tuvo sesiones.</div>
+      {% endfor %}
+    </div>
+  </dialog>
+  {% endfor %}
 </main>
+<script>
+  // La ficha se cierra con la X, con Esc o tocando afuera: el fondo del popup
+  // es el propio <dialog>, porque el contenido va en un div que lo cubre.
+  function abrir(id) { document.getElementById(id)?.showModal(); }
+  document.querySelectorAll('[data-ficha]').forEach(ficha => {
+    ficha.addEventListener('click', () => abrir(ficha.dataset.ficha));
+    ficha.addEventListener('keydown', e => {
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(ficha.dataset.ficha); }
+    });
+  });
+  document.querySelectorAll('dialog').forEach(dialogo => {
+    dialogo.addEventListener('click', e => {
+      if (e.target === dialogo || e.target.closest('.cerrar')) dialogo.close();
+    });
+    // Guardar recarga la página: se vuelve a la ficha que estaba abierta,
+    // salvo que haya un aviso que leer.
+    dialogo.querySelectorAll('form').forEach(form =>
+      form.addEventListener('submit', () => sessionStorage.setItem('ficha', dialogo.id)));
+  });
+  const abierta = sessionStorage.getItem('ficha');
+  sessionStorage.removeItem('ficha');
+  if (abierta && !document.querySelector('.aviso')) abrir(abierta);
+</script>
 {% endblock %}
