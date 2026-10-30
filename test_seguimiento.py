@@ -137,7 +137,7 @@ class _Query:
                     continue
                 fila = {"id": f"turno-{len(filas) + 1}", "paciente_telefono": None, "paciente_nombre": None,
                         "recordatorio_enviado": False, "asistencia": None, "pago": "pendiente",
-                        "reprogramado_desde": None, "valor": None, "frecuencia": None, **nueva}
+                        "reprogramado_desde": None, "valor": None, "frecuencia": None, "modalidad": None, **nueva}
                 filas.append(fila)
                 creadas.append(dict(fila))
             return _Res(creadas)
@@ -182,7 +182,7 @@ def turno(id_, tenant_id, inicio, **extra):
             "fin": (inicio + timedelta(minutes=50)).isoformat(), "estado": "libre",
             "paciente_telefono": None, "paciente_nombre": None, "recordatorio_enviado": False,
             "asistencia": None, "pago": "pendiente", "reprogramado_desde": None,
-            "valor": None, "frecuencia": None}
+            "valor": None, "frecuencia": None, "modalidad": None}
     return {**base, **extra}
 
 
@@ -636,6 +636,29 @@ chequear("no toca la lista de otro tenant", len(enviados) == 1 and any(p["id"] =
 chequear("no muestra la de otro tenant", "De la otra" not in client.get("/agenda").data.decode())
 client.post(f"/agenda/espera/{espera['id']}/quitar")
 chequear("se puede quitar", not any(p["id"] == espera["id"] for p in TABLAS["lista_espera"]))
+
+print("Sesiones virtuales")
+reset()
+enviados.clear()
+client.post("/agenda/avisos", data={"link_videollamada": "http://inseguro"})
+chequear("rechaza un link sin https", TABLAS["tenants"][0].get("link_videollamada") is None)
+client.post("/agenda/avisos", data={"link_videollamada": "https://meet.example/sala"})
+chequear("guarda el link", TABLAS["tenants"][0]["link_videollamada"] == "https://meet.example/sala")
+client.post("/agenda/agendar/libre-manana", data={"nombre": "Vera", "telefono": "5491100000030", "modalidad": "virtual",
+                                                  "frecuencia": "semanal", "cantidad": "3"})
+veras = [f for f in TABLAS["turnos"] if f["paciente_nombre"] == "Vera"]
+chequear("toda la serie queda virtual", len(veras) == 3 and all(f["modalidad"] == "virtual" for f in veras), veras)
+turno_virtual = veras[0]
+t = TABLAS["tenants"][0]
+chequear("el recordatorio lleva el link", "https://meet.example/sala" in scheduler.cuando_de(turno_virtual, t, zona))
+chequear("el presencial no", "meet" not in scheduler.cuando_de(fila("futuro"), t, zona))
+client.post(f"/agenda/reprogramar/{turno_virtual['id']}", data={"fecha": (ahora + timedelta(days=60)).strftime("%Y-%m-%d"),
+                                                                 "hora": "07:00", "avisar": "1"})
+chequear("reprogramar conserva la modalidad y avisa con link", "https://meet.example/sala" in enviados[-1][2], enviados)
+chequear("cancelar la limpia", db.cancelar_turno("t1", "futuro") is None and fila("futuro")["modalidad"] is None)
+client.post("/agenda/modalidad/pasado", data={"modalidad": "virtual"})
+chequear("se cambia desde la sesión", fila("pasado")["modalidad"] == "virtual")
+chequear("modalidad inválida -> 400", client.post("/agenda/modalidad/pasado", data={"modalidad": "x"}).status_code == 400)
 
 print("Calendario")
 reset()

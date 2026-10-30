@@ -115,6 +115,7 @@
             {{ t._hora }} — <span class="estado-reservado">{{ t.paciente_nombre or t.paciente_telefono }}</span>
             {% if t._reprogramado_desde %}<span class="chip">pasada del {{ t._reprogramado_desde }}</span>{% endif %}
             {% if t.frecuencia %}<span class="chip">{{ t.frecuencia }}</span>{% endif %}
+            {% if t.modalidad == 'virtual' %}<span class="chip">videollamada</span>{% endif %}
             {% if t.valor is not none and t.valor is defined %}<span class="chip">{{ t.valor|pesos }}</span>{% endif %}
             {% if t.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
             {% elif t.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
@@ -149,6 +150,15 @@
               <input type="hidden" name="semana" value="{{ semana }}">
               <input type="text" inputmode="numeric" name="valor" placeholder="Valor de sesión" value="{{ t.valor if t.valor is not none and t.valor is defined else '' }}">
               <button class="btn chico secundario" type="submit">Guardar</button>
+            </form>
+            <form method="post" action="{{ url_for('agenda_modalidad', turno_id=t.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="semana" value="{{ semana }}">
+              {% if t.modalidad == 'virtual' %}
+              <button class="btn chico secundario" name="modalidad" value="presencial">Pasar a presencial</button>
+              {% else %}
+              <button class="btn chico secundario" name="modalidad" value="virtual">Pasar a videollamada</button>
+              {% endif %}
             </form>
             <details>
               <summary class="btn chico secundario">Pasar a otro día</summary>
@@ -190,6 +200,12 @@
                 <option value="">Una sola vez</option>
                 <option value="semanal">Semanal</option>
                 <option value="quincenal">Quincenal</option>
+              </select>
+            </div>
+            <div><label>Modalidad</label>
+              <select name="modalidad">
+                <option value="presencial">Presencial</option>
+                <option value="virtual">Videollamada</option>
               </select>
             </div>
             <div><label>Cantidad de sesiones</label><input type="number" name="cantidad" value="8" min="1" max="26"></div>
@@ -326,11 +342,12 @@
   </div>
 
   <div class="card">
-    <h3>Avisos a tu WhatsApp</h3>
+    <h3>Ajustes</h3>
     <form method="post" action="{{ url_for('agenda_avisos') }}" class="fila">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
-      <div><label>Tu número</label><input type="text" name="telefono" placeholder="54 9 11 2345 6789" value="{{ tenant.aviso_telefono or '' }}"></div>
+      <div><label>Tu WhatsApp para avisos</label><input type="text" name="telefono" placeholder="54 9 11 2345 6789" value="{{ tenant.aviso_telefono or '' }}"></div>
+      <div><label>Link de videollamada</label><input type="text" name="link_videollamada" placeholder="https://meet.google.com/..." value="{{ tenant.link_videollamada or '' }}"></div>
       <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
     </form>
   </div>

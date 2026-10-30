@@ -222,6 +222,12 @@ Al cancelar desde el panel se avisa si hay gente esperando. Ofrecer el próximo
 horario libre es manual, persona por persona, y manda el link de la página
 pública: quien está en la lista quizá nunca tuvo turno y el bot no lo reconoce.
 
+### Sesiones virtuales (`migrations/012`)
+
+`turnos.modalidad` describe a la reserva: va en `db._LIBERADO` y viaja al
+reprogramar y renovar. El link del profesional entra en el parámetro `{{2}}` de
+las plantillas de recordatorio y cambio (`scheduler.cuando_de`).
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier
