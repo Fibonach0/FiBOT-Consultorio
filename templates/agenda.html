@@ -10,31 +10,6 @@
     {% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}
   {% endwith %}
 
-  {% if pendientes %}
-  <div class="card">
-    <h3>Pendientes de cobro <span class="contador">{{ pendientes|length }}</span>{% if por_cobrar %} <span class="tenue">· {{ por_cobrar|pesos }}</span>{% endif %}</h3>
-    {% for t in pendientes %}
-    <div class="turno">
-      <span>
-        <strong>{{ t.paciente_nombre or t.paciente_telefono }}</strong>
-        <span class="tenue">· {{ t._dia }} {{ t._hora }}{% if t.valor is not none and t.valor is defined %} · {{ t.valor|pesos }}{% endif %}</span>
-        {% if t.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
-      </span>
-      <span class="acciones">
-        <form method="post" action="{{ url_for('agenda_pago', turno_id=t.id) }}">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="hidden" name="semana" value="{{ semana }}">
-          <button class="btn chico" name="pago" value="pagado">Pagó</button>
-          {% if t.asistencia == 'no_vino' %}
-          <button class="btn chico secundario" name="pago" value="no_cobra">No se cobra</button>
-          {% endif %}
-        </form>
-      </span>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
   {% if vista == 'mes' %}
   <div class="card">
     <div class="semana-nav">
@@ -97,13 +72,13 @@
         <details class="cascada">
           <summary class="btn chico secundario">Acciones ▾</summary>
           <div class="cascada-lista">
-            <form method="post" action="{{ url_for('agenda_asistencia', turno_id=t.id) }}">
+            <form class="apilado" method="post" action="{{ url_for('agenda_asistencia', turno_id=t.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="semana" value="{{ semana }}">
               <button class="btn chico {% if t.asistencia != 'vino' %}secundario{% endif %}" name="asistencia" value="{{ '' if t.asistencia == 'vino' else 'vino' }}">Asistió</button>
               <button class="btn chico {% if t.asistencia != 'no_vino' %}secundario{% endif %}" name="asistencia" value="{{ '' if t.asistencia == 'no_vino' else 'no_vino' }}">No vino</button>
             </form>
-            <form method="post" action="{{ url_for('agenda_pago', turno_id=t.id) }}">
+            <form class="apilado" method="post" action="{{ url_for('agenda_pago', turno_id=t.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               <input type="hidden" name="semana" value="{{ semana }}">
               {% if t.pago == 'pendiente' %}
@@ -175,6 +150,32 @@
     {% endfor %}
   </div>
   {% endif %}
+
+  {% if pendientes %}
+  <div class="card">
+    <h3>Pendientes de cobro <span class="contador">{{ pendientes|length }}</span>{% if por_cobrar %} <span class="tenue">· {{ por_cobrar|pesos }}</span>{% endif %}</h3>
+    {% for t in pendientes %}
+    <div class="turno">
+      <span>
+        <strong>{{ t.paciente_nombre or t.paciente_telefono }}</strong>
+        <span class="tenue">· {{ t._dia }} {{ t._hora }}{% if t.valor is not none and t.valor is defined %} · {{ t.valor|pesos }}{% endif %}</span>
+        {% if t.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
+      </span>
+      <span class="acciones">
+        <form method="post" action="{{ url_for('agenda_pago', turno_id=t.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="semana" value="{{ semana }}">
+          <button class="btn chico" name="pago" value="pagado">Pagó</button>
+          {% if t.asistencia == 'no_vino' %}
+          <button class="btn chico secundario" name="pago" value="no_cobra">No se cobra</button>
+          {% endif %}
+        </form>
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
 
   <div class="card">
     <h3>Generar horarios disponibles</h3>
