@@ -227,6 +227,49 @@ def _calendario(tenant: dict, primero: date, tz: ZoneInfo, ahora: datetime) -> l
     return semanas
 
 
+def _edad(nacimiento: str | None, hoy: date) -> int | None:
+    if not nacimiento:
+        return None
+    n = date.fromisoformat(nacimiento)
+    return hoy.year - n.year - ((hoy.month, hoy.day) < (n.month, n.day))
+
+
+def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
+    """Una ficha por paciente (se identifica por teléfono, como en todo el
+    sistema). Frecuencia y valor son los de su próxima sesión, o los de la
+    última si no tiene ninguna agendada. La deuda se cuenta igual que en
+    Pendientes de cobro."""
+    por_paciente: dict[str, list[dict]] = {}
+    for t in _con_hora_local(db.sesiones_reservadas(tenant["id"]), tz):
+        por_paciente.setdefault(t["paciente_telefono"], []).append(t)
+    nacimientos = db.nacimientos_de_pacientes(tenant["id"])
+
+    fichas = []
+    for telefono, sesiones in por_paciente.items():
+        pasadas = [t for t in sesiones if datetime.fromisoformat(t["inicio"]) <= ahora]
+        futuras = sesiones[len(pasadas):]
+        vigente = futuras[0] if futuras else pasadas[-1]
+        sin_pagar = [t for t in pasadas if t.get("pago") == "pendiente"]
+        fichas.append(
+            {
+                "telefono": telefono,
+                "nombre": next((t["paciente_nombre"] for t in reversed(sesiones) if t.get("paciente_nombre")), telefono),
+                "frecuencia": vigente.get("frecuencia"),
+                "valor": vigente.get("valor"),
+                "fecha_nacimiento": nacimientos.get(telefono),
+                "edad": _edad(nacimientos.get(telefono), ahora.date()),
+                "desde": datetime.fromisoformat(sesiones[0]["inicio"]).astimezone(tz).strftime("%d/%m/%Y"),
+                "proxima": f"{futuras[0]['_dia']} {futuras[0]['_hora']}" if futuras else None,
+                "asistio": sum(t.get("asistencia") == "vino" for t in pasadas),
+                "falto": sum(t.get("asistencia") == "no_vino" for t in pasadas),
+                "sin_pagar": len(sin_pagar),
+                "adeudado": sum(t.get("valor") or 0 for t in sin_pagar),
+                "historial": pasadas[:-11:-1],
+            }
+        )
+    return sorted(fichas, key=lambda f: f["nombre"].casefold())
+
+
 def _volver_a_agenda():
     """Después de tocar una sesión, volver a la misma semana que se estaba
     mirando (viene como campo oculto del form). Se reconstruye la URL con
@@ -257,6 +300,7 @@ def agenda():
         "tenant": tenant,
         "pendientes": pendientes,
         "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
+        "fichas": _fichas(tenant, tz, ahora),
         "duracion_default": tenant.get("duracion_turno_minutos") or 50,
     }
 
@@ -449,6 +493,23 @@ def _valor_del_form() -> int | None:
 @login_required
 def agenda_valor(turno_id):
     db.marcar_valor(session["tenant_id"], turno_id, _valor_del_form())
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente")
+@login_required
+def agenda_paciente():
+    telefono = request.form.get("telefono") or ""
+    if not telefono:
+        return "falta el paciente", 400
+    fecha = request.form.get("fecha_nacimiento") or None
+    if fecha:
+        try:
+            date.fromisoformat(fecha)
+        except ValueError:
+            flash("La fecha de nacimiento no es válida.")
+            return _volver_a_agenda()
+    db.guardar_nacimiento(session["tenant_id"], telefono, fecha)
     return _volver_a_agenda()
 
 

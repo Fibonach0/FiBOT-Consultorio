@@ -358,6 +358,43 @@ def agenda_semana(tenant_id: str, desde: datetime, hasta: datetime) -> list[dict
     return res.data
 
 
+def sesiones_reservadas(tenant_id: str) -> list[dict]:
+    """Todas las sesiones reservadas de ESTE tenant, de la más vieja a la más
+    nueva. Va de a páginas porque PostgREST corta en 1000 filas: sin esto, las
+    fichas de un consultorio con años de historia darían mal las cuentas."""
+    filas: list[dict] = []
+    while True:
+        res = (
+            _client.table("turnos")
+            .select("*")
+            .eq("tenant_id", tenant_id)
+            .eq("estado", "reservado")
+            .order("inicio")
+            .range(len(filas), len(filas) + 999)
+            .execute()
+        )
+        filas += res.data
+        if len(res.data) < 1000:
+            return filas
+
+
+def nacimientos_de_pacientes(tenant_id: str) -> dict[str, str]:
+    res = (
+        _client.table("pacientes")
+        .select("paciente_telefono, fecha_nacimiento")
+        .eq("tenant_id", tenant_id)
+        .execute()
+    )
+    return {p["paciente_telefono"]: p["fecha_nacimiento"] for p in res.data if p["fecha_nacimiento"]}
+
+
+def guardar_nacimiento(tenant_id: str, telefono: str, fecha_nacimiento: str | None) -> None:
+    _client.table("pacientes").upsert(
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "fecha_nacimiento": fecha_nacimiento},
+        on_conflict="tenant_id,paciente_telefono",
+    ).execute()
+
+
 def turnos_para_recordar(tenant_id: str, horas_antes: int) -> list[dict]:
     """Turnos reservados cuyo recordatorio todavía no salió y ya están
     dentro de la ventana (inicio - horas_antes <= ahora < inicio)."""

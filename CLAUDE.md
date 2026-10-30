@@ -188,6 +188,13 @@ sesión, en cascada y con Asistió arriba de todo.
   adelantado (`MAX_SESIONES_FIJAS`), y cada una se mueve o cancela sola. Las
   fechas ocupadas se saltean y se avisan. No se renuevan solas.
 
+### Fichas de pacientes (`migrations/007`)
+
+El panel es un tablero: calendario y pendientes arriba, generar horarios y
+fichas abajo. Cada ficha (`app._fichas`) se arma con las sesiones de ese
+teléfono; lo único guardado aparte es `pacientes.fecha_nacimiento`. **Sin datos
+clínicos**: no agregar diagnóstico ni notas sin resolver lo de abajo.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier

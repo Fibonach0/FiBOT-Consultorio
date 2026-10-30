@@ -60,6 +60,7 @@ class _Query:
     def __init__(self, tabla):
         self.tabla, self.filtros, self.op, self.payload = tabla, [], "select", None
         self._orden, self._limite, self._on_conflict, self._ignore = None, None, "", False
+        self._rango = None
 
     def select(self, *_):
         self.op = "select"
@@ -105,6 +106,10 @@ class _Query:
         self._limite = n
         return self
 
+    def range(self, desde, hasta):
+        self._rango = (desde, hasta)
+        return self
+
     def execute(self):
         filas = TABLAS["turnos"] if self.tabla == "turnos_disponibles" else TABLAS[self.tabla]
         if self.tabla == "turnos_disponibles":
@@ -115,7 +120,7 @@ class _Query:
         if self.op == "upsert":
             claves = self._on_conflict.split(",")
             creadas = []
-            for nueva in self.payload:
+            for nueva in ([self.payload] if isinstance(self.payload, dict) else self.payload):
                 existe = next((f for f in filas if all(_norm(f.get(k)) == _norm(nueva[k]) for k in claves)), None)
                 if existe:
                     if not self._ignore:
@@ -137,6 +142,8 @@ class _Query:
             match.sort(key=lambda f: _norm(f[self._orden[0]]), reverse=self._orden[1])
         if self._limite is not None:
             match = match[: self._limite]
+        if self._rango:
+            match = match[self._rango[0]: self._rango[1] + 1]
         return _Res([dict(f) for f in match])
 
 
@@ -167,6 +174,7 @@ def turno(id_, tenant_id, inicio, **extra):
 
 def reset():
     TABLAS["tenants"] = [dict(TENANT), dict(OTRO)]
+    TABLAS["pacientes"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -373,6 +381,35 @@ chequear("todas con valor y frecuencia", all(f["valor"] == 30000 and f["frecuenc
 chequear("avisa la que quedó sin agendar", "sin agendar" in html and "3 sesiones" in html)
 r = client.post("/agenda/agendar/libre-manana", data={"nombre": "Una", "telefono": "5491100000006", "cantidad": "9"})
 chequear("sin frecuencia es una sola", sum(f["paciente_nombre"] == "Una" for f in TABLAS["turnos"]) == 1)
+
+print("Fichas")
+reset()
+TABLAS["turnos"].append(turno("vieja", "t1", ayer - timedelta(days=7), estado="reservado", paciente_nombre="Ana",
+                              paciente_telefono="5491100000002", asistencia="vino", pago="pagado", valor=20000))
+TABLAS["turnos"].append(turno("debe", "t1", ayer - timedelta(days=14), estado="reservado", paciente_nombre="Ana",
+                              paciente_telefono="5491100000002", asistencia="no_vino", valor=20000))
+fila("futuro").update(valor=25000, frecuencia="semanal")
+fichas = app._fichas(TENANT, app.ZoneInfo(TZ), ahora.astimezone(app.ZoneInfo(TZ)))
+ana = next(f for f in fichas if f["nombre"] == "Ana")
+chequear("una ficha por paciente, en orden", [f["nombre"] for f in fichas] == ["Ana", "Juan"], fichas)
+chequear("valor y frecuencia son los de la próxima sesión", ana["valor"] == 25000 and ana["frecuencia"] == "semanal")
+chequear("cuenta asistencias y faltas", ana["asistio"] == 1 and ana["falto"] == 1)
+chequear("la deuda sale de lo que ya pasó", ana["sin_pagar"] == 1 and ana["adeudado"] == 20000)
+chequear("el historial arranca por lo último", [h["id"] for h in ana["historial"]] == ["vieja", "debe"])
+fecha_hoy = ahora.astimezone(app.ZoneInfo(TZ)).date()
+chequear("edad antes y después del cumpleaños",
+         app._edad(fecha_hoy.replace(year=fecha_hoy.year - 30, day=1).isoformat(), fecha_hoy.replace(day=2)) == 30
+         and app._edad(fecha_hoy.replace(year=fecha_hoy.year - 30, day=2).isoformat(), fecha_hoy.replace(day=1)) == 29)
+r = client.post("/agenda/paciente", data={"telefono": "5491100000002", "fecha_nacimiento": "1990-05-20"})
+chequear("guarda la fecha de nacimiento", TABLAS["pacientes"][0]["fecha_nacimiento"] == "1990-05-20" and r.status_code == 302)
+client.post("/agenda/paciente", data={"telefono": "5491100000002", "fecha_nacimiento": "1991-05-20"})
+chequear("guardar de nuevo la pisa", [p["fecha_nacimiento"] for p in TABLAS["pacientes"]] == ["1991-05-20"])
+html = client.post("/agenda/paciente", data={"telefono": "5491100000001", "fecha_nacimiento": "basura"},
+                   follow_redirects=True).data.decode()
+chequear("fecha inválida avisa y no guarda", "no es válida" in html and len(TABLAS["pacientes"]) == 1)
+html = client.get("/agenda").data.decode()
+chequear("el panel muestra las fichas", 'class="ficha"' in html and "1991-05-20" in html)
+chequear("las fichas no muestran otro tenant", "De otra" not in html)
 
 print("Calendario")
 reset()
