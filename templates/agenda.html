@@ -10,6 +10,27 @@
     {% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}
   {% endwith %}
 
+  <div class="card">
+    <h3>Hoy{% if hoy %} <span class="contador">{{ hoy|length }}</span>{% endif %}</h3>
+    {% if not hoy %}<div class="tenue">Hoy no hay sesiones.</div>{% endif %}
+    <div class="hoy-grilla">
+      {% for h in hoy %}
+      <div class="hoy-sesion" role="button" tabindex="0" data-ficha="{{ h.ficha.dom }}">
+        <strong>{{ h.hora }} · {{ h.ficha.nombre }}</strong>
+        {% if h.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
+        {% elif h.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
+        <div class="tenue">
+          {% if h.ficha.sin_pagar %}Debe {{ h.ficha.adeudado|pesos if h.ficha.adeudado else h.ficha.sin_pagar ~ ' sesión' ~ ('es' if h.ficha.sin_pagar > 1 else '') }}{% else %}Al día{% endif %}
+        </div>
+        {% for c in h.fechas %}
+        <div class="{{ 'debe' if c.animo == 'mal' else 'tenue' }}">{{ c.titulo }}, {{ c._falta }}</div>
+        {% endfor %}
+        {% if h.ficha.notas %}<div class="hoy-nota">{{ h.ficha.notas|truncate(110) }}</div>{% endif %}
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
   <div class="tablero">
   {% if vista == 'mes' %}
   <div class="card">
@@ -225,7 +246,7 @@
     {% if not fichas %}<div class="tenue">Cuando agendes un paciente, acá aparece su ficha.</div>{% endif %}
     <div class="fichero">
       {% for f in fichas %}
-      <article class="ficha" role="button" tabindex="0" data-ficha="ficha-{{ loop.index }}">
+      <article class="ficha" role="button" tabindex="0" data-ficha="{{ f.dom }}">
         <h4>{{ f.nombre }}</h4>
         <dl>
           <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
@@ -251,7 +272,7 @@
   {% endmacro %}
 
   {% for f in fichas %}
-  <dialog class="ficha-dialogo" id="ficha-{{ loop.index }}">
+  <dialog class="ficha-dialogo" id="{{ f.dom }}">
     <div class="ficha">
       <button class="cerrar" type="button" aria-label="Cerrar">×</button>
       <h4>{{ f.nombre }}</h4>
