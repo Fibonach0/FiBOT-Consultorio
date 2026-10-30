@@ -397,6 +397,7 @@
         <dt>Edad</dt><dd>{{ f.edad if f.edad is not none else '—' }}</dd>
         <dt>Cumple</dt><dd>{{ f.cumpleanios or '—' }}</dd>
         <dt>WhatsApp</dt><dd>{{ f.telefono }}</dd>
+        <dt>Obra social</dt><dd>{{ f.obra_social or '—' }}{% if f.numero_afiliado %} · {{ f.numero_afiliado }}{% endif %}</dd>
         <dt>Desde</dt><dd>{{ f.desde }}</dd>
         <dt>Próxima</dt><dd>{{ f.proxima or '—' }}</dd>
         <dt>Asistió</dt><dd>{{ f.asistio }}{% if f.falto %} · faltó {{ f.falto }}{% endif %}</dd>
@@ -415,6 +416,10 @@
         {{ ocultos(f.telefono) }}
         <label>Fecha de nacimiento</label>
         <input type="date" name="fecha_nacimiento" value="{{ f.fecha_nacimiento or '' }}">
+        <label>Obra social o prepaga</label>
+        <input type="text" name="obra_social" value="{{ f.obra_social or '' }}">
+        <label>N° de afiliado</label>
+        <input type="text" name="numero_afiliado" value="{{ f.numero_afiliado or '' }}">
         <label>Notas</label>
         <textarea name="notas" rows="5">{{ f.notas or '' }}</textarea>
         <button class="btn chico" type="submit">Guardar</button>
@@ -475,6 +480,13 @@
         </form>
       </details>
 
+      <h5>Constancia de sesiones</h5>
+      <form method="post" action="{{ url_for('agenda_constancia') }}" target="_blank" class="fila">
+        {{ ocultos(f.telefono) }}
+        <div><label>Mes</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
+        <div class="al-pie"><button class="btn chico secundario" type="submit">Generar</button></div>
+      </form>
+
       <h5>Últimas sesiones</h5>
       {% for h in f.historial %}
       <div class="ficha-sesion">{{ h._dia }} {{ h._hora }}
@@ -506,7 +518,7 @@
     });
     // Guardar recarga la página: se vuelve a la ficha que estaba abierta,
     // salvo que haya un aviso que leer.
-    dialogo.querySelectorAll('form').forEach(form =>
+    dialogo.querySelectorAll('form:not([target])').forEach(form =>
       form.addEventListener('submit', () => sessionStorage.setItem('ficha', dialogo.id)));
   });
   // Sin acentos ni mayúsculas: "gomez" encuentra a Gómez.

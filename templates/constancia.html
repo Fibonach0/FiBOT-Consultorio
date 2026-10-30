@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block titulo %}Constancia — {{ ficha.nombre }}{% endblock %}
+{% block cuerpo %}
+<main>
+  <div class="card constancia">
+    <h2>Constancia de sesiones</h2>
+    <p>{{ tenant.nombre }} deja constancia de las sesiones de <strong>{{ ficha.nombre }}</strong> en {{ titulo }}.</p>
+    {% if ficha.obra_social %}<p>Obra social: {{ ficha.obra_social }}{% if ficha.numero_afiliado %} · Afiliado N° {{ ficha.numero_afiliado }}{% endif %}</p>{% endif %}
+    {% for s in sesiones %}
+    <div class="turno"><span>{{ s._dia }} {{ s._hora }}</span><span>{{ s.valor|pesos if s.valor is not none else '—' }}</span></div>
+    {% else %}
+    <p class="tenue">No hay sesiones pagas en ese mes.</p>
+    {% endfor %}
+    {% if sesiones %}<div class="turno"><strong>Total</strong><strong>{{ total|pesos }}</strong></div>{% endif %}
+    <p class="tenue">Este documento no es una factura.</p>
+    <button class="btn no-imprimir" type="button" onclick="window.print()">Imprimir o guardar en PDF</button>
+  </div>
+</main>
+{% endblock %}
