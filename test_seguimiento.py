@@ -839,6 +839,38 @@ chequear("sin login no baja nada", client.get("/agenda/exportar").status_code ==
 with client.session_transaction() as s:
     s["tenant_id"] = "t1"
 
+print("Aumento de honorarios")
+chequear("redondea a la centena", app._con_aumento(27180, "porcentaje", 10) == 29900 and app._con_aumento(10050, "porcentaje", 1) == 10200,
+         app._con_aumento(27180, "porcentaje", 10))
+reset()
+t_ana, t_beto = "5491100000002", "5491100000003"
+hoy_iso = ahora.astimezone(zona).date().isoformat()
+fila("futuro").update(valor=10000, pago="pendiente")
+fila("pasado").update(valor=10000)
+TABLAS["turnos"] += [
+    turno("cobrada", "t1", manana + timedelta(hours=4), estado="reservado", paciente_nombre="Ana", paciente_telefono=t_ana, valor=10000, pago="pagado"),
+    turno("sin-valor", "t1", manana + timedelta(hours=6), estado="reservado", paciente_nombre="Ana", paciente_telefono=t_ana),
+    turno("beto", "t1", manana + timedelta(hours=8), estado="reservado", paciente_nombre="Beto", paciente_telefono=t_beto, valor=10000),
+]
+fila("ajeno").update(valor=10000, paciente_telefono=t_ana)
+html = client.post("/agenda/aumento", data={"modo": "porcentaje", "valor": "20", "desde": hoy_iso, "pacientes": t_ana}, follow_redirects=True).data.decode()
+chequear("sube la sesión futura sin pagar", fila("futuro")["valor"] == 12000 and "1 sesiones" in html, fila("futuro")["valor"])
+chequear("no toca lo pasado ni lo pagado", fila("pasado")["valor"] == 10000 and fila("cobrada")["valor"] == 10000)
+chequear("no inventa valor donde no había", fila("sin-valor")["valor"] is None)
+chequear("respeta a quién se eligió", fila("beto")["valor"] == 10000)
+chequear("no toca otro tenant con el mismo teléfono", fila("ajeno")["valor"] == 10000)
+client.post("/agenda/aumento", data={"modo": "valor", "valor": "$ 15.000", "desde": hoy_iso, "pacientes": [t_ana, t_beto]})
+chequear("con valor fijo pisa también las vacías", fila("sin-valor")["valor"] == 15000 and fila("beto")["valor"] == 15000)
+html = client.post("/agenda/aumento", data={"modo": "porcentaje", "valor": "10", "desde": "2001-01-01", "pacientes": t_ana}, follow_redirects=True).data.decode()
+chequear("rechaza una fecha pasada", "fecha pasada" in html and fila("futuro")["valor"] == 15000)
+lejos_iso = (ahora.astimezone(zona).date() + timedelta(days=30)).isoformat()
+client.post("/agenda/aumento", data={"modo": "valor", "valor": "99", "desde": lejos_iso, "pacientes": t_ana})
+chequear("sólo rige desde la fecha", fila("futuro")["valor"] == 15000)
+html = client.post("/agenda/aumento", data={"modo": "porcentaje", "valor": "9999", "desde": hoy_iso, "pacientes": t_ana}, follow_redirects=True).data.decode()
+chequear("frena un porcentaje absurdo", "no puede superar" in html)
+html = client.post("/agenda/aumento", data={"modo": "valor", "valor": "1", "desde": hoy_iso}, follow_redirects=True).data.decode()
+chequear("pide elegir pacientes", "al menos un paciente" in html)
+
 print("Nota de cada sesión")
 reset()
 client.post("/agenda/nota/pasado", data={"nota": "  Habló de la mudanza  "})

@@ -433,6 +433,19 @@ def cancelar_sesiones_futuras(tenant_id: str, telefono: str, desde: datetime) ->
     return len(res.data)
 
 
+def sesiones_sin_pagar_desde(tenant_id: str, desde: datetime) -> list[dict]:
+    res = (
+        _client.table("turnos")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .eq("estado", "reservado")
+        .eq("pago", "pendiente")
+        .gte("inicio", desde.isoformat())
+        .execute()
+    )
+    return res.data
+
+
 def cancelaciones_desde(tenant_id: str, desde: datetime) -> list[dict]:
     res = (
         _client.table("cancelaciones")

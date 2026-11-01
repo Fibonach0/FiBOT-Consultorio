@@ -566,6 +566,7 @@ FRECUENCIAS = {"semanal": 7, "quincenal": 14}
 MAX_SESIONES_FIJAS = 26
 SESIONES_AL_RENOVAR = 8
 MODALIDADES = ("presencial", "virtual")
+MAX_AUMENTO_PORCENTAJE = 300
 
 # Seguimiento de cada sesión: si vino, si pagó, y pasarla a otro horario.
 # Igual que cancelar, todo va por db.* con el tenant_id de la sesión de
@@ -650,6 +651,50 @@ def _valor_del_form() -> int | None:
 @login_required
 def agenda_valor(turno_id):
     db.marcar_valor(session["tenant_id"], turno_id, _valor_del_form())
+    return _volver_a_agenda()
+
+
+def _con_aumento(valor: int | None, modo: str, monto: int) -> int | None:
+    """El porcentaje redondea a la centena: nadie cobra $ 27.183."""
+    if modo == "valor":
+        return monto
+    if valor is None:
+        return None
+    return (valor * (100 + monto) + 5000) // 10000 * 100
+
+
+@app.post("/agenda/aumento")
+@login_required
+def agenda_aumento():
+    """Sólo sesiones futuras sin pagar: lo ya cobrado o pasado no se toca."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    modo = request.form.get("modo")
+    telefonos = set(request.form.getlist("pacientes"))
+    monto = _valor_del_form()
+    try:
+        desde = date.fromisoformat(request.form.get("desde") or "")
+    except ValueError:
+        desde = None
+    hoy = datetime.now(tz).date()
+    if modo not in ("porcentaje", "valor") or not monto or not desde:
+        flash("Completá el aumento y desde cuándo rige.")
+    elif modo == "porcentaje" and monto > MAX_AUMENTO_PORCENTAJE:
+        flash(f"El aumento no puede superar el {MAX_AUMENTO_PORCENTAJE} %.")
+    elif desde < hoy:
+        flash("El aumento no puede regir desde una fecha pasada.")
+    elif not telefonos:
+        flash("Elegí al menos un paciente.")
+    else:
+        # Con `desde` = hoy, una sesión de esta mañana ya pasó y no se toca.
+        inicio = max(datetime.combine(desde, dtime.min, tzinfo=tz), datetime.now(tz)).astimezone(ZoneInfo("UTC"))
+        cambiadas = 0
+        for t in db.sesiones_sin_pagar_desde(tenant["id"], inicio):
+            nuevo = _con_aumento(t.get("valor"), modo, monto)
+            if t["paciente_telefono"] in telefonos and nuevo != t.get("valor"):
+                db.marcar_valor(tenant["id"], t["id"], nuevo)
+                cambiadas += 1
+        flash(f"Se actualizó el valor de {cambiadas} sesiones desde el {desde:%d/%m/%Y}.")
     return _volver_a_agenda()
 
 
