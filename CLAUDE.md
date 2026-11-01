@@ -272,6 +272,11 @@ cancelaciones de los últimos 90 días; desde 3 entra en «Para mirar».
 va sin nombres; nunca lleva teléfonos ni notas. Las celdas de texto se fuerzan a
 texto: el nombre viene de una página pública y podría ser una fórmula.
 
+### Aumento de honorarios
+
+`/agenda/aumento` cambia, por % o valor fijo, el valor de las sesiones sin pagar
+desde una fecha, sólo de los pacientes tildados. Lo pasado o cobrado no se toca.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier

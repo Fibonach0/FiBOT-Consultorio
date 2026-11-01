@@ -360,6 +360,35 @@
     </details>
   </div>
 
+  {% set activos = fichas|selectattr('estado', 'equalto', 'activo')|list %}
+  {% if activos %}
+  <div class="card">
+    <h3>Aumento de honorarios</h3>
+    <details>
+      <summary class="tenue">Actualizar el valor de las próximas sesiones ▾</summary>
+      <form method="post" action="{{ url_for('agenda_aumento') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div class="fila">
+          <div><label>Cómo</label>
+            <select name="modo">
+              <option value="porcentaje">Aumentar un %</option>
+              <option value="valor">Valor nuevo en $</option>
+            </select>
+          </div>
+          <div><label>Cuánto</label><input type="text" inputmode="numeric" name="valor" required></div>
+          <div><label>Desde</label><input type="date" name="desde" min="{{ hoy_iso }}" value="{{ hoy_iso }}" required></div>
+        </div>
+        <label>Pacientes</label>
+        <div class="dias-semana">
+          {% for f in activos %}<label><input type="checkbox" name="pacientes" value="{{ f.telefono }}" checked> {{ f.nombre }}</label>{% endfor %}
+        </div>
+        <button class="btn chico" type="submit" onclick="return confirm('¿Actualizar el valor de las sesiones sin pagar de estos pacientes?')">Aplicar</button>
+      </form>
+    </details>
+  </div>
+  {% endif %}
+
   <div class="card">
     <h3>Ajustes</h3>
     <form method="post" action="{{ url_for('agenda_avisos') }}" class="fila">
