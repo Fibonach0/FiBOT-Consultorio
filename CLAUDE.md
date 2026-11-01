@@ -234,6 +234,13 @@ La ficha guarda obra social y número de afiliado. La constancia es una página
 imprimible de las sesiones pagas de un mes: **no es factura** y nunca lleva
 notas ni fechas personales. Va por POST para no dejar el teléfono en la URL.
 
+### Nota de cada sesión (`migrations/014`)
+
+`turnos.nota` describe a la reserva: va en `db._LIBERADO` y viaja al reprogramar.
+Se escribe desde la semana o desde «Últimas sesiones» en la ficha, y la tarjeta
+de Hoy muestra la última para repasar antes de atender. Es lo más sensible del
+sistema: nunca sale por WhatsApp, constancias ni exportaciones.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier
@@ -247,8 +254,8 @@ El webhook (firma de Meta) y la reserva pública (sin sesión) no lo usan.
   profesional a mano); el sistema no cobra. El canon a los profesionales
   también se cobra a mano, fuera del sistema — "como todo se hace a mano, se
   cobra primero y se arma después".
-- **Historia clínica / diagnóstico**: fuera de alcance. Las notas de la ficha
-  existen por pedido explícito, pero son información sensible bajo secreto
+- **Historia clínica formal / diagnóstico**: fuera de alcance. Las notas de la
+  ficha y de cada sesión existen por pedido explícito, pero son información sensible bajo secreto
   profesional. **Antes de cargar pacientes reales** hace falta: base propia
   (hoy comparte `vencimetro`), cifrar notas y fechas, sacar la clave `demo/demo`,
   backups y consulta legal. Hasta entonces, sólo datos ficticios.

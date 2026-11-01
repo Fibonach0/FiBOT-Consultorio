@@ -183,6 +183,7 @@ _LIBERADO = {
     "valor": None,
     "frecuencia": None,
     "modalidad": None,
+    "nota": None,
 }
 
 
@@ -222,6 +223,12 @@ def marcar_valor(tenant_id: str, turno_id: str, valor: int | None) -> None:
 
 def marcar_modalidad(tenant_id: str, turno_id: str, modalidad: str) -> None:
     _client.table("turnos").update({"modalidad": modalidad}).eq("tenant_id", tenant_id).eq(
+        "id", turno_id
+    ).eq("estado", "reservado").execute()
+
+
+def marcar_nota(tenant_id: str, turno_id: str, nota: str | None) -> None:
+    _client.table("turnos").update({"nota": nota}).eq("tenant_id", tenant_id).eq(
         "id", turno_id
     ).eq("estado", "reservado").execute()
 
@@ -296,6 +303,7 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
                 "valor": original.get("valor"),
                 "frecuencia": original.get("frecuencia"),
                 "modalidad": original.get("modalidad"),
+                "nota": original.get("nota"),
                 "reprogramado_desde": original["inicio"],
             }
         )

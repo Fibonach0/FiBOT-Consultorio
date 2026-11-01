@@ -311,6 +311,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "sin_pagar": len(sin_pagar),
                 "adeudado": sum(t.get("valor") or 0 for t in sin_pagar),
                 "historial": pasadas[:-11:-1],
+                "ultima_nota": next((t for t in reversed(pasadas) if t.get("nota")), None),
                 "quedan": sesiones_que_quedan(sesiones, ahora),
                 "alerta": alerta_de_seguimiento(sesiones, ahora),
                 "sesiones": sesiones,
@@ -812,6 +813,13 @@ def agenda_modalidad(turno_id):
     if modalidad not in MODALIDADES:
         return "modalidad inválida", 400
     db.marcar_modalidad(session["tenant_id"], turno_id, modalidad)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/nota/<turno_id>")
+@login_required
+def agenda_nota(turno_id):
+    db.marcar_nota(session["tenant_id"], turno_id, (request.form.get("nota") or "").strip() or None)
     return _volver_a_agenda()
 
 
