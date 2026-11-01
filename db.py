@@ -414,9 +414,17 @@ def personas_de_pacientes(tenant_id: str) -> list[dict]:
     return res.data
 
 
-def agregar_persona(tenant_id: str, telefono: str, nombre: str, vinculo: str | None) -> None:
+def agregar_persona(tenant_id: str, telefono: str, nombre: str, vinculo: str | None,
+                    telefono_persona: str | None = None, emergencia: bool = False) -> None:
     _client.table("paciente_personas").insert(
-        {"tenant_id": tenant_id, "paciente_telefono": telefono, "nombre": nombre, "vinculo": vinculo}
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "nombre": nombre, "vinculo": vinculo,
+         "telefono": telefono_persona, "emergencia": emergencia}
+    ).execute()
+
+
+def marcar_emergencia(tenant_id: str, persona_id: str, emergencia: bool) -> None:
+    _client.table("paciente_personas").update({"emergencia": emergencia}).eq("tenant_id", tenant_id).eq(
+        "id", persona_id
     ).execute()
 
 

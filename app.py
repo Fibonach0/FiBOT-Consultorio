@@ -303,6 +303,9 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "motivo_consulta": datos.get(telefono, {}).get("motivo_consulta"),
                 "objetivos": datos.get(telefono, {}).get("objetivos"),
                 "como_viene": datos.get(telefono, {}).get("como_viene"),
+                "psiquiatra": datos.get(telefono, {}).get("psiquiatra"),
+                "medicacion": datos.get(telefono, {}).get("medicacion"),
+                "plan_crisis": datos.get(telefono, {}).get("plan_crisis"),
                 "obra_social": datos.get(telefono, {}).get("obra_social"),
                 "numero_afiliado": datos.get(telefono, {}).get("numero_afiliado"),
                 "personas": personas.get(telefono, []),
@@ -701,7 +704,8 @@ def agenda_paciente():
             return _volver_a_agenda()
     # Cada form de la ficha manda sólo sus campos: lo que no viene no se pisa.
     campos = {"fecha_nacimiento": fecha} if "fecha_nacimiento" in request.form else {}
-    for campo in ("notas", "obra_social", "numero_afiliado", "motivo_consulta", "objetivos", "como_viene"):
+    for campo in ("notas", "obra_social", "numero_afiliado", "motivo_consulta", "objetivos", "como_viene",
+                  "psiquiatra", "medicacion", "plan_crisis"):
         if campo in request.form:
             campos[campo] = request.form[campo].strip() or None
     db.guardar_paciente(session["tenant_id"], telefono, campos)
@@ -769,7 +773,16 @@ def agenda_persona():
     if not telefono or not nombre:
         flash("Falta el nombre.")
         return _volver_a_agenda()
-    db.agregar_persona(session["tenant_id"], telefono, nombre, (request.form.get("vinculo") or "").strip() or None)
+    contacto = "".join(ch for ch in (request.form.get("telefono_persona") or "") if ch.isdigit()) or None
+    db.agregar_persona(session["tenant_id"], telefono, nombre, (request.form.get("vinculo") or "").strip() or None,
+                       contacto, bool(request.form.get("emergencia")))
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/persona/<persona_id>/emergencia")
+@login_required
+def agenda_persona_emergencia(persona_id):
+    db.marcar_emergencia(session["tenant_id"], persona_id, request.form.get("emergencia") == "1")
     return _volver_a_agenda()
 
 

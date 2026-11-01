@@ -691,6 +691,28 @@ chequear("salen arriba de la ficha", html.index("Ansiedad") < html.index("Fechas
 chequear("el resto de los datos no los pierde", client.post("/agenda/paciente", data={"telefono": tel, "fecha_nacimiento": "1990-05-21"}).status_code == 302
          and p["objetivos"] == "Dormir mejor")
 
+print("Datos de crisis")
+reset()
+tel = "5491100000002"
+client.post("/agenda/paciente", data={"telefono": tel, "fecha_nacimiento": "1990-05-20"})
+client.post("/agenda/paciente", data={"telefono": tel, "psiquiatra": "Dra. Paz", "medicacion": "Sertralina", "plan_crisis": "Llamar a la hermana"})
+p = TABLAS["pacientes"][0]
+chequear("guarda psiquiatra, medicación y plan", (p["psiquiatra"], p["medicacion"], p["plan_crisis"]) == ("Dra. Paz", "Sertralina", "Llamar a la hermana"))
+client.post("/agenda/paciente/persona", data={"telefono": tel, "nombre": "Sol", "vinculo": "hermana", "telefono_persona": "+54 9 11 2222-3333", "emergencia": "1"})
+client.post("/agenda/paciente/persona", data={"telefono": tel, "nombre": "Toby", "vinculo": "perro"})
+sol, toby = TABLAS["paciente_personas"]
+chequear("el contacto queda con teléfono limpio", sol["telefono"] == "5491122223333" and sol["emergencia"] is True)
+chequear("una persona común no es de emergencia", toby["telefono"] is None and toby["emergencia"] is False)
+html = client.get("/agenda").data.decode()
+chequear("el contacto queda a mano arriba", 'href="tel:+5491122223333"' in html and html.index("Si hay una crisis") < html.index("Fechas importantes"))
+client.post(f"/agenda/paciente/persona/{toby['id']}/emergencia", data={"emergencia": "1"})
+chequear("se marca después", TABLAS["paciente_personas"][1]["emergencia"] is True)
+client.post(f"/agenda/paciente/persona/{toby['id']}/emergencia", data={"emergencia": ""})
+chequear("se desmarca", TABLAS["paciente_personas"][1]["emergencia"] is False)
+TABLAS["paciente_personas"].append({"id": "ajena", "tenant_id": "t2", "paciente_telefono": tel, "nombre": "X", "emergencia": False})
+client.post("/agenda/paciente/persona/ajena/emergencia", data={"emergencia": "1"})
+chequear("no toca la persona de otro tenant", TABLAS["paciente_personas"][2]["emergencia"] is False)
+
 print("Nota de cada sesión")
 reset()
 client.post("/agenda/nota/pasado", data={"nota": "  Habló de la mudanza  "})
