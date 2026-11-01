@@ -199,6 +199,10 @@ teléfono; lo guardado aparte es lo que anota el profesional (`pacientes`,
 un popup (`<dialog>`) con notas, fechas con cuenta regresiva y cómo le pegan,
 personas y mascotas.
 
+El popup se divide en cinco pestañas: Terapia, Sesiones, Crisis, Personas (con
+las fechas) y Datos. Próxima sesión y deuda quedan siempre a la vista arriba.
+Abre en Terapia, y al guardar vuelve a la pestaña donde estaba.
+
 ### Hoy
 
 `app._hoy` arma, arriba del panel, una tarjeta por sesión del día con deuda,
@@ -244,14 +248,14 @@ sistema: nunca sale por WhatsApp, constancias ni exportaciones.
 
 ### Motivo y objetivos (`migrations/015`)
 
-Motivo de consulta, qué se está trabajando y cómo viene van arriba del popup, en
-su propio form. `/agenda/paciente` sólo guarda los campos que recibe.
+Motivo de consulta, qué se está trabajando, cómo viene y las notas van en la
+pestaña Terapia, en su propio form. `/agenda/paciente` sólo guarda los campos que recibe.
 
 ### Datos de crisis (`migrations/016`)
 
 Una persona de la ficha se puede marcar como contacto de emergencia (con
-teléfono); esos contactos, psiquiatra, medicación y qué hacer van en «Si hay una
-crisis», cerca del inicio del popup. Son datos de salud: no salen del panel.
+teléfono); esos contactos, psiquiatra, medicación y qué hacer van en la pestaña
+Crisis del popup. Son datos de salud: no salen del panel.
 
 ### Alta y pausa (`migrations/017`)
 
