@@ -290,6 +290,8 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
         vigente = futuras[0] if futuras else pasadas[-1]
         sin_pagar = [t for t in pasadas if t.get("pago") == "pendiente"]
         nacimiento = datos.get(telefono, {}).get("fecha_nacimiento")
+        estado = datos.get(telefono, {}).get("estado") or "activo"
+        cerrado = datos.get(telefono, {}).get("estado_fecha")
         lista.append(
             {
                 "telefono": telefono,
@@ -318,8 +320,11 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "adeudado": sum(t.get("valor") or 0 for t in sin_pagar),
                 "historial": pasadas[:-11:-1],
                 "ultima_nota": next((t for t in reversed(pasadas) if t.get("nota")), None),
-                "quedan": sesiones_que_quedan(sesiones, ahora),
-                "alerta": alerta_de_seguimiento(sesiones, ahora),
+                "estado": estado,
+                "estado_fecha": date.fromisoformat(cerrado).strftime("%d/%m/%Y") if cerrado else None,
+                "estado_motivo": datos.get(telefono, {}).get("estado_motivo"),
+                "quedan": sesiones_que_quedan(sesiones, ahora) if estado == "activo" else None,
+                "alerta": alerta_de_seguimiento(sesiones, ahora) if estado == "activo" else None,
                 "sesiones": sesiones,
                 "recordado_hoy": datos.get(telefono, {}).get("ultimo_recordatorio_pago") == hoy.isoformat(),
             }
@@ -355,7 +360,8 @@ def _cobros(fichas: list[dict], primero: date, tz: ZoneInfo, ahora: datetime) ->
 
 
 def _fechas_semana(fichas: list[dict]) -> list[dict]:
-    cercanas = [{"ficha": f, "fecha": c} for f in fichas for c in f["fechas"] if c["_dias"] <= scheduler.DIAS_AVISO]
+    cercanas = [{"ficha": f, "fecha": c} for f in fichas if f["estado"] == "activo"
+                for c in f["fechas"] if c["_dias"] <= scheduler.DIAS_AVISO]
     return sorted(cercanas, key=lambda x: x["fecha"]["_dias"])
 
 
@@ -709,6 +715,38 @@ def agenda_paciente():
         if campo in request.form:
             campos[campo] = request.form[campo].strip() or None
     db.guardar_paciente(session["tenant_id"], telefono, campos)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/cerrar")
+@login_required
+def agenda_cerrar():
+    """Alta o pausa: la ficha y la deuda quedan; deja de aparecer en avisos."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    telefono = request.form.get("telefono") or ""
+    estado = request.form.get("estado")
+    if not telefono or estado not in ("pausa", "alta"):
+        return "pedido inválido", 400
+    ahora = datetime.now(_tz_de(tenant))
+    db.guardar_paciente(tenant["id"], telefono, {
+        "estado": estado, "estado_fecha": ahora.date().isoformat(),
+        "estado_motivo": (request.form.get("motivo") or "").strip() or None,
+    })
+    canceladas = 0
+    if request.form.get("cancelar_futuras"):
+        canceladas = db.cancelar_sesiones_futuras(tenant["id"], telefono, ahora.astimezone(ZoneInfo("UTC")))
+    aviso = "Tratamiento en pausa." if estado == "pausa" else "Paciente dado de alta."
+    flash(f"{aviso} Se liberaron {canceladas} sesiones futuras." if canceladas else aviso)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/retomar")
+@login_required
+def agenda_retomar():
+    telefono = request.form.get("telefono") or ""
+    if not telefono:
+        return "falta el paciente", 400
+    db.guardar_paciente(session["tenant_id"], telefono, {"estado": "activo", "estado_fecha": None, "estado_motivo": None})
     return _volver_a_agenda()
 
 

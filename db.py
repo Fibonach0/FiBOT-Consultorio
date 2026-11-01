@@ -409,6 +409,21 @@ def guardar_paciente(tenant_id: str, telefono: str, campos: dict) -> None:
     ).execute()
 
 
+def cancelar_sesiones_futuras(tenant_id: str, telefono: str, desde: datetime) -> int:
+    res = (
+        _client.table("turnos")
+        .select("id")
+        .eq("tenant_id", tenant_id)
+        .eq("estado", "reservado")
+        .eq("paciente_telefono", telefono)
+        .gt("inicio", desde.isoformat())
+        .execute()
+    )
+    for t in res.data:
+        cancelar_turno(tenant_id, t["id"])
+    return len(res.data)
+
+
 def personas_de_pacientes(tenant_id: str) -> list[dict]:
     res = _client.table("paciente_personas").select("*").eq("tenant_id", tenant_id).order("nombre").execute()
     return res.data

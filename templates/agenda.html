@@ -368,8 +368,7 @@
     {% if fichas %}<input type="search" id="buscar-ficha" placeholder="Buscar por nombre o teléfono" autocomplete="off">{% endif %}
     <div class="tenue" id="sin-resultados" hidden>No hay ninguna ficha con ese nombre.</div>
     {% if not fichas %}<div class="tenue">Cuando agendes un paciente, acá aparece su ficha.</div>{% endif %}
-    <div class="fichero">
-      {% for f in fichas %}
+    {% macro tarjeta(f) %}
       <article class="ficha" role="button" tabindex="0" data-ficha="{{ f.dom }}" data-buscar="{{ f.nombre }} {{ f.telefono }}">
         <h4>{{ f.nombre }}</h4>
         <dl>
@@ -384,8 +383,19 @@
           {% endif %}
         </dl>
       </article>
-      {% endfor %}
+    {% endmacro %}
+    {% set cerradas = fichas|rejectattr('estado', 'equalto', 'activo')|list %}
+    <div class="fichero">
+      {% for f in fichas if f.estado == 'activo' %}{{ tarjeta(f) }}{% endfor %}
     </div>
+    {% if cerradas %}
+    <details id="fichas-cerradas">
+      <summary class="tenue">Alta o pausa ({{ cerradas|length }}) ▾</summary>
+      <div class="fichero">
+        {% for f in cerradas %}{{ tarjeta(f) }}{% endfor %}
+      </div>
+    </details>
+    {% endif %}
   </div>
   </div>
 
@@ -400,6 +410,14 @@
     <div class="ficha">
       <button class="cerrar" type="button" aria-label="Cerrar">×</button>
       <h4>{{ f.nombre }}</h4>
+      {% if f.estado != 'activo' %}
+      <form method="post" action="{{ url_for('agenda_retomar') }}">
+        {{ ocultos(f.telefono) }}
+        <span class="chip">{{ 'En pausa' if f.estado == 'pausa' else 'De alta' }}{% if f.estado_fecha %} desde {{ f.estado_fecha }}{% endif %}</span>
+        {% if f.estado_motivo %}<span class="tenue">{{ f.estado_motivo }}</span>{% endif %}
+        <button class="btn chico secundario" type="submit">Retomar tratamiento</button>
+      </form>
+      {% endif %}
       {% if f.alerta %}<div class="chip chip-alerta">{{ f.alerta }}</div>{% endif %}
       <form method="post" action="{{ url_for('agenda_paciente') }}">
         {{ ocultos(f.telefono) }}
@@ -525,6 +543,25 @@
         </form>
       </details>
 
+      {% if f.estado == 'activo' %}
+      <h5>Cerrar tratamiento</h5>
+      <details>
+        <summary class="tenue">Pausar o dar de alta ▾</summary>
+        <form method="post" action="{{ url_for('agenda_cerrar') }}" class="fila">
+          {{ ocultos(f.telefono) }}
+          <div><label>Qué pasa</label>
+            <select name="estado">
+              <option value="pausa">Pausa</option>
+              <option value="alta">Alta</option>
+            </select>
+          </div>
+          <div class="ancho"><label>Motivo</label><input type="text" name="motivo"></div>
+          <div class="ancho"><label><input type="checkbox" name="cancelar_futuras" value="1" checked> Liberar sus sesiones futuras</label></div>
+          <div class="al-pie"><button class="btn chico" type="submit" onclick="return confirm('¿Cerrar este tratamiento?')">Confirmar</button></div>
+        </form>
+      </details>
+      {% endif %}
+
       <h5>Constancia de sesiones</h5>
       <form method="post" action="{{ url_for('agenda_constancia') }}" target="_blank" class="fila">
         {{ ocultos(f.telefono) }}
@@ -585,6 +622,8 @@
       ficha.hidden = !normal(ficha.dataset.buscar).includes(buscado);
       visibles += !ficha.hidden;
     });
+    const cerradas = document.getElementById('fichas-cerradas');
+    if (cerradas) cerradas.open = buscado !== '';
     document.getElementById('sin-resultados').hidden = visibles > 0;
   });
   const abierta = sessionStorage.getItem('ficha');
