@@ -56,7 +56,7 @@
       <form method="post" action="{{ url_for('agenda_renovar') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
-        <input type="hidden" name="telefono" value="{{ f.telefono }}">
+        <input type="hidden" name="telefono" value="{{ f.clave }}">
         <button class="btn chico" type="submit">Renovar 8 sesiones</button>
       </form>
     </div>
@@ -428,7 +428,7 @@
         </div>
         <label>Pacientes</label>
         <div class="dias-semana">
-          {% for f in activos %}<label><input type="checkbox" name="pacientes" value="{{ f.telefono }}" checked> {{ f.nombre }}</label>{% endfor %}
+          {% for f in activos %}<label><input type="checkbox" name="pacientes" value="{{ f.clave }}" checked> {{ f.nombre }}</label>{% endfor %}
         </div>
         <button class="btn chico" type="submit" onclick="return confirm('¿Actualizar el valor de las sesiones sin pagar de estos pacientes?')">Aplicar</button>
       </form>
@@ -491,6 +491,22 @@
   <input type="hidden" name="telefono" value="{{ telefono }}">
   {% endmacro %}
 
+  {% macro mover(f, h) %}
+  {% if f.hermanos %}
+  <details>
+    <summary class="tenue">Es de otra persona ▾</summary>
+    <form method="post" action="{{ url_for('agenda_mover', turno_id=h.id) }}" class="fila">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+      <div><label>Pasar a</label>
+        <select name="destino">{% for o in f.hermanos %}<option value="{{ o.clave }}">{{ o.nombre }}</option>{% endfor %}</select>
+      </div>
+      <div class="al-pie"><button class="btn chico secundario" type="submit">Pasar</button></div>
+    </form>
+  </details>
+  {% endif %}
+  {% endmacro %}
+
   {% for f in fichas %}
   <dialog class="ficha-dialogo" id="{{ f.dom }}">
     <div class="ficha">
@@ -498,13 +514,14 @@
       <h4>{{ f.nombre }}</h4>
       {% if f.estado != 'activo' %}
       <form method="post" action="{{ url_for('agenda_retomar') }}">
-        {{ ocultos(f.telefono) }}
+        {{ ocultos(f.clave) }}
         <span class="chip">{{ 'En pausa' if f.estado == 'pausa' else 'De alta' }}{% if f.estado_fecha %} desde {{ f.estado_fecha }}{% endif %}</span>
         {% if f.estado_motivo %}<span class="tenue">{{ f.estado_motivo }}</span>{% endif %}
         <button class="btn chico secundario" type="submit">Retomar tratamiento</button>
       </form>
       {% endif %}
       {% if f.alerta %}<div class="chip chip-alerta">{{ f.alerta }}</div>{% endif %}
+      {% if f.hermanos %}<div class="tenue">Comparte WhatsApp con {{ f.hermanos|map(attribute='nombre')|join(', ') }}.</div>{% endif %}
       <div class="ficha-resumen"><span>Próxima: <strong>{{ f.proxima or 'sin agendar' }}</strong></span><span{% if f.sin_pagar %} class="debe"{% endif %}>Debe: <strong>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}nada{% endif %}</strong></span></div>
       <div class="pestanias" role="tablist" aria-label="Secciones de la ficha">
         {% for clave, titulo in rubro.pestanias %}
@@ -513,7 +530,7 @@
       </div>
       <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-terapia" aria-labelledby="{{ f.dom }}-tab-terapia" data-panel="terapia">
       <form method="post" action="{{ url_for('agenda_paciente') }}">
-        {{ ocultos(f.telefono) }}
+        {{ ocultos(f.clave) }}
         <label>{{ rubro.motivo }}</label>
         <textarea name="motivo_consulta" rows="2">{{ f.motivo_consulta or '' }}</textarea>
         <label>Qué estamos trabajando</label>
@@ -548,14 +565,22 @@
             <button class="btn chico" type="submit">Guardar</button>
           </form>
         </details>
+        {{ mover(f, h) }}
       </div>
       {% else %}
       <div class="tenue">Todavía no tuvo sesiones.</div>
       {% endfor %}
 
+      {% if f.hermanos and f.proximas %}
+      <h5>Próximas sesiones</h5>
+      {% for h in f.proximas %}
+      <div class="ficha-sesion">{{ h._dia }} {{ h._hora }}{{ mover(f, h) }}</div>
+      {% endfor %}
+      {% endif %}
+
       <h5>Constancia de sesiones</h5>
       <form method="post" action="{{ url_for('agenda_constancia') }}" target="_blank" class="fila">
-        {{ ocultos(f.telefono) }}
+        {{ ocultos(f.clave) }}
         <div><label>Mes</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
         <div class="al-pie"><button class="btn chico secundario" type="submit">Generar</button></div>
       </form>
@@ -564,7 +589,7 @@
       <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-crisis" aria-labelledby="{{ f.dom }}-tab-crisis" data-panel="crisis" hidden>
       {% if rubro.escuela %}
       <form method="post" action="{{ url_for('agenda_paciente') }}">
-        {{ ocultos(f.telefono) }}
+        {{ ocultos(f.clave) }}
         <label>Escuela</label>
         <input type="text" name="escuela" value="{{ f.escuela or '' }}">
         <label>Grado o año</label>
@@ -586,7 +611,7 @@
       <div class="tenue">Sin contacto de emergencia.</div>
       {% endfor %}
       <form method="post" action="{{ url_for('agenda_paciente') }}">
-        {{ ocultos(f.telefono) }}
+        {{ ocultos(f.clave) }}
         <label>{{ rubro.tratantes }}</label>
         <input type="text" name="psiquiatra" value="{{ f.psiquiatra or '' }}">
         <label>Medicación</label>
@@ -603,11 +628,11 @@
       <div class="ficha-item">
         <span><strong>{{ p.nombre }}</strong>{% if p.vinculo %} <span class="tenue">{{ p.vinculo }}</span>{% endif %}{% if p.telefono %} <span class="tenue">· {{ p.telefono }}</span>{% endif %}</span>
         <form method="post" action="{{ url_for('agenda_persona_emergencia', persona_id=p.id) }}">
-          {{ ocultos(f.telefono) }}
+          {{ ocultos(f.clave) }}
           <button class="chip{{ ' chip-alerta' if p.emergencia }}" name="emergencia" value="{{ '' if p.emergencia else '1' }}">{{ 'Contacto de emergencia' if p.emergencia else 'Marcar emergencia' }}</button>
         </form>
         <form method="post" action="{{ url_for('agenda_persona_borrar', persona_id=p.id) }}">
-          {{ ocultos(f.telefono) }}
+          {{ ocultos(f.clave) }}
           <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar de la ficha?')">×</button>
         </form>
       </div>
@@ -615,7 +640,7 @@
       <details>
         <summary class="tenue">Agregar persona o mascota ▾</summary>
         <form method="post" action="{{ url_for('agenda_persona') }}" class="fila">
-          {{ ocultos(f.telefono) }}
+          {{ ocultos(f.clave) }}
           <div><label>Nombre</label><input type="text" name="nombre" required></div>
           <div><label>Parentesco o qué es</label><input type="text" name="vinculo" placeholder="{{ rubro.vinculo_ejemplo }}"></div>
           <div><label>Teléfono (opcional)</label><input type="text" name="telefono_persona"></div>
@@ -633,7 +658,7 @@
           {% elif c.animo == 'mal' %}<span class="chip chip-alerta">le hace mal</span>{% endif %}
         </span>
         <form method="post" action="{{ url_for('agenda_fecha_borrar', fecha_id=c.id) }}">
-          {{ ocultos(f.telefono) }}
+          {{ ocultos(f.clave) }}
           <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar esta fecha?')">×</button>
         </form>
       </div>
@@ -641,7 +666,7 @@
       <details>
         <summary class="tenue">Agregar fecha ▾</summary>
         <form method="post" action="{{ url_for('agenda_fecha') }}" class="fila">
-          {{ ocultos(f.telefono) }}
+          {{ ocultos(f.clave) }}
           <div class="ancho"><label>Qué fecha es</label><input type="text" name="titulo" placeholder="{{ rubro.fecha_ejemplo }}" required></div>
           <div><label>Día</label><input type="number" name="dia" min="1" max="31" required></div>
           <div><label>Mes</label>
@@ -674,14 +699,14 @@
 
       {% if f.adeudado %}
       <form method="post" action="{{ url_for('agenda_recordar_pago') }}">
-        {{ ocultos(f.telefono) }}
+        {{ ocultos(f.clave) }}
         {% if f.recordado_hoy %}<span class="tenue">Ya se le recordó el pago hoy.</span>
         {% else %}<button class="btn chico secundario" type="submit" onclick="return confirm('¿Mandarle por WhatsApp un recordatorio de {{ f.adeudado|pesos }}?')">Recordar pago por WhatsApp</button>{% endif %}
       </form>
       {% endif %}
 
       <form method="post" action="{{ url_for('agenda_paciente') }}">
-        {{ ocultos(f.telefono) }}
+        {{ ocultos(f.clave) }}
         <label>Fecha de nacimiento</label>
         <input type="date" name="fecha_nacimiento" value="{{ f.fecha_nacimiento or '' }}">
         <label>Obra social o prepaga</label>
@@ -696,7 +721,7 @@
       <details>
         <summary class="tenue">Pausar o dar de alta ▾</summary>
         <form method="post" action="{{ url_for('agenda_cerrar') }}" class="fila">
-          {{ ocultos(f.telefono) }}
+          {{ ocultos(f.clave) }}
           <div><label>Qué pasa</label>
             <select name="estado">
               <option value="pausa">Pausa</option>
