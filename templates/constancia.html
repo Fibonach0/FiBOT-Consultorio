@@ -5,6 +5,7 @@
   <div class="card constancia">
     <h2>Constancia de sesiones</h2>
     <p>{{ tenant.nombre }} deja constancia de las sesiones de <strong>{{ ficha.nombre }}</strong> en {{ titulo }}.</p>
+    {% if tenant.matricula %}<p>Matrícula {{ tenant.matricula }}</p>{% endif %}
     {% if ficha.obra_social %}<p>Obra social: {{ ficha.obra_social }}{% if ficha.numero_afiliado %} · Afiliado N° {{ ficha.numero_afiliado }}{% endif %}</p>{% endif %}
     {% for s in sesiones %}
     <div class="turno"><span>{{ s._dia }} {{ s._hora }}</span><span>{{ s.valor|pesos if s.valor is not none else '—' }}</span></div>

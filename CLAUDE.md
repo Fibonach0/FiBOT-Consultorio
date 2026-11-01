@@ -284,6 +284,14 @@ Un bloqueo no cancela nada: saca los horarios de `turnos_disponibles`,
 sesiones que quedan adentro para que el profesional avise o las mueva. `hasta` es
 exclusivo (medianoche local del día siguiente).
 
+### Planilla para obra social (`migrations/020`)
+
+`/agenda/obra-social` arma una página imprimible por obra social y mes con
+pacientes, afiliado y fechas de las sesiones marcadas como asistidas; avisa las
+que quedaron sin marcar. Sin teléfonos, montos ni notas. La matrícula se carga en
+Ajustes y sale también en la constancia. No es una liquidación: el formato de
+cada obra social puede pedir otra cosa, hay que validarlo con el profesional.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier

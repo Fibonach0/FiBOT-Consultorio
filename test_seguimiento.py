@@ -901,6 +901,36 @@ TABLAS["bloqueos"].append({"id": "aj", "tenant_id": "t2", "desde": ahora.isoform
 client.post("/agenda/bloqueo/aj/borrar")
 chequear("no borra el de otro tenant", len(TABLAS["bloqueos"]) == 1 and "Ajeno" not in client.get("/agenda").data.decode())
 
+print("Planilla para obra social")
+reset()
+TABLAS["turnos"] = [t for t in TABLAS["turnos"] if t["tenant_id"] == "t2"]
+hace = ahora.astimezone(zona).replace(day=1, hour=9, minute=0)
+hace = (hace - timedelta(days=1)).replace(day=10)
+mes_p = hace.strftime("%Y-%m")
+TABLAS["turnos"] += [
+    turno("o1", "t1", hace.astimezone(timezone.utc), estado="reservado", paciente_nombre="Ana", paciente_telefono="11", asistencia="vino", valor=777, nota="Nota secreta"),
+    turno("o2", "t1", (hace + timedelta(days=7)).astimezone(timezone.utc), estado="reservado", paciente_nombre="Ana", paciente_telefono="11", asistencia="no_vino"),
+    turno("o3", "t1", (hace + timedelta(days=8)).astimezone(timezone.utc), estado="reservado", paciente_nombre="Ana", paciente_telefono="11"),
+    turno("o4", "t1", (hace + timedelta(days=1)).astimezone(timezone.utc), estado="reservado", paciente_nombre="Beto", paciente_telefono="22", asistencia="vino"),
+    turno("o5", "t1", (hace + timedelta(days=2)).astimezone(timezone.utc), estado="reservado", paciente_nombre="Cata", paciente_telefono="33", asistencia="vino"),
+]
+TABLAS["pacientes"] += [{"tenant_id": "t1", "paciente_telefono": "11", "obra_social": "OSDE", "numero_afiliado": "123"},
+                        {"tenant_id": "t1", "paciente_telefono": "22", "obra_social": "osde"},
+                        {"tenant_id": "t1", "paciente_telefono": "33", "obra_social": "Swiss"}]
+client.post("/agenda/avisos", data={"matricula": " MN 1234 "})
+chequear("guarda la matrícula", TABLAS["tenants"][0]["matricula"] == "MN 1234")
+html = client.get(f"/agenda/obra-social?mes={mes_p}&obra_social=OSDE").data.decode()
+chequear("agrupa por paciente sin distinguir mayúsculas", "Ana" in html and "Beto" in html and "Cata" not in html)
+chequear("lleva afiliado y matrícula", "123" in html and "MN 1234" in html)
+chequear("sólo las asistidas", hace.strftime("%d/%m") in html and (hace + timedelta(days=7)).strftime("%d/%m") not in html)
+chequear("avisa las sin marcar", "1 sesión sin marcar" in html)
+chequear("sin teléfonos, montos ni notas", "777" not in html and "Nota secreta" not in html and ">11<" not in html)
+html = client.get(f"/agenda/obra-social?mes=2001-01&obra_social=OSDE").data.decode()
+chequear("mes vacío lo dice", "No hay sesiones asistidas" in html)
+html = client.get("/agenda").data.decode()
+chequear("el panel ofrece las obras sin repetir", html.count("<option>OSDE</option>") + html.count("<option>osde</option>") == 1
+         and "<option>Swiss</option>" in html)
+
 print("Nota de cada sesión")
 reset()
 client.post("/agenda/nota/pasado", data={"nota": "  Habló de la mudanza  "})

@@ -818,6 +818,8 @@ def agenda_avisos():
     campos = {}
     if "telefono" in request.form:
         campos["aviso_telefono"] = "".join(ch for ch in request.form["telefono"] if ch.isdigit()) or None
+    if "matricula" in request.form:
+        campos["matricula"] = request.form["matricula"].strip() or None
     if "link_videollamada" in request.form:
         link = request.form["link_videollamada"].strip()
         if link and not link.startswith("https://"):
@@ -936,6 +938,39 @@ def agenda_exportar():
     salida.seek(0)
     return send_file(salida, as_attachment=True, download_name=f"sesiones-{primero:%Y-%m}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+def _misma_obra_social(a: str | None, b: str) -> bool:
+    return (a or "").strip().casefold() == b.strip().casefold()
+
+
+@app.get("/agenda/obra-social")
+@login_required
+def agenda_obra_social():
+    """Planilla mensual para presentar: sólo sesiones marcadas como asistidas.
+    Sin teléfonos, montos ni notas."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    ahora = datetime.now(tz)
+    primero = _mes_de(request.args.get("mes"), ahora.date())
+    obra_social = (request.args.get("obra_social") or "").strip()
+    pacientes, sin_marcar = [], 0
+    for f in _fichas(tenant, tz, ahora):
+        if not _misma_obra_social(f["obra_social"], obra_social):
+            continue
+        fechas = []
+        for t in f["sesiones"]:
+            inicio = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+            if (inicio.year, inicio.month) != (primero.year, primero.month) or inicio > ahora:
+                continue
+            if t.get("asistencia") == "vino":
+                fechas.append(inicio.strftime("%d/%m"))
+            elif not t.get("asistencia"):
+                sin_marcar += 1
+        if fechas:
+            pacientes.append({"nombre": f["nombre"], "afiliado": f["numero_afiliado"], "fechas": fechas})
+    return render_template("planilla_obra_social.html", tenant=tenant, obra_social=obra_social, titulo=_meses_label(primero),
+                           pacientes=pacientes, sin_marcar=sin_marcar, total=sum(len(p["fechas"]) for p in pacientes))
 
 
 @app.post("/agenda/paciente/constancia")
