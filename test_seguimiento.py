@@ -678,6 +678,19 @@ chequear("un mes sin pagos lo dice", "No hay sesiones pagas" in html)
 chequear("otro paciente de otro tenant -> 404",
          client.post("/agenda/paciente/constancia", data={"telefono": "5491100000009", "mes": mes_pago}).status_code == 404)
 
+print("Motivo y objetivos")
+reset()
+tel = "5491100000002"
+client.post("/agenda/paciente", data={"telefono": tel, "fecha_nacimiento": "1990-05-20", "notas": "Nota general"})
+client.post("/agenda/paciente", data={"telefono": tel, "motivo_consulta": " Ansiedad ", "objetivos": "Dormir mejor", "como_viene": "Mejor"})
+p = TABLAS["pacientes"][0]
+chequear("guarda motivo, objetivos y cómo viene", (p["motivo_consulta"], p["objetivos"], p["como_viene"]) == ("Ansiedad", "Dormir mejor", "Mejor"))
+chequear("no pisa el nacimiento ni las notas", p["fecha_nacimiento"] == "1990-05-20" and p["notas"] == "Nota general")
+html = client.get("/agenda").data.decode()
+chequear("salen arriba de la ficha", html.index("Ansiedad") < html.index("Fechas importantes"))
+chequear("el resto de los datos no los pierde", client.post("/agenda/paciente", data={"telefono": tel, "fecha_nacimiento": "1990-05-21"}).status_code == 302
+         and p["objetivos"] == "Dormir mejor")
+
 print("Nota de cada sesión")
 reset()
 client.post("/agenda/nota/pasado", data={"nota": "  Habló de la mudanza  "})

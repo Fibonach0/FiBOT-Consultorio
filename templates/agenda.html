@@ -401,7 +401,17 @@
       <button class="cerrar" type="button" aria-label="Cerrar">×</button>
       <h4>{{ f.nombre }}</h4>
       {% if f.alerta %}<div class="chip chip-alerta">{{ f.alerta }}</div>{% endif %}
-      <dl>
+      <form method="post" action="{{ url_for('agenda_paciente') }}">
+        {{ ocultos(f.telefono) }}
+        <label>Motivo de consulta</label>
+        <textarea name="motivo_consulta" rows="2">{{ f.motivo_consulta or '' }}</textarea>
+        <label>Qué estamos trabajando</label>
+        <textarea name="objetivos" rows="2">{{ f.objetivos or '' }}</textarea>
+        <label>Cómo viene</label>
+        <textarea name="como_viene" rows="2">{{ f.como_viene or '' }}</textarea>
+        <button class="btn chico" type="submit">Guardar</button>
+      </form>
+      <dl class="ficha-datos">
         <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
         <dt>Valor</dt><dd>{{ f.valor|pesos if f.valor is not none else '—' }}</dd>
         <dt>Edad</dt><dd>{{ f.edad if f.edad is not none else '—' }}</dd>
