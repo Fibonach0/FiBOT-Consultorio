@@ -241,6 +241,11 @@ Se escribe desde la semana o desde «Últimas sesiones» en la ficha, y la tarje
 de Hoy muestra la última para repasar antes de atender. Es lo más sensible del
 sistema: nunca sale por WhatsApp, constancias ni exportaciones.
 
+### Motivo y objetivos (`migrations/015`)
+
+Motivo de consulta, qué se está trabajando y cómo viene van arriba del popup, en
+su propio form. `/agenda/paciente` sólo guarda los campos que recibe.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier

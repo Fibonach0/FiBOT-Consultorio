@@ -300,6 +300,9 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "edad": _edad(nacimiento, hoy),
                 "cumpleanios": _cumpleanios(nacimiento, hoy),
                 "notas": datos.get(telefono, {}).get("notas"),
+                "motivo_consulta": datos.get(telefono, {}).get("motivo_consulta"),
+                "objetivos": datos.get(telefono, {}).get("objetivos"),
+                "como_viene": datos.get(telefono, {}).get("como_viene"),
                 "obra_social": datos.get(telefono, {}).get("obra_social"),
                 "numero_afiliado": datos.get(telefono, {}).get("numero_afiliado"),
                 "personas": personas.get(telefono, []),
@@ -696,8 +699,9 @@ def agenda_paciente():
         except ValueError:
             flash("La fecha de nacimiento no es válida.")
             return _volver_a_agenda()
-    campos = {"fecha_nacimiento": fecha}
-    for campo in ("notas", "obra_social", "numero_afiliado"):
+    # Cada form de la ficha manda sólo sus campos: lo que no viene no se pisa.
+    campos = {"fecha_nacimiento": fecha} if "fecha_nacimiento" in request.form else {}
+    for campo in ("notas", "obra_social", "numero_afiliado", "motivo_consulta", "objetivos", "como_viene"):
         if campo in request.form:
             campos[campo] = request.form[campo].strip() or None
     db.guardar_paciente(session["tenant_id"], telefono, campos)
