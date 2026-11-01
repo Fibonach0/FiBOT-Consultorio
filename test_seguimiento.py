@@ -978,6 +978,24 @@ with client.session_transaction() as s:
 r = client.post("/agenda/pago/pasado", data={"pago": "pagado"})
 chequear("sin login -> redirige al login", r.status_code == 302 and "/login" in r.headers["Location"])
 
+import rubros  # noqa: E402
+
+chequear("psicopedagogía se reconoce sin acentos", rubros.de({"rubro": " Psicopedagogia "})["escuela"])
+chequear("otro rubro usa los textos de siempre", not rubros.de({"rubro": "psicología"})["escuela"] and not rubros.de({})["escuela"])
+with client.session_transaction() as s:
+    s["tenant_id"] = "t1"
+    s["csrf_token"] = "tok"
+reset()
+TABLAS["turnos"].append(turno("esc", "t1", manana, estado="reservado", paciente_nombre="Nina", paciente_telefono="549111"))
+html = client.get("/agenda").data.decode()
+chequear("psicología no ve la pestaña Escuela", ">Crisis</button>" in html and 'name="escuela"' not in html)
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+html = client.get("/agenda").data.decode()
+chequear("psicopedagogía ve Escuela y Familia", ">Escuela</button>" in html and ">Familia</button>" in html and ">Crisis</button>" not in html and 'name="equipo_orientador"' in html)
+client.post("/agenda/paciente", data={"telefono": "549111", "escuela": " Escuela 12 ", "grado": "3°"})
+html = client.get("/agenda").data.decode()
+chequear("los datos de la escuela se guardan", 'value="Escuela 12"' in html and 'value="3°"' in html)
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

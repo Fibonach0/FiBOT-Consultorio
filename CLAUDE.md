@@ -203,6 +203,17 @@ El popup se divide en cinco pestañas: Terapia, Sesiones, Crisis, Personas (con
 las fechas) y Datos. Próxima sesión y deuda quedan siempre a la vista arriba.
 Abre en Terapia, y al guardar vuelve a la pestaña donde estaba.
 
+### Psicopedagogía (`rubros.py`, `migrations/021`)
+
+No es otro deploy: `tenants.rubro` elige textos y pestañas de la ficha. Con
+«psicopedagogía», Crisis pasa a Escuela (escuela, grado, docente y equipo de
+orientación, más los datos de salud y emergencia), Terapia a Trabajo y Personas a
+Familia. Las claves internas de las pestañas y las columnas no cambian. Los demás
+rubros siguen igual.
+
+Límite: la ficha se identifica por teléfono, así que dos hermanos con el WhatsApp
+del mismo adulto caen en una sola ficha.
+
 ### Hoy
 
 `app._hoy` arma, arriba del panel, una tarjeta por sesión del día con deuda,

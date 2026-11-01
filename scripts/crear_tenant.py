@@ -28,7 +28,7 @@ if not SUPABASE_URL or not SUPABASE_SERVICE_ROLE_KEY:
 client = create_client(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY)
 
 nombre = input("Nombre para mostrar (ej. 'Lic. Ana Pérez'): ").strip()
-rubro = input("Rubro (ej. 'psicología') [opcional]: ").strip() or None
+rubro = input("Rubro (ej. 'psicología' o 'psicopedagogía') [opcional]: ").strip() or None
 slug = input("Slug para la página pública de reserva (ej. 'anaperez', vacío = sin página pública): ").strip() or None
 phone_number_id = input(
     "whatsapp_phone_number_id de la app de Meta\n  (VACÍO = usa el número compartido de la plataforma; se puede migrar al propio después): "
