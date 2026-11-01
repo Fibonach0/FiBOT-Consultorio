@@ -25,7 +25,8 @@
         {% for c in h.fechas %}
         <div class="{{ 'debe' if c.animo == 'mal' else 'tenue' }}">{{ c.titulo }}, {{ c._falta }}</div>
         {% endfor %}
-        {% if h.ficha.notas %}<div class="hoy-nota">{{ h.ficha.notas|truncate(110) }}</div>{% endif %}
+        {% if h.ficha.ultima_nota %}<div class="hoy-nota">{{ h.ficha.ultima_nota._dia }}: {{ h.ficha.ultima_nota.nota|truncate(110) }}</div>
+        {% elif h.ficha.notas %}<div class="hoy-nota">{{ h.ficha.notas|truncate(110) }}</div>{% endif %}
       </div>
       {% endfor %}
     </div>
@@ -160,6 +161,15 @@
               <button class="btn chico secundario" name="modalidad" value="virtual">Pasar a videollamada</button>
               {% endif %}
             </form>
+            <details>
+              <summary class="btn chico secundario">{{ 'Ver nota' if t.nota else 'Nota de la sesión' }}</summary>
+              <form class="apilado" method="post" action="{{ url_for('agenda_nota', turno_id=t.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="semana" value="{{ semana }}">
+                <textarea name="nota" rows="4">{{ t.nota or '' }}</textarea>
+                <button class="btn chico" type="submit">Guardar</button>
+              </form>
+            </details>
             <details>
               <summary class="btn chico secundario">Pasar a otro día</summary>
               <form method="post" action="{{ url_for('agenda_reprogramar', turno_id=t.id) }}" class="fila">
@@ -494,6 +504,16 @@
         {% elif h.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
         {% if h.pago == 'pagado' %}<span class="chip chip-ok">pagó</span>
         {% elif h.pago == 'pendiente' %}<span class="chip chip-alerta">sin pagar</span>{% endif %}
+        {% if h.nota %}<div class="hoy-nota">{{ h.nota }}</div>{% endif %}
+        <details>
+          <summary class="tenue">{{ 'Editar nota' if h.nota else 'Agregar nota' }} ▾</summary>
+          <form method="post" action="{{ url_for('agenda_nota', turno_id=h.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+            <textarea name="nota" rows="4">{{ h.nota or '' }}</textarea>
+            <button class="btn chico" type="submit">Guardar</button>
+          </form>
+        </details>
       </div>
       {% else %}
       <div class="tenue">Todavía no tuvo sesiones.</div>

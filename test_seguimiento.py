@@ -137,7 +137,8 @@ class _Query:
                     continue
                 fila = {"id": f"turno-{len(filas) + 1}", "paciente_telefono": None, "paciente_nombre": None,
                         "recordatorio_enviado": False, "asistencia": None, "pago": "pendiente",
-                        "reprogramado_desde": None, "valor": None, "frecuencia": None, "modalidad": None, **nueva}
+                        "reprogramado_desde": None, "valor": None, "frecuencia": None, "modalidad": None,
+                        "nota": None, **nueva}
                 filas.append(fila)
                 creadas.append(dict(fila))
             return _Res(creadas)
@@ -182,7 +183,7 @@ def turno(id_, tenant_id, inicio, **extra):
             "fin": (inicio + timedelta(minutes=50)).isoformat(), "estado": "libre",
             "paciente_telefono": None, "paciente_nombre": None, "recordatorio_enviado": False,
             "asistencia": None, "pago": "pendiente", "reprogramado_desde": None,
-            "valor": None, "frecuencia": None, "modalidad": None}
+            "valor": None, "frecuencia": None, "modalidad": None, "nota": None}
     return {**base, **extra}
 
 
@@ -676,6 +677,33 @@ html = client.post("/agenda/paciente/constancia", data={"telefono": tel, "mes": 
 chequear("un mes sin pagos lo dice", "No hay sesiones pagas" in html)
 chequear("otro paciente de otro tenant -> 404",
          client.post("/agenda/paciente/constancia", data={"telefono": "5491100000009", "mes": mes_pago}).status_code == 404)
+
+print("Nota de cada sesión")
+reset()
+client.post("/agenda/nota/pasado", data={"nota": "  Habló de la mudanza  "})
+chequear("guarda la nota", fila("pasado")["nota"] == "Habló de la mudanza")
+client.post("/agenda/nota/ajeno", data={"nota": "pisada"})
+chequear("no toca la sesión de otro tenant", fila("ajeno")["nota"] is None)
+client.post("/agenda/nota/libre-manana", data={"nota": "x"})
+chequear("un horario libre no lleva nota", fila("libre-manana")["nota"] is None)
+ficha_juan = next(f for f in app._fichas(TENANT, zona, ahora.astimezone(zona)) if f["nombre"] == "Juan")
+chequear("la ficha trae la última nota", ficha_juan["ultima_nota"]["nota"] == "Habló de la mudanza")
+TABLAS["turnos"].append(turno("hoy-juan", "t1", ahora.astimezone(zona).replace(hour=12).astimezone(timezone.utc), estado="reservado",
+                              paciente_nombre="Juan", paciente_telefono="5491100000001"))
+html = client.get("/agenda").data.decode()
+chequear("se ve en el panel", "Habló de la mudanza" in html)
+chequear("la constancia no la trae", fila("pasado").update(pago="pagado", valor=1) is None and "mudanza" not in client.post(
+    "/agenda/paciente/constancia", data={"telefono": "5491100000001", "mes": _norm(fila("pasado")["inicio"]).astimezone(zona).strftime("%Y-%m")}).data.decode())
+reset()
+fila("futuro")["nota"] = "Sesión a preparar"
+db.reprogramar_turno("t1", "futuro", manana + timedelta(hours=2), 50)
+chequear("viaja al reprogramar y no queda en el horario viejo",
+         fila("libre-manana")["nota"] == "Sesión a preparar" and fila("futuro")["nota"] is None)
+db.cancelar_turno("t1", "libre-manana")
+chequear("cancelar la limpia", fila("libre-manana")["nota"] is None)
+client.post("/agenda/nota/pasado", data={"nota": "algo"})
+client.post("/agenda/nota/pasado", data={"nota": "   "})
+chequear("vaciarla la borra", fila("pasado")["nota"] is None)
 
 print("Calendario")
 reset()
