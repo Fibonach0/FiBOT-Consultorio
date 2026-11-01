@@ -266,6 +266,12 @@ quién lo hizo (`origen`). Sólo se registra si el llamador pasa `origen`:
 reprogramar y cerrar un tratamiento no cuentan. La ficha muestra faltas y
 cancelaciones de los últimos 90 días; desde 3 entra en «Para mirar».
 
+### Exportar a Excel
+
+`/agenda/exportar` baja sesiones y resumen de un mes para el contador. Por defecto
+va sin nombres; nunca lleva teléfonos ni notas. Las celdas de texto se fuerzan a
+texto: el nombre viene de una página pública y podría ser una fórmula.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier

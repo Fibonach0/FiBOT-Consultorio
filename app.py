@@ -8,6 +8,7 @@ particular — lo particular vive en la tabla `tenants` y se carga con
 scripts/crear_tenant.py, nunca hardcodeado acá."""
 import functools
 import hmac
+import io
 import logging
 import os
 import secrets
@@ -15,7 +16,8 @@ from datetime import date, datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 
 import bcrypt
-from flask import Flask, flash, jsonify, redirect, render_template, request, session, url_for
+from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, session, url_for
+from openpyxl import Workbook
 
 import config
 import conversation
@@ -383,6 +385,7 @@ def _cobros(fichas: list[dict], primero: date, tz: ZoneInfo, ahora: datetime) ->
     return {
         **cuentas,
         "titulo": _meses_label(primero),
+        "mes": primero.strftime("%Y-%m"),
         "anterior": MESES_LABEL[anterior.month - 1].lower(),
         "deuda_total": sum(f["adeudado"] for f in fichas),
         "deudores": sorted((f for f in fichas if f["adeudado"]), key=lambda f: -f["adeudado"]),
@@ -778,6 +781,60 @@ def agenda_retomar():
         return "falta el paciente", 400
     db.guardar_paciente(session["tenant_id"], telefono, {"estado": "activo", "estado_fecha": None, "estado_motivo": None})
     return _volver_a_agenda()
+
+
+ETIQUETAS_EXCEL = {"vino": "Asistió", "no_vino": "No vino", "pendiente": "Sin pagar", "pagado": "Pagó", "no_cobra": "No se cobra"}
+
+
+def _fila_excel(hoja, valores: list) -> None:
+    """Forzar texto: un nombre cargado en la página pública podría empezar con
+    `=` y Excel lo correría como fórmula."""
+    hoja.append(valores)
+    for celda in hoja[hoja.max_row]:
+        if isinstance(celda.value, str):
+            celda.data_type = "s"
+
+
+@app.get("/agenda/exportar")
+@login_required
+def agenda_exportar():
+    """Para el contador. Sin nombres salvo que se pidan, y nunca notas."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    ahora = datetime.now(tz)
+    primero = _mes_de(request.args.get("mes"), ahora.date())
+    con_nombres = request.args.get("nombres") == "1"
+    fichas = _fichas(tenant, tz, ahora)
+
+    libro = Workbook()
+    hoja = libro.active
+    hoja.title = "Sesiones"
+    identidad = ["Paciente", "Obra social"] if con_nombres else []
+    _fila_excel(hoja, ["Fecha", "Hora", *identidad, "Modalidad", "Asistencia", "Pago", "Valor"])
+    filas = []
+    for f in fichas:
+        for t in f["sesiones"]:
+            inicio = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+            if (inicio.year, inicio.month) == (primero.year, primero.month):
+                filas.append((inicio, f, t))
+    for inicio, f, t in sorted(filas, key=lambda x: x[0]):
+        _fila_excel(hoja, [
+            inicio.date(), inicio.strftime("%H:%M"),
+            *([f["nombre"], f["obra_social"]] if con_nombres else []),
+            "Videollamada" if t.get("modalidad") == "virtual" else "Presencial",
+            ETIQUETAS_EXCEL.get(t.get("asistencia"), ""), ETIQUETAS_EXCEL.get(t.get("pago"), ""), t.get("valor"),
+        ])
+    cobros = _cobros(fichas, primero, tz, ahora)
+    resumen = libro.create_sheet("Resumen")
+    for etiqueta, clave in (("Cobrado", "cobrado"), ("A cobrar", "a_cobrar"), ("Agendado", "agendado"),
+                            ("Sesiones dadas", "sesiones"), ("Ausencias", "ausencias")):
+        _fila_excel(resumen, [etiqueta, cobros[clave]])
+
+    salida = io.BytesIO()
+    libro.save(salida)
+    salida.seek(0)
+    return send_file(salida, as_attachment=True, download_name=f"sesiones-{primero:%Y-%m}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 
 @app.post("/agenda/paciente/constancia")

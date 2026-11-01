@@ -811,6 +811,34 @@ chequear("cuenta sólo los últimos 90 días y este tenant", (ana["faltas_recien
 chequear("con 3 entre faltas y cancelaciones avisa", ana["alerta"] == "3 faltas o cancelaciones en 90 días", ana["alerta"])
 chequear("el panel lo muestra", "Últimos 90 días" in client.get("/agenda").data.decode())
 
+print("Exportar a Excel")
+reset()
+TABLAS["pacientes"].append({"tenant_id": "t1", "paciente_telefono": "5491100000001", "obra_social": "OSDE", "notas": "Nota privada"})
+fila("pasado").update(valor=1000, paciente_nombre="=HYPERLINK(1)", nota="Nota de sesión", pago="pagado", asistencia="vino")
+import io
+from openpyxl import load_workbook
+mes_x = _norm(fila("pasado")["inicio"]).astimezone(zona).strftime("%Y-%m")
+r = client.get(f"/agenda/exportar?mes={mes_x}")
+chequear("baja un Excel", r.status_code == 200 and "sesiones-" in r.headers["Content-Disposition"])
+libro = load_workbook(io.BytesIO(r.data))
+filas_x = list(libro["Sesiones"].values)
+plano = " ".join(str(c) for f in filas_x for c in f)
+chequear("sin nombres por defecto", "Paciente" not in plano and "HYPERLINK" not in plano and "OSDE" not in plano, plano)
+chequear("trae valor, asistencia y pago", "Asistió" in plano and "Pagó" in plano and "1000" in plano, plano)
+chequear("no trae teléfonos ni notas", "54911" not in plano and "Nota" not in plano)
+chequear("no trae otro tenant", len(filas_x) == 1 + sum(_norm(t["inicio"]).astimezone(zona).strftime("%Y-%m") == mes_x
+         for t in TABLAS["turnos"] if t["tenant_id"] == "t1" and t["estado"] == "reservado"), filas_x)
+libro = load_workbook(io.BytesIO(client.get(f"/agenda/exportar?mes={mes_x}&nombres=1").data))
+celda = next(c for f in libro["Sesiones"].iter_rows() for c in f if c.value == "=HYPERLINK(1)")
+chequear("con nombres los trae", any(v == "OSDE" for f in libro["Sesiones"].values for v in f))
+chequear("un nombre con = no es fórmula", celda.data_type == "s", celda.data_type)
+chequear("resumen con cobrado", dict(libro["Resumen"].values)["Cobrado"] >= 1000)
+with client.session_transaction() as s:
+    s.pop("tenant_id")
+chequear("sin login no baja nada", client.get("/agenda/exportar").status_code == 302)
+with client.session_transaction() as s:
+    s["tenant_id"] = "t1"
+
 print("Nota de cada sesión")
 reset()
 client.post("/agenda/nota/pasado", data={"nota": "  Habló de la mudanza  "})

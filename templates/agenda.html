@@ -243,6 +243,11 @@
       <div><span class="tenue">Pacientes</span><strong>{{ cobros.pacientes }}{% if cobros.nuevos %} <span class="tenue">({{ cobros.nuevos }} nuevo{{ 's' if cobros.nuevos > 1 }})</span>{% endif %}</strong></div>
     </div>
     <div class="tenue">En {{ cobros.anterior }} cobraste {{ cobros.cobrado_antes|pesos }}. Deuda total: {{ cobros.deuda_total|pesos }}.</div>
+    <form method="get" action="{{ url_for('agenda_exportar') }}" class="exportar">
+      <input type="hidden" name="mes" value="{{ cobros.mes }}">
+      <button class="btn chico secundario" type="submit">Exportar a Excel</button>
+      <label><input type="checkbox" name="nombres" value="1"> Con nombres</label>
+    </form>
     {% if cobros.sin_valor %}<div class="tenue">{{ cobros.sin_valor }} sesi{{ 'ones' if cobros.sin_valor > 1 else 'ón' }} sin valor cargado.</div>{% endif %}
     {% if cobros.deudores %}
     <h4 class="subtitulo">Quién debe</h4>
