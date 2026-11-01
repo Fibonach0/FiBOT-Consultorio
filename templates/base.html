@@ -100,9 +100,22 @@
     .ficha h5 { margin:16px 0 4px; font-family:Georgia, serif; font-size:.95rem; border-bottom:1px solid #b5533c; }
     .ficha-dialogo { width:min(600px, calc(100vw - 24px)); max-height:calc(100vh - 24px); padding:0; border:none; background:none; overflow-y:auto; }
     .ficha-dialogo::backdrop { background:rgba(30, 28, 22, .55); }
-    .ficha-dialogo .ficha { position:relative; padding:22px 24px; font-size:.9rem; }
+    .ficha-dialogo .ficha { position:relative; aspect-ratio:auto; min-height:min(620px, calc(100vh - 24px)); padding:22px 24px; font-size:.9rem; }
     .ficha-dialogo h4 { font-size:1.4rem; padding-right:32px; }
     .ficha-dialogo dt, .ficha-dialogo dd { font-size:.84rem; }
+    .ficha-resumen { display:flex; flex-wrap:wrap; justify-content:space-between; gap:2px 14px; margin:6px 0 0; color:var(--muted); font-size:.84rem; }
+    .ficha-resumen strong { color:var(--ink, inherit); }
+    .ficha-resumen .debe strong { color:#c1652f; }
+    .pestanias { position:sticky; top:0; z-index:1; display:flex; margin:10px -24px 14px; padding:8px 24px 0; overflow-x:auto; scrollbar-width:none; background:#fffdf5; border-bottom:1px solid #b5533c; }
+    .pestania { flex:1 0 auto; padding:8px 6px; font:inherit; font-size:.84rem; color:var(--muted); background:none; border:none; border-bottom:3px solid transparent; cursor:pointer; }
+    .pestania:hover { color:inherit; }
+    .pestania[aria-selected="true"] { color:#b5533c; font-weight:700; border-bottom-color:#b5533c; }
+    .pestania:focus-visible { outline:2px solid #b5533c; outline-offset:-2px; }
+    @media (max-width:480px) {
+      .ficha-dialogo .ficha { padding:18px 14px; }
+      .pestanias { margin:10px -14px 14px; padding:6px 8px 0; }
+      .pestania { flex:1 1 auto; padding:8px 2px; font-size:.78rem; }
+    }
     .cerrar { position:absolute; top:12px; right:14px; border:none; background:none; font-size:1.6rem; line-height:1; color:var(--muted); cursor:pointer; }
     .quitar { border:none; background:none; font-size:1.1rem; color:var(--muted); cursor:pointer; }
     .ficha-item { display:flex; justify-content:space-between; align-items:center; gap:8px; padding:3px 0; border-bottom:1px dotted var(--rule); }

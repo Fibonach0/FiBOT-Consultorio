@@ -505,6 +505,13 @@
       </form>
       {% endif %}
       {% if f.alerta %}<div class="chip chip-alerta">{{ f.alerta }}</div>{% endif %}
+      <div class="ficha-resumen"><span>Próxima: <strong>{{ f.proxima or 'sin agendar' }}</strong></span><span{% if f.sin_pagar %} class="debe"{% endif %}>Debe: <strong>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}nada{% endif %}</strong></span></div>
+      <div class="pestanias" role="tablist" aria-label="Secciones de la ficha">
+        {% for clave, titulo in [('terapia', 'Terapia'), ('sesiones', 'Sesiones'), ('crisis', 'Crisis'), ('personas', 'Personas'), ('datos', 'Datos')] %}
+        <button class="pestania" type="button" role="tab" id="{{ f.dom }}-tab-{{ clave }}" aria-controls="{{ f.dom }}-{{ clave }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ 0 if loop.first else -1 }}" data-pestania="{{ clave }}">{{ titulo }}</button>
+        {% endfor %}
+      </div>
+      <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-terapia" aria-labelledby="{{ f.dom }}-tab-terapia" data-panel="terapia">
       <form method="post" action="{{ url_for('agenda_paciente') }}">
         {{ ocultos(f.telefono) }}
         <label>Motivo de consulta</label>
@@ -513,9 +520,49 @@
         <textarea name="objetivos" rows="2">{{ f.objetivos or '' }}</textarea>
         <label>Cómo viene</label>
         <textarea name="como_viene" rows="2">{{ f.como_viene or '' }}</textarea>
+        <label>Notas</label>
+        <textarea name="notas" rows="5">{{ f.notas or '' }}</textarea>
         <button class="btn chico" type="submit">Guardar</button>
       </form>
-      <h5>Si hay una crisis</h5>
+      </section>
+
+      <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-sesiones" aria-labelledby="{{ f.dom }}-tab-sesiones" data-panel="sesiones" hidden>
+      <dl class="ficha-datos">
+        <dt>Asistió</dt><dd>{{ f.asistio }}{% if f.falto %} · faltó {{ f.falto }}{% endif %}</dd>
+        <dt>Últimos 90 días</dt><dd>{{ f.faltas_recientes }} falta{{ 's' if f.faltas_recientes != 1 }} · {{ f.canceladas_recientes }} cancelaci{{ 'ones' if f.canceladas_recientes != 1 else 'ón' }}</dd>
+      </dl>
+      <h5>Últimas sesiones</h5>
+      {% for h in f.historial %}
+      <div class="ficha-sesion">{{ h._dia }} {{ h._hora }}
+        {% if h.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
+        {% elif h.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
+        {% if h.pago == 'pagado' %}<span class="chip chip-ok">pagó</span>
+        {% elif h.pago == 'pendiente' %}<span class="chip chip-alerta">sin pagar</span>{% endif %}
+        {% if h.nota %}<div class="hoy-nota">{{ h.nota }}</div>{% endif %}
+        <details>
+          <summary class="tenue">{{ 'Editar nota' if h.nota else 'Agregar nota' }} ▾</summary>
+          <form method="post" action="{{ url_for('agenda_nota', turno_id=h.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+            <textarea name="nota" rows="4">{{ h.nota or '' }}</textarea>
+            <button class="btn chico" type="submit">Guardar</button>
+          </form>
+        </details>
+      </div>
+      {% else %}
+      <div class="tenue">Todavía no tuvo sesiones.</div>
+      {% endfor %}
+
+      <h5>Constancia de sesiones</h5>
+      <form method="post" action="{{ url_for('agenda_constancia') }}" target="_blank" class="fila">
+        {{ ocultos(f.telefono) }}
+        <div><label>Mes</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
+        <div class="al-pie"><button class="btn chico secundario" type="submit">Generar</button></div>
+      </form>
+      </section>
+
+      <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-crisis" aria-labelledby="{{ f.dom }}-tab-crisis" data-panel="crisis" hidden>
+      <h5>Contactos de emergencia</h5>
       {% for p in f.personas if p.emergencia %}
       <div class="ficha-item">
         <span><strong>{{ p.nombre }}</strong>{% if p.vinculo %} <span class="tenue">{{ p.vinculo }}</span>{% endif %}</span>
@@ -534,40 +581,34 @@
         <textarea name="plan_crisis" rows="2">{{ f.plan_crisis or '' }}</textarea>
         <button class="btn chico" type="submit">Guardar</button>
       </form>
-      <dl class="ficha-datos">
-        <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
-        <dt>Valor</dt><dd>{{ f.valor|pesos if f.valor is not none else '—' }}</dd>
-        <dt>Edad</dt><dd>{{ f.edad if f.edad is not none else '—' }}</dd>
-        <dt>Cumple</dt><dd>{{ f.cumpleanios or '—' }}</dd>
-        <dt>WhatsApp</dt><dd>{{ f.telefono }}</dd>
-        <dt>Obra social</dt><dd>{{ f.obra_social or '—' }}{% if f.numero_afiliado %} · {{ f.numero_afiliado }}{% endif %}</dd>
-        <dt>Desde</dt><dd>{{ f.desde }}</dd>
-        <dt>Próxima</dt><dd>{{ f.proxima or '—' }}</dd>
-        <dt>Asistió</dt><dd>{{ f.asistio }}{% if f.falto %} · faltó {{ f.falto }}{% endif %}</dd>
-        <dt>Últimos 90 días</dt><dd>{{ f.faltas_recientes }} falta{{ 's' if f.faltas_recientes != 1 }} · {{ f.canceladas_recientes }} cancelaci{{ 'ones' if f.canceladas_recientes != 1 else 'ón' }}</dd>
-        <dt>Debe</dt><dd{% if f.sin_pagar %} class="debe"{% endif %}>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}Nada{% endif %}</dd>
-      </dl>
+      </section>
 
-      {% if f.adeudado %}
-      <form method="post" action="{{ url_for('agenda_recordar_pago') }}">
-        {{ ocultos(f.telefono) }}
-        {% if f.recordado_hoy %}<span class="tenue">Ya se le recordó el pago hoy.</span>
-        {% else %}<button class="btn chico secundario" type="submit" onclick="return confirm('¿Mandarle por WhatsApp un recordatorio de {{ f.adeudado|pesos }}?')">Recordar pago por WhatsApp</button>{% endif %}
-      </form>
-      {% endif %}
-
-      <form method="post" action="{{ url_for('agenda_paciente') }}">
-        {{ ocultos(f.telefono) }}
-        <label>Fecha de nacimiento</label>
-        <input type="date" name="fecha_nacimiento" value="{{ f.fecha_nacimiento or '' }}">
-        <label>Obra social o prepaga</label>
-        <input type="text" name="obra_social" value="{{ f.obra_social or '' }}">
-        <label>N° de afiliado</label>
-        <input type="text" name="numero_afiliado" value="{{ f.numero_afiliado or '' }}">
-        <label>Notas</label>
-        <textarea name="notas" rows="5">{{ f.notas or '' }}</textarea>
-        <button class="btn chico" type="submit">Guardar</button>
-      </form>
+      <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-personas" aria-labelledby="{{ f.dom }}-tab-personas" data-panel="personas" hidden>
+      <h5>Personas y mascotas</h5>
+      {% for p in f.personas %}
+      <div class="ficha-item">
+        <span><strong>{{ p.nombre }}</strong>{% if p.vinculo %} <span class="tenue">{{ p.vinculo }}</span>{% endif %}{% if p.telefono %} <span class="tenue">· {{ p.telefono }}</span>{% endif %}</span>
+        <form method="post" action="{{ url_for('agenda_persona_emergencia', persona_id=p.id) }}">
+          {{ ocultos(f.telefono) }}
+          <button class="chip{{ ' chip-alerta' if p.emergencia }}" name="emergencia" value="{{ '' if p.emergencia else '1' }}">{{ 'Contacto de emergencia' if p.emergencia else 'Marcar emergencia' }}</button>
+        </form>
+        <form method="post" action="{{ url_for('agenda_persona_borrar', persona_id=p.id) }}">
+          {{ ocultos(f.telefono) }}
+          <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar de la ficha?')">×</button>
+        </form>
+      </div>
+      {% endfor %}
+      <details>
+        <summary class="tenue">Agregar persona o mascota ▾</summary>
+        <form method="post" action="{{ url_for('agenda_persona') }}" class="fila">
+          {{ ocultos(f.telefono) }}
+          <div><label>Nombre</label><input type="text" name="nombre" required></div>
+          <div><label>Parentesco o qué es</label><input type="text" name="vinculo" placeholder="Madre, perro…"></div>
+          <div><label>Teléfono (opcional)</label><input type="text" name="telefono_persona"></div>
+          <div class="ancho"><label><input type="checkbox" name="emergencia" value="1"> Contacto de emergencia</label></div>
+          <div class="al-pie"><button class="btn chico" type="submit">Agregar</button></div>
+        </form>
+      </details>
 
       <h5>Fechas importantes</h5>
       {% for c in f.fechas %}
@@ -603,32 +644,38 @@
           <div class="al-pie"><button class="btn chico" type="submit">Agregar</button></div>
         </form>
       </details>
+      </section>
 
-      <h5>Personas y mascotas</h5>
-      {% for p in f.personas %}
-      <div class="ficha-item">
-        <span><strong>{{ p.nombre }}</strong>{% if p.vinculo %} <span class="tenue">{{ p.vinculo }}</span>{% endif %}{% if p.telefono %} <span class="tenue">· {{ p.telefono }}</span>{% endif %}</span>
-        <form method="post" action="{{ url_for('agenda_persona_emergencia', persona_id=p.id) }}">
-          {{ ocultos(f.telefono) }}
-          <button class="chip{{ ' chip-alerta' if p.emergencia }}" name="emergencia" value="{{ '' if p.emergencia else '1' }}">{{ 'Contacto de emergencia' if p.emergencia else 'Marcar emergencia' }}</button>
-        </form>
-        <form method="post" action="{{ url_for('agenda_persona_borrar', persona_id=p.id) }}">
-          {{ ocultos(f.telefono) }}
-          <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar de la ficha?')">×</button>
-        </form>
-      </div>
-      {% endfor %}
-      <details>
-        <summary class="tenue">Agregar persona o mascota ▾</summary>
-        <form method="post" action="{{ url_for('agenda_persona') }}" class="fila">
-          {{ ocultos(f.telefono) }}
-          <div><label>Nombre</label><input type="text" name="nombre" required></div>
-          <div><label>Parentesco o qué es</label><input type="text" name="vinculo" placeholder="Madre, perro…"></div>
-          <div><label>Teléfono (opcional)</label><input type="text" name="telefono_persona"></div>
-          <div class="ancho"><label><input type="checkbox" name="emergencia" value="1"> Contacto de emergencia</label></div>
-          <div class="al-pie"><button class="btn chico" type="submit">Agregar</button></div>
-        </form>
-      </details>
+      <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-datos" aria-labelledby="{{ f.dom }}-tab-datos" data-panel="datos" hidden>
+      <dl class="ficha-datos">
+        <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
+        <dt>Valor</dt><dd>{{ f.valor|pesos if f.valor is not none else '—' }}</dd>
+        <dt>Edad</dt><dd>{{ f.edad if f.edad is not none else '—' }}</dd>
+        <dt>Cumple</dt><dd>{{ f.cumpleanios or '—' }}</dd>
+        <dt>WhatsApp</dt><dd>{{ f.telefono }}</dd>
+        <dt>Obra social</dt><dd>{{ f.obra_social or '—' }}{% if f.numero_afiliado %} · {{ f.numero_afiliado }}{% endif %}</dd>
+        <dt>Desde</dt><dd>{{ f.desde }}</dd>
+        <dt>Debe</dt><dd{% if f.sin_pagar %} class="debe"{% endif %}>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}Nada{% endif %}</dd>
+      </dl>
+
+      {% if f.adeudado %}
+      <form method="post" action="{{ url_for('agenda_recordar_pago') }}">
+        {{ ocultos(f.telefono) }}
+        {% if f.recordado_hoy %}<span class="tenue">Ya se le recordó el pago hoy.</span>
+        {% else %}<button class="btn chico secundario" type="submit" onclick="return confirm('¿Mandarle por WhatsApp un recordatorio de {{ f.adeudado|pesos }}?')">Recordar pago por WhatsApp</button>{% endif %}
+      </form>
+      {% endif %}
+
+      <form method="post" action="{{ url_for('agenda_paciente') }}">
+        {{ ocultos(f.telefono) }}
+        <label>Fecha de nacimiento</label>
+        <input type="date" name="fecha_nacimiento" value="{{ f.fecha_nacimiento or '' }}">
+        <label>Obra social o prepaga</label>
+        <input type="text" name="obra_social" value="{{ f.obra_social or '' }}">
+        <label>N° de afiliado</label>
+        <input type="text" name="numero_afiliado" value="{{ f.numero_afiliado or '' }}">
+        <button class="btn chico" type="submit">Guardar</button>
+      </form>
 
       {% if f.estado == 'activo' %}
       <h5>Cerrar tratamiento</h5>
@@ -648,35 +695,7 @@
         </form>
       </details>
       {% endif %}
-
-      <h5>Constancia de sesiones</h5>
-      <form method="post" action="{{ url_for('agenda_constancia') }}" target="_blank" class="fila">
-        {{ ocultos(f.telefono) }}
-        <div><label>Mes</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
-        <div class="al-pie"><button class="btn chico secundario" type="submit">Generar</button></div>
-      </form>
-
-      <h5>Últimas sesiones</h5>
-      {% for h in f.historial %}
-      <div class="ficha-sesion">{{ h._dia }} {{ h._hora }}
-        {% if h.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
-        {% elif h.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
-        {% if h.pago == 'pagado' %}<span class="chip chip-ok">pagó</span>
-        {% elif h.pago == 'pendiente' %}<span class="chip chip-alerta">sin pagar</span>{% endif %}
-        {% if h.nota %}<div class="hoy-nota">{{ h.nota }}</div>{% endif %}
-        <details>
-          <summary class="tenue">{{ 'Editar nota' if h.nota else 'Agregar nota' }} ▾</summary>
-          <form method="post" action="{{ url_for('agenda_nota', turno_id=h.id) }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
-            <textarea name="nota" rows="4">{{ h.nota or '' }}</textarea>
-            <button class="btn chico" type="submit">Guardar</button>
-          </form>
-        </details>
-      </div>
-      {% else %}
-      <div class="tenue">Todavía no tuvo sesiones.</div>
-      {% endfor %}
+      </section>
     </div>
   </dialog>
   {% endfor %}
@@ -684,7 +703,25 @@
 <script>
   // La ficha se cierra con la X, con Esc o tocando afuera: el fondo del popup
   // es el propio <dialog>, porque el contenido va en un div que lo cubre.
-  function abrir(id) { document.getElementById(id)?.showModal(); }
+  function mostrar(dialogo, clave) {
+    const pestanias = [...dialogo.querySelectorAll('[role="tab"]')];
+    const elegida = pestanias.find(p => p.dataset.pestania === clave) || pestanias[0];
+    pestanias.forEach(p => {
+      const activa = p === elegida;
+      p.setAttribute('aria-selected', activa);
+      p.tabIndex = activa ? 0 : -1;
+      document.getElementById(p.getAttribute('aria-controls')).hidden = !activa;
+    });
+    dialogo.scrollTop = 0;
+    return elegida;
+  }
+  // Cada vez que se abre arranca en Terapia, salvo al volver de guardar.
+  function abrir(id, clave) {
+    const dialogo = document.getElementById(id);
+    if (!dialogo) return;
+    mostrar(dialogo, clave);
+    dialogo.showModal();
+  }
   document.querySelectorAll('[data-ficha]').forEach(ficha => {
     ficha.addEventListener('click', () => abrir(ficha.dataset.ficha));
     ficha.addEventListener('keydown', e => {
@@ -698,7 +735,20 @@
     // Guardar recarga la página: se vuelve a la ficha que estaba abierta,
     // salvo que haya un aviso que leer.
     dialogo.querySelectorAll('form:not([target])').forEach(form =>
-      form.addEventListener('submit', () => sessionStorage.setItem('ficha', dialogo.id)));
+      form.addEventListener('submit', () => {
+        sessionStorage.setItem('ficha', dialogo.id);
+        sessionStorage.setItem('ficha-pestania', dialogo.querySelector('[aria-selected="true"]').dataset.pestania);
+      }));
+    const pestanias = [...dialogo.querySelectorAll('[role="tab"]')];
+    pestanias.forEach((pestania, i) => {
+      pestania.addEventListener('click', () => mostrar(dialogo, pestania.dataset.pestania));
+      pestania.addEventListener('keydown', e => {
+        const salto = { ArrowRight: 1, ArrowLeft: -1 }[e.key];
+        if (!salto) return;
+        e.preventDefault();
+        mostrar(dialogo, pestanias[(i + salto + pestanias.length) % pestanias.length].dataset.pestania).focus();
+      });
+    });
   });
   // Sin acentos ni mayúsculas: "gomez" encuentra a Gómez.
   const normal = texto => texto.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
@@ -714,7 +764,9 @@
     document.getElementById('sin-resultados').hidden = visibles > 0;
   });
   const abierta = sessionStorage.getItem('ficha');
+  const pestaniaAbierta = sessionStorage.getItem('ficha-pestania');
   sessionStorage.removeItem('ficha');
-  if (abierta && !document.querySelector('.aviso')) abrir(abierta);
+  sessionStorage.removeItem('ficha-pestania');
+  if (abierta && !document.querySelector('.aviso')) abrir(abierta, pestaniaAbierta);
 </script>
 {% endblock %}
