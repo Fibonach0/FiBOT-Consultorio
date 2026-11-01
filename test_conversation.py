@@ -44,11 +44,11 @@ def fake_reservar_turno(tenant_id, turno_id, telefono, nombre):
     return False
 
 
-def fake_turno_reservado_de(tenant_id, telefono):
+def fake_proximos_turnos_de(tenant_id, telefono):
     for t in FAKE_TURNOS:
         if t["estado"] == "reservado" and t["paciente_telefono"] == telefono:
-            return t
-    return None
+            return [t]
+    return []
 
 
 def fake_cancelar_turno(tenant_id, turno_id, origen=None):
@@ -61,7 +61,7 @@ def fake_cancelar_turno(tenant_id, turno_id, origen=None):
 
 db.turnos_libres = fake_turnos_libres
 db.reservar_turno = fake_reservar_turno
-db.turno_reservado_de = fake_turno_reservado_de
+db.proximos_turnos_de = fake_proximos_turnos_de
 db.fichas_del_telefono = lambda tenant_id, telefono: []
 db.cancelar_turno = fake_cancelar_turno
 

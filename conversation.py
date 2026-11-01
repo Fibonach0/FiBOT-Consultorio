@@ -15,6 +15,7 @@ DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "doming
 MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "nov", "dic"]
 
 _SELECCION = re.compile(r"^\s*(\d{1,2})\b(.*)$")
+_CANCELAR = re.compile(r"^cancelar(?:\s+(?:el\s+)?turno)?(?:\s+(?:de|a|para))?(?:\s+(.*))?$", re.IGNORECASE)
 
 
 def _fmt(dt_iso: str, tz: ZoneInfo) -> str:
@@ -64,13 +65,28 @@ def _reservar(tenant: dict, telefono: str, indice: int, nombre: str | None) -> s
     return "Justo se acaba de reservar ese horario. Escribí *turno* para ver los que quedan libres."
 
 
-def _cancelar(tenant: dict, telefono: str) -> str:
+def _cancelar(tenant: dict, telefono: str, nombre: str | None = None) -> str:
+    """Nunca adivina de quién es: con varias personas en este teléfono, o con
+    un nombre que no coincide, pregunta y no cancela nada."""
     tz = _tz(tenant)
-    turno = db.turno_reservado_de(tenant["id"], telefono)
-    if not turno:
+    turnos = db.proximos_turnos_de(tenant["id"], telefono)
+    if not turnos:
         return "No tenés ningún turno reservado a tu nombre."
+    if nombre:
+        elegidos = [t for t in turnos if db.mismo_nombre(t.get("paciente_nombre"), nombre)]
+        if not elegidos and len(turnos) == 1 and not turnos[0].get("paciente_nombre"):
+            elegidos = turnos
+    else:
+        elegidos = turnos if len(turnos) == 1 else []
+    if not elegidos:
+        detalle = "\n".join(f"• {t.get('paciente_nombre') or 'Sin nombre'}: {_fmt(t['inicio'], tz)}" for t in turnos)
+        ejemplo = next((t["paciente_nombre"].split()[0] for t in turnos if t.get("paciente_nombre")), None)
+        inicio = f"No encontré un turno de {nombre}." if nombre else "Este WhatsApp tiene turnos de más de un paciente."
+        pedido = f" Escribí *cancelar {ejemplo}* para cancelar el suyo, por ejemplo." if ejemplo else ""
+        return f"{inicio}\n\n{detalle}\n\nTodavía no se canceló nada.{pedido}"
+    turno = elegidos[0]
     db.cancelar_turno(tenant["id"], turno["id"], "paciente")
-    de_quien = f" de {turno['paciente_nombre']}" if len(db.fichas_del_telefono(tenant["id"], telefono)) > 1 else ""
+    de_quien = f" de {turno['paciente_nombre']}" if nombre and turno.get("paciente_nombre") else ""
     return f"Cancelado el turno{de_quien} del {_fmt(turno['inicio'], tz)}. Escribí *turno* si querés reservar otro horario."
 
 
@@ -87,8 +103,9 @@ def responder(tenant: dict, telefono: str, texto: str) -> str:
     if baja in ("turno", "turnos", "horario", "horarios", "reservar", "quiero un turno"):
         return _listar_libres(tenant)
 
-    if baja in ("cancelar", "cancelar turno"):
-        return _cancelar(tenant, telefono)
+    m = _CANCELAR.match(limpio)
+    if m:
+        return _cancelar(tenant, telefono, (m.group(1) or "").strip() or None)
 
     if baja in ("hola", "buenas", "buen dia", "buen día", "ayuda", "menu", "menú"):
         return _menu(tenant)

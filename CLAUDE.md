@@ -222,6 +222,10 @@ agrupar datos de un paciente por teléfono solo.
 nombre, misma ficha; otro nombre, ficha aparte. Un error se corrige con «Es de
 otra persona» en la sesión. Sin nombre, el bot pide uno si hay más de una ficha.
 
+Cancelar por WhatsApp nunca adivina: con turnos de dos personas en el teléfono,
+o con un nombre que no coincide, el bot los lista y no cancela nada hasta recibir
+`cancelar Lola`.
+
 ### Hoy
 
 `app._hoy` arma, arriba del panel, una tarjeta por sesión del día con deuda,
