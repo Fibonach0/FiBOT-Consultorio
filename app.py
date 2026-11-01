@@ -194,7 +194,7 @@ def _mes_de(valor: str | None, hoy: date) -> date:
         return hoy.replace(day=1)
 
 
-def _calendario(tenant: dict, primero: date, tz: ZoneInfo, ahora: datetime) -> list[list[dict]]:
+def _calendario(tenant: dict, primero: date, tz: ZoneInfo, ahora: datetime, bloqueado) -> list[list[dict]]:
     """Las semanas completas (de lunes a domingo) que tocan el mes, con las
     sesiones de cada día. Trae también los días de los meses vecinos que
     completan la grilla, igual que Google Calendar."""
@@ -220,6 +220,7 @@ def _calendario(tenant: dict, primero: date, tz: ZoneInfo, ahora: datetime) -> l
                     "fecha": cursor.strftime("%Y-%m-%d"),
                     "numero": cursor.day,
                     "es_hoy": cursor == ahora.date(),
+                    "bloqueado": bloqueado(cursor),
                     "de_otro_mes": cursor.month != primero.month,
                     "sesiones": [t for t in turnos if t["estado"] == "reservado"],
                     "libres": sum(t["estado"] == "libre" for t in turnos),
@@ -398,6 +399,25 @@ def _fechas_semana(fichas: list[dict]) -> list[dict]:
     return sorted(cercanas, key=lambda x: x["fecha"]["_dias"])
 
 
+def _bloqueos(tenant: dict, fichas: list[dict], tz: ZoneInfo, ahora: datetime) -> list[dict]:
+    """Bloqueos vigentes y a quién agarran: bloquear no cancela nada, el
+    profesional decide qué hacer con cada sesión."""
+    lista = []
+    for b in db.bloqueos_vigentes(tenant["id"], ahora):
+        desde = datetime.fromisoformat(b["desde"])
+        hasta = datetime.fromisoformat(b["hasta"])
+        ultimo = (hasta.astimezone(tz) - timedelta(days=1)).date()
+        lista.append({
+            **b, "_desde": desde.astimezone(tz).date(), "_hasta": ultimo,
+            "_afectados": [
+                {"ficha": f, "cuando": f"{t['_dia']} {t['_hora']}"}
+                for f in fichas for t in f["sesiones"]
+                if desde <= datetime.fromisoformat(t["inicio"]) < hasta and datetime.fromisoformat(t["inicio"]) > ahora
+            ],
+        })
+    return lista
+
+
 def _hoy(tenant: dict, fichas: list[dict], tz: ZoneInfo, ahora: datetime) -> list[dict]:
     """Lo que el profesional quiere repasar antes de cada sesión del día."""
     inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
@@ -440,12 +460,15 @@ def agenda():
     ahora = datetime.now(tz)
     pendientes = _con_hora_local(db.pendientes_de_pago(tenant["id"], ahora.astimezone(ZoneInfo("UTC"))), tz)
     fichas = _fichas(tenant, tz, ahora)
+    bloqueos = _bloqueos(tenant, fichas, tz, ahora)
+    bloqueado = lambda dia: next((b for b in bloqueos if b["_desde"] <= dia <= b["_hasta"]), None)
     comunes = {
         "tenant": tenant,
         "pendientes": pendientes,
         "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
         "fichas": fichas,
         "espera": db.lista_de_espera(tenant["id"]),
+        "bloqueos": bloqueos,
         "hoy_iso": ahora.date().isoformat(),
         "mes_actual": ahora.strftime("%Y-%m"),
         "hoy": _hoy(tenant, fichas, tz, ahora),
@@ -462,7 +485,7 @@ def agenda():
         return render_template(
             "agenda.html",
             vista="mes",
-            semanas=_calendario(tenant, primero, tz, ahora),
+            semanas=_calendario(tenant, primero, tz, ahora, bloqueado),
             mes_titulo=_meses_label(primero),
             mes_anterior=(primero - timedelta(days=1)).strftime("%Y-%m"),
             mes_siguiente=(primero + timedelta(days=32)).strftime("%Y-%m"),
@@ -503,6 +526,7 @@ def agenda():
                 "fecha": clave,
                 "titulo": f"{DIAS_LABEL[cursor.weekday()]} {cursor.day}/{cursor.month:02d}",
                 "es_hoy": clave == ahora.strftime("%Y-%m-%d"),
+                "bloqueado": bloqueado(cursor.date()),
                 "turnos": por_dia.get(clave, []),
             }
         )
@@ -548,6 +572,38 @@ def agenda_generar():
     creados = db.crear_turnos_libres(tenant["id"], inicios, duracion)
     logger.info("Tenant %s generó %s turnos libres", tenant["id"], creados)
     return redirect(url_for("agenda"))
+
+
+@app.post("/agenda/bloqueo")
+@login_required
+def agenda_bloqueo():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    try:
+        desde = date.fromisoformat(request.form.get("desde") or "")
+        hasta = date.fromisoformat(request.form.get("hasta") or request.form.get("desde") or "")
+    except ValueError:
+        flash("Elegí desde y hasta cuándo.")
+        return _volver_a_agenda()
+    if hasta < desde:
+        flash("La fecha final no puede ser anterior a la inicial.")
+        return _volver_a_agenda()
+    utc = ZoneInfo("UTC")
+    db.agregar_bloqueo(
+        tenant["id"],
+        datetime.combine(desde, dtime.min, tzinfo=tz).astimezone(utc),
+        datetime.combine(hasta + timedelta(days=1), dtime.min, tzinfo=tz).astimezone(utc),
+        (request.form.get("motivo") or "").strip() or None,
+    )
+    flash("Días bloqueados. Mirá en la tarjeta si hay sesiones para reprogramar.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/bloqueo/<bloqueo_id>/borrar")
+@login_required
+def agenda_bloqueo_borrar(bloqueo_id):
+    db.borrar_bloqueo(session["tenant_id"], bloqueo_id)
+    return _volver_a_agenda()
 
 
 @app.post("/agenda/cancelar/<turno_id>")

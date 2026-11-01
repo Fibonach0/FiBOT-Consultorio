@@ -77,12 +77,13 @@
     <div class="cal">
       {% for d in ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}<div class="cal-cabecera">{{ d }}</div>{% endfor %}
       {% for semana_cal in semanas %}{% for d in semana_cal %}
-      <a class="cal-dia{% if d.de_otro_mes %} otro-mes{% endif %}{% if d.es_hoy %} hoy{% endif %}" href="{{ url_for('agenda', semana=d.fecha) }}#dia-{{ d.fecha }}">
+      <a class="cal-dia{% if d.de_otro_mes %} otro-mes{% endif %}{% if d.es_hoy %} hoy{% endif %}{% if d.bloqueado %} bloqueado{% endif %}" href="{{ url_for('agenda', semana=d.fecha) }}#dia-{{ d.fecha }}">
         <span class="cal-numero">{{ d.numero }}</span>
         {% for t in d.sesiones %}
         <span class="cal-sesion{% if t.asistencia == 'vino' %} ok{% elif t.asistencia == 'no_vino' %} alerta{% endif %}">{{ t._hora }} {{ t.paciente_nombre or t.paciente_telefono }}</span>
         {% endfor %}
-        {% if d.libres %}<span class="cal-libres">{{ d.libres }} libre{{ 's' if d.libres > 1 }}</span>{% endif %}
+        {% if d.bloqueado %}<span class="cal-libres">{{ d.bloqueado.motivo or 'bloqueado' }}</span>
+        {% elif d.libres %}<span class="cal-libres">{{ d.libres }} libre{{ 's' if d.libres > 1 }}</span>{% endif %}
       </a>
       {% endfor %}{% endfor %}
     </div>
@@ -105,6 +106,7 @@
     {% for dia in dias %}
     <div class="dia{% if dia.es_hoy %} hoy{% endif %}" id="dia-{{ dia.fecha }}">
       <strong>{{ dia.titulo }}{% if dia.es_hoy %} · hoy{% endif %}</strong>
+      {% if dia.bloqueado %}<span class="chip chip-alerta">bloqueado{% if dia.bloqueado.motivo %}: {{ dia.bloqueado.motivo }}{% endif %}</span>{% endif %}
       {% if not dia.turnos %}
         <div class="tenue">sin horarios cargados</div>
       {% endif %}
@@ -194,7 +196,9 @@
       {% else %}
       <div class="turno">
         <span>{{ t._hora }} — <span class="estado-libre">libre</span></span>
-        {% if t._pisado %}
+        {% if dia.bloqueado %}
+        <span class="chip">bloqueado</span>
+        {% elif t._pisado %}
         <span class="chip">se pisa con otra sesión</span>
         {% elif not t._paso %}
         <details class="acciones">
@@ -325,6 +329,35 @@
         <button class="btn" type="submit">Generar</button>
       </div>
     </form>
+  </div>
+
+  <div class="card">
+    <h3>Días bloqueados{% if bloqueos %} <span class="contador">{{ bloqueos|length }}</span>{% endif %}</h3>
+    {% for b in bloqueos %}
+    <div class="ficha-item">
+      <span><strong>{{ b._desde.strftime('%d/%m') }}{% if b._hasta != b._desde %} al {{ b._hasta.strftime('%d/%m') }}{% endif %}</strong>{% if b.motivo %} <span class="tenue">· {{ b.motivo }}</span>{% endif %}</span>
+      <form method="post" action="{{ url_for('agenda_bloqueo_borrar', bloqueo_id=b.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <button class="quitar" type="submit" aria-label="Quitar" onclick="return confirm('¿Quitar este bloqueo?')">×</button>
+      </form>
+    </div>
+    {% if b._afectados %}<h4 class="subtitulo">Hay que avisarles</h4>{% endif %}
+    {% for a in b._afectados %}
+    <div class="semana-fecha" role="button" tabindex="0" data-ficha="{{ a.ficha.dom }}"><strong>{{ a.ficha.nombre }}</strong> · {{ a.cuando }}</div>
+    {% endfor %}
+    {% endfor %}
+    <details>
+      <summary class="tenue">Bloquear días ▾</summary>
+      <form method="post" action="{{ url_for('agenda_bloqueo') }}" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div><label>Desde</label><input type="date" name="desde" required></div>
+        <div><label>Hasta</label><input type="date" name="hasta" required></div>
+        <div class="ancho"><label>Motivo</label><input type="text" name="motivo" placeholder="Vacaciones, congreso…"></div>
+        <div class="al-pie"><button class="btn chico" type="submit">Bloquear</button></div>
+      </form>
+    </details>
   </div>
 
   <div class="card">

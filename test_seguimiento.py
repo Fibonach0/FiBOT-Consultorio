@@ -124,7 +124,9 @@ class _Query:
             reservados = [r for r in filas if r["estado"] == "reservado"]
             filas = [t for t in filas if t["estado"] == "libre" and not any(
                 r["tenant_id"] == t["tenant_id"] and _norm(r["inicio"]) < _norm(t["fin"])
-                and _norm(r["fin"]) > _norm(t["inicio"]) for r in reservados)]
+                and _norm(r["fin"]) > _norm(t["inicio"]) for r in reservados)
+                and not any(b["tenant_id"] == t["tenant_id"] and _norm(b["desde"]) < _norm(t["fin"])
+                            and _norm(b["hasta"]) > _norm(t["inicio"]) for b in TABLAS["bloqueos"])]
         if self.op == "upsert":
             claves = self._on_conflict.split(",")
             creadas = []
@@ -194,6 +196,7 @@ def reset():
     TABLAS["paciente_fechas"] = []
     TABLAS["lista_espera"] = []
     TABLAS["cancelaciones"] = []
+    TABLAS["bloqueos"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -870,6 +873,33 @@ html = client.post("/agenda/aumento", data={"modo": "porcentaje", "valor": "9999
 chequear("frena un porcentaje absurdo", "no puede superar" in html)
 html = client.post("/agenda/aumento", data={"modo": "valor", "valor": "1", "desde": hoy_iso}, follow_redirects=True).data.decode()
 chequear("pide elegir pacientes", "al menos un paciente" in html)
+
+print("Días bloqueados")
+reset()
+dia_libre = (manana + timedelta(hours=2)).astimezone(zona).date()
+client.post("/agenda/bloqueo", data={"desde": dia_libre.isoformat(), "hasta": dia_libre.isoformat(), "motivo": "Congreso"})
+b = TABLAS["bloqueos"][0]
+chequear("cubre el día completo en hora local", _norm(b["desde"]).astimezone(zona).hour == 0
+         and _norm(b["hasta"]) - _norm(b["desde"]) == timedelta(days=1))
+chequear("no se ofrece el horario libre", "libre-manana" not in [t["id"] for t in db.turnos_libres("t1", ahora)])
+chequear("reservarlo igual se rechaza", db.reservar_turno("t1", "libre-manana", "5491100000003", "Eva") is False)
+chequear("reprogramar ahí se rechaza", db.reprogramar_turno("t1", "pasado", manana + timedelta(hours=3), 50) == "Ese día está bloqueado.")
+chequear("el otro tenant no se bloquea", db._esta_bloqueado("t2", fila("libre-manana")["inicio"], fila("libre-manana")["fin"]) is False)
+chequear("las sesiones ya reservadas siguen", fila("futuro")["estado"] == "reservado") if _norm(fila("futuro")["inicio"]).astimezone(zona).date() == dia_libre else None
+html = client.get("/agenda").data.decode()
+chequear("el panel muestra el bloqueo", "Días bloqueados" in html and "Congreso" in html)
+afectados = app._bloqueos(TENANT, app._fichas(TENANT, zona, ahora.astimezone(zona)), zona, ahora.astimezone(zona))
+chequear("dice a quién avisarle", [a["ficha"]["nombre"] for a in afectados[0]["_afectados"]] == (["Ana"] if _norm(fila("futuro")["inicio"]).astimezone(zona).date() == dia_libre else []), afectados[0]["_afectados"])
+chequear("el mes lo marca", 'bloqueado"' in html or " bloqueado" in html)
+html = client.get(f"/agenda?semana={dia_libre.isoformat()}").data.decode()
+chequear("la semana no deja agendar ese día", "bloqueado: Congreso" in html)
+client.post(f"/agenda/bloqueo/{b['id']}/borrar")
+chequear("se puede quitar", TABLAS["bloqueos"] == [] and "libre-manana" in [t["id"] for t in db.turnos_libres("t1", ahora)])
+html = client.post("/agenda/bloqueo", data={"desde": "2030-02-10", "hasta": "2030-02-01"}, follow_redirects=True).data.decode()
+chequear("hasta antes que desde se rechaza", "no puede ser anterior" in html and TABLAS["bloqueos"] == [])
+TABLAS["bloqueos"].append({"id": "aj", "tenant_id": "t2", "desde": ahora.isoformat(), "hasta": (ahora + timedelta(days=3)).isoformat(), "motivo": "Ajeno"})
+client.post("/agenda/bloqueo/aj/borrar")
+chequear("no borra el de otro tenant", len(TABLAS["bloqueos"]) == 1 and "Ajeno" not in client.get("/agenda").data.decode())
 
 print("Nota de cada sesión")
 reset()
