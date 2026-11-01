@@ -233,12 +233,16 @@
 
   <div>
   <div class="card">
-    <h3>Cobros de {{ cobros.titulo }}</h3>
+    <h3>Resumen de {{ cobros.titulo }}</h3>
     <div class="cobros">
       <div><span class="tenue">Cobrado</span><strong>{{ cobros.cobrado|pesos }}</strong></div>
       <div><span class="tenue">A cobrar</span><strong class="debe">{{ cobros.a_cobrar|pesos }}</strong></div>
       <div><span class="tenue">Agendado</span><strong>{{ cobros.agendado|pesos }}</strong></div>
+      <div><span class="tenue">Sesiones dadas</span><strong>{{ cobros.sesiones }}</strong></div>
+      <div><span class="tenue">Ausencias</span><strong>{{ cobros.ausencias }}</strong></div>
+      <div><span class="tenue">Pacientes</span><strong>{{ cobros.pacientes }}{% if cobros.nuevos %} <span class="tenue">({{ cobros.nuevos }} nuevo{{ 's' if cobros.nuevos > 1 }})</span>{% endif %}</strong></div>
     </div>
+    <div class="tenue">En {{ cobros.anterior }} cobraste {{ cobros.cobrado_antes|pesos }}. Deuda total: {{ cobros.deuda_total|pesos }}.</div>
     {% if cobros.sin_valor %}<div class="tenue">{{ cobros.sin_valor }} sesi{{ 'ones' if cobros.sin_valor > 1 else 'ón' }} sin valor cargado.</div>{% endif %}
     {% if cobros.deudores %}
     <h4 class="subtitulo">Quién debe</h4>

@@ -212,7 +212,8 @@ detalle está en el panel. Se marca antes de enviar, para no mandarlo dos veces.
 
 ### Cobros (`migrations/010`)
 
-`app._cobros` resume el mes que se está mirando; «Quién debe» es histórico. El
+`app._cobros` resume el mes que se está mirando (plata, sesiones dadas, ausencias,
+pacientes y comparación con el mes anterior); «Quién debe» es histórico. El
 recordatorio de pago sale **sólo** cuando el profesional toca el botón de la
 ficha, con el monto calculado en el servidor y una vez por día como máximo.
 

@@ -596,7 +596,7 @@ for f in TABLAS["turnos"]:
     if f["id"] in ("c2",):
         f.update(inicio=ayer.isoformat(), fin=(ayer + timedelta(minutes=50)).isoformat())
 html = client.get("/agenda").data.decode()
-chequear("el panel muestra los cobros", "Cobros de" in html and "Quién debe" in html)
+chequear("el panel muestra los cobros", "Resumen de" in html and "Quién debe" in html)
 html = client.post("/agenda/paciente/recordar-pago", data={"telefono": "1"}, follow_redirects=True).data.decode()
 chequear("recuerda el pago con el monto de la base", len(enviados) == 1 and enviados[0][1] == "1" and "$ 2.000" in enviados[0][2], enviados)
 html = client.post("/agenda/paciente/recordar-pago", data={"telefono": "1"}, follow_redirects=True).data.decode()
@@ -752,6 +752,29 @@ fila("pasado").update(valor=1000)
 client.post("/agenda/paciente/cerrar", data={"telefono": "5491100000001", "estado": "alta"})
 html = client.get("/agenda").data.decode()
 chequear("la deuda sigue a la vista", "Quién debe" in html)
+
+print("Resumen del mes")
+reset()
+TABLAS["turnos"] = [t for t in TABLAS["turnos"] if t["tenant_id"] == "t2"]
+mes = ahora.astimezone(zona).date().replace(day=15)
+def en_mes(dia_mes, hora):
+    return app.datetime.combine(dia_mes, app.dtime(hora), tzinfo=zona).astimezone(timezone.utc)
+antes_mes = (mes.replace(day=1) - timedelta(days=1)).replace(day=15)
+TABLAS["turnos"] += [
+    turno("r0", "t1", en_mes(antes_mes, 9), estado="reservado", paciente_nombre="Ana", paciente_telefono="1", valor=500, pago="pagado", asistencia="vino"),
+    turno("r1", "t1", en_mes(mes, 9), estado="reservado", paciente_nombre="Ana", paciente_telefono="1", valor=1000, pago="pagado", asistencia="vino"),
+    turno("r2", "t1", en_mes(mes, 10), estado="reservado", paciente_nombre="Ana", paciente_telefono="1", valor=1000, asistencia="no_vino", pago="no_cobra"),
+    turno("r3", "t1", en_mes(mes, 11), estado="reservado", paciente_nombre="Beto", paciente_telefono="2", valor=2000),
+    turno("r4", "t1", en_mes(mes, 20), estado="reservado", paciente_nombre="Cata", paciente_telefono="3", valor=3000),
+]
+reloj = app.datetime.combine(mes, app.dtime(12), tzinfo=zona)
+c = app._cobros(app._fichas(TENANT, zona, reloj), mes.replace(day=1), zona, reloj)
+chequear("cuenta sesiones dadas y ausencias", c["sesiones"] == 2 and c["ausencias"] == 1, c)
+chequear("una sesión futura no cuenta como dada", c["agendado"] == 3000)
+chequear("cuenta pacientes una vez", c["pacientes"] == 2, c["pacientes"])
+chequear("nuevos son los que arrancaron este mes", c["nuevos"] == 1, c["nuevos"])
+chequear("compara con el mes anterior", c["cobrado_antes"] == 500)
+chequear("la deuda total es histórica", c["deuda_total"] == 2000, c["deuda_total"])
 
 print("Nota de cada sesión")
 reset()

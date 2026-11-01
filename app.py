@@ -338,11 +338,25 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
 def _cobros(fichas: list[dict], primero: date, tz: ZoneInfo, ahora: datetime) -> dict:
     """Las cuentas del mes. Lo adeudado por paciente es histórico, no del mes:
     una deuda de marzo se sigue debiendo en abril."""
-    cuentas = {"cobrado": 0, "a_cobrar": 0, "agendado": 0, "sin_valor": 0}
+    cuentas = {"cobrado": 0, "a_cobrar": 0, "agendado": 0, "sin_valor": 0,
+               "sesiones": 0, "ausencias": 0, "pacientes": 0, "nuevos": 0, "cobrado_antes": 0}
+    anterior = (primero - timedelta(days=1)).replace(day=1)
     for ficha in fichas:
-        for t in ficha["sesiones"]:
+        atendido = False
+        for i, t in enumerate(ficha["sesiones"]):
             inicio = datetime.fromisoformat(t["inicio"]).astimezone(tz)
-            if (inicio.year, inicio.month) != (primero.year, primero.month) or t.get("pago") == "no_cobra":
+            if (inicio.year, inicio.month) == (anterior.year, anterior.month) and t.get("pago") == "pagado":
+                cuentas["cobrado_antes"] += t.get("valor") or 0
+            if (inicio.year, inicio.month) != (primero.year, primero.month):
+                continue
+            if inicio <= ahora:
+                if t.get("asistencia") == "no_vino":
+                    cuentas["ausencias"] += 1
+                else:
+                    cuentas["sesiones"] += 1
+                    atendido = True
+                    cuentas["nuevos"] += i == 0
+            if t.get("pago") == "no_cobra":
                 continue
             if t.get("valor") is None:
                 cuentas["sin_valor"] += 1
@@ -352,9 +366,12 @@ def _cobros(fichas: list[dict], primero: date, tz: ZoneInfo, ahora: datetime) ->
                 cuentas["a_cobrar"] += t["valor"]
             else:
                 cuentas["agendado"] += t["valor"]
+        cuentas["pacientes"] += atendido
     return {
         **cuentas,
         "titulo": _meses_label(primero),
+        "anterior": MESES_LABEL[anterior.month - 1].lower(),
+        "deuda_total": sum(f["adeudado"] for f in fichas),
         "deudores": sorted((f for f in fichas if f["adeudado"]), key=lambda f: -f["adeudado"]),
     }
 
