@@ -1045,6 +1045,33 @@ TABLAS["turnos"].append(turno("h7", "t1", manana + timedelta(days=4)))
 html = client.post("/agenda/agendar/h7", data={"nombre": "Tomás", "telefono": TEL}, follow_redirects=True).data.decode()
 chequear("el panel avisa de la ficha aparte", "ficha aparte" in html and {t["id"]: t for t in TABLAS["turnos"]}["h7"]["ficha"] == "tomas")
 
+# --- Cancelar por WhatsApp con hermanos ---
+reset()
+TEL2 = "5491155556666"
+TABLAS["turnos"] += [
+    turno("c1", "t1", manana + timedelta(hours=1), estado="reservado", paciente_telefono=TEL2, paciente_nombre="Nina Acosta"),
+    turno("c2", "t1", manana + timedelta(hours=2), estado="reservado", paciente_telefono=TEL2, paciente_nombre="Lola Acosta", ficha="lola"),
+    turno("c3", "t1", manana + timedelta(days=7), estado="reservado", paciente_telefono=TEL2, paciente_nombre="Lola Acosta", ficha="lola"),
+]
+estado_de = lambda id_: {t["id"]: t for t in TABLAS["turnos"]}[id_]["estado"]
+reservados = lambda: [t["id"] for t in TABLAS["turnos"] if t["paciente_telefono"] == TEL2 and t["estado"] == "reservado"]
+r = conversation.responder(dict(TENANT), TEL2, "cancelar")
+chequear("sin nombre pregunta y no cancela", "Nina Acosta" in r and "Lola Acosta" in r and "cancelar Nina" in r and len(reservados()) == 3, r)
+r = conversation.responder(dict(TENANT), TEL2, "cancelar turno")
+chequear("«cancelar turno» tampoco adivina", len(reservados()) == 3)
+r = conversation.responder(dict(TENANT), TEL2, "cancelar Pedro")
+chequear("nombre que no está: no cancela", "No encontré" in r and len(reservados()) == 3, r)
+r = conversation.responder(dict(TENANT), TEL2, "Cancelar el turno de lola")
+chequear("con nombre cancela sólo el suyo", "de Lola Acosta" in r and reservados() == ["c1", "c3"], r)
+chequear("registra la cancelación en su ficha", TABLAS["cancelaciones"][-1]["ficha"] == "lola")
+r = conversation.responder(dict(TENANT), TEL2, "cancelar")
+chequear("sigue preguntando si quedan dos", len(reservados()) == 2, r)
+db.cancelar_turno("t1", "c3")
+r = conversation.responder(dict(TENANT), TEL2, "cancelar")
+chequear("con una sola persona cancela directo", "Cancelado" in r and reservados() == [], r)
+r = conversation.responder(dict(TENANT), TEL2, "cancelación?")
+chequear("otra palabra no cancela ni rompe", "Cancelado" not in r)
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

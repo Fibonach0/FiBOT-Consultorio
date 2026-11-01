@@ -235,8 +235,9 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
     return len(res.data) > 0
 
 
-def turno_reservado_de(tenant_id: str, telefono: str) -> dict | None:
-    """El próximo turno reservado de este paciente, si tiene uno."""
+def proximos_turnos_de(tenant_id: str, telefono: str) -> list[dict]:
+    """El próximo turno de cada persona que usa este teléfono, el más cercano
+    primero."""
     ahora = datetime.now(timezone.utc)
     res = (
         _client.table("turnos")
@@ -246,10 +247,16 @@ def turno_reservado_de(tenant_id: str, telefono: str) -> dict | None:
         .eq("paciente_telefono", telefono)
         .gte("inicio", ahora.isoformat())
         .order("inicio")
-        .limit(1)
         .execute()
     )
-    return res.data[0] if res.data else None
+    vistos: dict[str, dict] = {}
+    for t in res.data:
+        vistos.setdefault(t.get("ficha") or "", t)
+    return list(vistos.values())
+
+
+def mismo_nombre(uno: str | None, otro: str | None) -> bool:
+    return bool(uno and otro) and _primer_nombre(uno) == _primer_nombre(otro)
 
 
 # Todo lo que describe a la RESERVA (no al horario) se limpia cuando el turno
