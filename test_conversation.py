@@ -51,7 +51,7 @@ def fake_turno_reservado_de(tenant_id, telefono):
     return None
 
 
-def fake_cancelar_turno(tenant_id, turno_id):
+def fake_cancelar_turno(tenant_id, turno_id, origen=None):
     for t in FAKE_TURNOS:
         if t["id"] == turno_id:
             t["estado"] = "libre"

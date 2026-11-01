@@ -193,6 +193,7 @@ def reset():
     TABLAS["paciente_personas"] = []
     TABLAS["paciente_fechas"] = []
     TABLAS["lista_espera"] = []
+    TABLAS["cancelaciones"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -775,6 +776,40 @@ chequear("cuenta pacientes una vez", c["pacientes"] == 2, c["pacientes"])
 chequear("nuevos son los que arrancaron este mes", c["nuevos"] == 1, c["nuevos"])
 chequear("compara con el mes anterior", c["cobrado_antes"] == 500)
 chequear("la deuda total es histórica", c["deuda_total"] == 2000, c["deuda_total"])
+
+print("Ausencias y cancelaciones")
+reset()
+tel = "5491100000002"
+client.post("/agenda/cancelar/futuro")
+chequear("cancelar queda registrado", [(c["paciente_telefono"], c["origen"]) for c in TABLAS["cancelaciones"]] == [(tel, "profesional")])
+client.post("/agenda/cancelar/futuro")
+chequear("cancelar un horario ya libre no suma", len(TABLAS["cancelaciones"]) == 1)
+client.post("/agenda/cancelar/ajeno")
+chequear("un turno de otro tenant no registra", len(TABLAS["cancelaciones"]) == 1 and fila("ajeno")["estado"] == "reservado")
+reset()
+db.reprogramar_turno("t1", "futuro", manana + timedelta(hours=2), 50)
+chequear("reprogramar no es cancelación", TABLAS["cancelaciones"] == [])
+db.cancelar_sesiones_futuras("t1", tel, ahora)
+chequear("cerrar un tratamiento tampoco", TABLAS["cancelaciones"] == [])
+reset()
+db.cancelar_turno("t1", "futuro", "paciente")
+TABLAS["turnos"].append(turno("f2", "t1", manana + timedelta(days=9), estado="reservado", paciente_nombre="Ana", paciente_telefono=tel))
+for i in (40, 80):
+    TABLAS["turnos"].append(turno(f"falta{i}", "t1", ahora - timedelta(days=i), estado="reservado", paciente_nombre="Ana",
+                                  paciente_telefono=tel, asistencia="no_vino" ))
+    TABLAS["turnos"].append(turno(f"vino{i}", "t1", ahora - timedelta(days=i - 1), estado="reservado", paciente_nombre="Ana",
+                                  paciente_telefono=tel, asistencia="vino"))
+TABLAS["turnos"].append(turno("vieja-falta", "t1", ahora - timedelta(days=200), estado="reservado", paciente_nombre="Ana",
+                              paciente_telefono=tel, asistencia="no_vino"))
+TABLAS["cancelaciones"].append({"id": "vieja", "tenant_id": "t1", "paciente_telefono": tel, "inicio": ahora.isoformat(),
+                                "origen": "paciente", "created_at": (ahora - timedelta(days=120)).isoformat()})
+TABLAS["cancelaciones"].append({"id": "otra", "tenant_id": "t2", "paciente_telefono": tel, "inicio": ahora.isoformat(),
+                                "origen": "paciente", "created_at": ahora.isoformat()})
+ana = next(f for f in app._fichas(TENANT, zona, ahora.astimezone(zona)) if f["nombre"] == "Ana")
+chequear("cuenta sólo los últimos 90 días y este tenant", (ana["faltas_recientes"], ana["canceladas_recientes"]) == (2, 1),
+         (ana["faltas_recientes"], ana["canceladas_recientes"]))
+chequear("con 3 entre faltas y cancelaciones avisa", ana["alerta"] == "3 faltas o cancelaciones en 90 días", ana["alerta"])
+chequear("el panel lo muestra", "Últimos 90 días" in client.get("/agenda").data.decode())
 
 print("Nota de cada sesión")
 reset()

@@ -236,6 +236,8 @@ def _edad(nacimiento: str | None, hoy: date) -> int | None:
 
 
 DIAS_FECHA_CERCA = 14
+DIAS_DE_ASISTENCIA = 90
+AUSENCIAS_PARA_ALERTA = 3
 
 
 def _falta(dias: int) -> str:
@@ -282,6 +284,10 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     for f in db.fechas_de_pacientes(tenant["id"]):
         fechas.setdefault(f["paciente_telefono"], []).append(f)
     hoy = ahora.date()
+    corte = ahora - timedelta(days=DIAS_DE_ASISTENCIA)
+    canceladas: dict[str, int] = {}
+    for c in db.cancelaciones_desde(tenant["id"], corte):
+        canceladas[c["paciente_telefono"]] = canceladas.get(c["paciente_telefono"], 0) + 1
 
     lista = []
     for telefono, sesiones in por_paciente.items():
@@ -289,8 +295,13 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
         futuras = sesiones[len(pasadas):]
         vigente = futuras[0] if futuras else pasadas[-1]
         sin_pagar = [t for t in pasadas if t.get("pago") == "pendiente"]
-        nacimiento = datos.get(telefono, {}).get("fecha_nacimiento")
         estado = datos.get(telefono, {}).get("estado") or "activo"
+        faltas_recientes = sum(t.get("asistencia") == "no_vino" and datetime.fromisoformat(t["inicio"]) >= corte for t in pasadas)
+        canceladas_recientes = canceladas.get(telefono, 0)
+        alerta = alerta_de_seguimiento(sesiones, ahora) if estado == "activo" else None
+        if estado == "activo" and not alerta and faltas_recientes + canceladas_recientes >= AUSENCIAS_PARA_ALERTA:
+            alerta = f"{faltas_recientes + canceladas_recientes} faltas o cancelaciones en {DIAS_DE_ASISTENCIA} días"
+        nacimiento = datos.get(telefono, {}).get("fecha_nacimiento")
         cerrado = datos.get(telefono, {}).get("estado_fecha")
         lista.append(
             {
@@ -324,7 +335,9 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "estado_fecha": date.fromisoformat(cerrado).strftime("%d/%m/%Y") if cerrado else None,
                 "estado_motivo": datos.get(telefono, {}).get("estado_motivo"),
                 "quedan": sesiones_que_quedan(sesiones, ahora) if estado == "activo" else None,
-                "alerta": alerta_de_seguimiento(sesiones, ahora) if estado == "activo" else None,
+                "alerta": alerta,
+                "faltas_recientes": faltas_recientes,
+                "canceladas_recientes": canceladas_recientes,
                 "sesiones": sesiones,
                 "recordado_hoy": datos.get(telefono, {}).get("ultimo_recordatorio_pago") == hoy.isoformat(),
             }
@@ -539,7 +552,7 @@ def agenda_generar():
 def agenda_cancelar(turno_id):
     # db.cancelar_turno() filtra por tenant_id, así que un tenant nunca puede
     # tocar un turno que no es suyo aunque adivine el id de otro.
-    db.cancelar_turno(session["tenant_id"], turno_id)
+    db.cancelar_turno(session["tenant_id"], turno_id, "profesional")
     esperando = len(db.lista_de_espera(session["tenant_id"]))
     if esperando:
         flash(f"Se liberó el horario. Tenés {esperando} en lista de espera.")

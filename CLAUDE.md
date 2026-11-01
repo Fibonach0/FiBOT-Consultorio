@@ -259,6 +259,13 @@ crisis», cerca del inicio del popup. Son datos de salud: no salen del panel.
 renovar», «Para mirar», fechas y resumen diario, pero la deuda se sigue viendo.
 Liberar sus sesiones futuras es opcional. La ficha pasa a un desplegable aparte.
 
+### Ausencias y cancelaciones (`migrations/018`)
+
+Cancelar borra al paciente del turno, así que `cancelaciones` guarda el hecho con
+quién lo hizo (`origen`). Sólo se registra si el llamador pasa `origen`:
+reprogramar y cerrar un tratamiento no cuentan. La ficha muestra faltas y
+cancelaciones de los últimos 90 días; desde 3 entra en «Para mirar».
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier
