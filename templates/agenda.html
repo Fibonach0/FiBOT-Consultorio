@@ -411,6 +411,25 @@
         <textarea name="como_viene" rows="2">{{ f.como_viene or '' }}</textarea>
         <button class="btn chico" type="submit">Guardar</button>
       </form>
+      <h5>Si hay una crisis</h5>
+      {% for p in f.personas if p.emergencia %}
+      <div class="ficha-item">
+        <span><strong>{{ p.nombre }}</strong>{% if p.vinculo %} <span class="tenue">{{ p.vinculo }}</span>{% endif %}</span>
+        {% if p.telefono %}<a href="tel:+{{ p.telefono }}">{{ p.telefono }}</a>{% else %}<span class="tenue">sin teléfono</span>{% endif %}
+      </div>
+      {% else %}
+      <div class="tenue">Sin contacto de emergencia.</div>
+      {% endfor %}
+      <form method="post" action="{{ url_for('agenda_paciente') }}">
+        {{ ocultos(f.telefono) }}
+        <label>Psiquiatra</label>
+        <input type="text" name="psiquiatra" value="{{ f.psiquiatra or '' }}">
+        <label>Medicación</label>
+        <input type="text" name="medicacion" value="{{ f.medicacion or '' }}">
+        <label>Qué hacer en una crisis</label>
+        <textarea name="plan_crisis" rows="2">{{ f.plan_crisis or '' }}</textarea>
+        <button class="btn chico" type="submit">Guardar</button>
+      </form>
       <dl class="ficha-datos">
         <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
         <dt>Valor</dt><dd>{{ f.valor|pesos if f.valor is not none else '—' }}</dd>
@@ -483,7 +502,11 @@
       <h5>Personas y mascotas</h5>
       {% for p in f.personas %}
       <div class="ficha-item">
-        <span><strong>{{ p.nombre }}</strong>{% if p.vinculo %} <span class="tenue">{{ p.vinculo }}</span>{% endif %}</span>
+        <span><strong>{{ p.nombre }}</strong>{% if p.vinculo %} <span class="tenue">{{ p.vinculo }}</span>{% endif %}{% if p.telefono %} <span class="tenue">· {{ p.telefono }}</span>{% endif %}</span>
+        <form method="post" action="{{ url_for('agenda_persona_emergencia', persona_id=p.id) }}">
+          {{ ocultos(f.telefono) }}
+          <button class="chip{{ ' chip-alerta' if p.emergencia }}" name="emergencia" value="{{ '' if p.emergencia else '1' }}">{{ 'Contacto de emergencia' if p.emergencia else 'Marcar emergencia' }}</button>
+        </form>
         <form method="post" action="{{ url_for('agenda_persona_borrar', persona_id=p.id) }}">
           {{ ocultos(f.telefono) }}
           <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar de la ficha?')">×</button>
@@ -496,6 +519,8 @@
           {{ ocultos(f.telefono) }}
           <div><label>Nombre</label><input type="text" name="nombre" required></div>
           <div><label>Parentesco o qué es</label><input type="text" name="vinculo" placeholder="Madre, perro…"></div>
+          <div><label>Teléfono (opcional)</label><input type="text" name="telefono_persona"></div>
+          <div class="ancho"><label><input type="checkbox" name="emergencia" value="1"> Contacto de emergencia</label></div>
           <div class="al-pie"><button class="btn chico" type="submit">Agregar</button></div>
         </form>
       </details>

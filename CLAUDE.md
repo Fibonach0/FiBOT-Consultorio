@@ -246,6 +246,12 @@ sistema: nunca sale por WhatsApp, constancias ni exportaciones.
 Motivo de consulta, qué se está trabajando y cómo viene van arriba del popup, en
 su propio form. `/agenda/paciente` sólo guarda los campos que recibe.
 
+### Datos de crisis (`migrations/016`)
+
+Una persona de la ficha se puede marcar como contacto de emergencia (con
+teléfono); esos contactos, psiquiatra, medicación y qué hacer van en «Si hay una
+crisis», cerca del inicio del popup. Son datos de salud: no salen del panel.
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier
