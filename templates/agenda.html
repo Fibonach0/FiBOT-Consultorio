@@ -393,6 +393,20 @@
     </details>
   </div>
 
+  {% set obras = fichas|map(attribute='obra_social')|select|unique(case_sensitive=false)|sort|list %}
+  {% if obras %}
+  <div class="card">
+    <h3>Planilla para obra social</h3>
+    <form method="get" action="{{ url_for('agenda_obra_social') }}" target="_blank" class="fila">
+      <div><label>Obra social</label>
+        <select name="obra_social" required>{% for o in obras %}<option>{{ o }}</option>{% endfor %}</select>
+      </div>
+      <div><label>Mes</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
+      <div class="al-pie"><button class="btn chico secundario" type="submit">Generar</button></div>
+    </form>
+  </div>
+  {% endif %}
+
   {% set activos = fichas|selectattr('estado', 'equalto', 'activo')|list %}
   {% if activos %}
   <div class="card">
@@ -429,6 +443,7 @@
       {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
       <div><label>Tu WhatsApp para avisos</label><input type="text" name="telefono" placeholder="54 9 11 2345 6789" value="{{ tenant.aviso_telefono or '' }}"></div>
       <div><label>Link de videollamada</label><input type="text" name="link_videollamada" placeholder="https://meet.google.com/..." value="{{ tenant.link_videollamada or '' }}"></div>
+      <div><label>Matrícula</label><input type="text" name="matricula" value="{{ tenant.matricula or '' }}"></div>
       <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
     </form>
   </div>

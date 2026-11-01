@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titulo %}Planilla {{ obra_social }} — {{ titulo }}{% endblock %}
+{% block cuerpo %}
+<main>
+  <div class="card constancia">
+    <h2>{{ obra_social }} · {{ titulo }}</h2>
+    <p>{{ tenant.nombre }}{% if tenant.matricula %} · Matrícula {{ tenant.matricula }}{% endif %}</p>
+    {% for p in pacientes %}
+    <div class="turno">
+      <span><strong>{{ p.nombre }}</strong>{% if p.afiliado %} · Afiliado N° {{ p.afiliado }}{% endif %}<br>
+        <span class="tenue">{{ p.fechas|join(', ') }}</span></span>
+      <span>{{ p.fechas|length }}</span>
+    </div>
+    {% else %}
+    <p class="tenue">No hay sesiones asistidas de esa obra social en ese mes.</p>
+    {% endfor %}
+    {% if pacientes %}<div class="turno"><strong>Total de sesiones</strong><strong>{{ total }}</strong></div>{% endif %}
+    {% if sin_marcar %}<p class="no-imprimir aviso">{{ sin_marcar }} sesi{{ 'ones' if sin_marcar > 1 else 'ón' }} sin marcar asistencia quedaron afuera.</p>{% endif %}
+    <p class="firma">Firma y sello</p>
+    <button class="btn no-imprimir" type="button" onclick="window.print()">Imprimir o guardar en PDF</button>
+  </div>
+</main>
+{% endblock %}
