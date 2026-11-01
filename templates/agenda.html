@@ -507,14 +507,14 @@
       {% if f.alerta %}<div class="chip chip-alerta">{{ f.alerta }}</div>{% endif %}
       <div class="ficha-resumen"><span>Próxima: <strong>{{ f.proxima or 'sin agendar' }}</strong></span><span{% if f.sin_pagar %} class="debe"{% endif %}>Debe: <strong>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}nada{% endif %}</strong></span></div>
       <div class="pestanias" role="tablist" aria-label="Secciones de la ficha">
-        {% for clave, titulo in [('terapia', 'Terapia'), ('sesiones', 'Sesiones'), ('crisis', 'Crisis'), ('personas', 'Personas'), ('datos', 'Datos')] %}
+        {% for clave, titulo in rubro.pestanias %}
         <button class="pestania" type="button" role="tab" id="{{ f.dom }}-tab-{{ clave }}" aria-controls="{{ f.dom }}-{{ clave }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ 0 if loop.first else -1 }}" data-pestania="{{ clave }}">{{ titulo }}</button>
         {% endfor %}
       </div>
       <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-terapia" aria-labelledby="{{ f.dom }}-tab-terapia" data-panel="terapia">
       <form method="post" action="{{ url_for('agenda_paciente') }}">
         {{ ocultos(f.telefono) }}
-        <label>Motivo de consulta</label>
+        <label>{{ rubro.motivo }}</label>
         <textarea name="motivo_consulta" rows="2">{{ f.motivo_consulta or '' }}</textarea>
         <label>Qué estamos trabajando</label>
         <textarea name="objetivos" rows="2">{{ f.objetivos or '' }}</textarea>
@@ -562,6 +562,20 @@
       </section>
 
       <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-crisis" aria-labelledby="{{ f.dom }}-tab-crisis" data-panel="crisis" hidden>
+      {% if rubro.escuela %}
+      <form method="post" action="{{ url_for('agenda_paciente') }}">
+        {{ ocultos(f.telefono) }}
+        <label>Escuela</label>
+        <input type="text" name="escuela" value="{{ f.escuela or '' }}">
+        <label>Grado o año</label>
+        <input type="text" name="grado" value="{{ f.grado or '' }}">
+        <label>Docente</label>
+        <input type="text" name="docente" value="{{ f.docente or '' }}">
+        <label>Equipo de orientación</label>
+        <input type="text" name="equipo_orientador" value="{{ f.equipo_orientador or '' }}">
+        <button class="btn chico" type="submit">Guardar</button>
+      </form>
+      {% endif %}
       <h5>Contactos de emergencia</h5>
       {% for p in f.personas if p.emergencia %}
       <div class="ficha-item">
@@ -573,11 +587,11 @@
       {% endfor %}
       <form method="post" action="{{ url_for('agenda_paciente') }}">
         {{ ocultos(f.telefono) }}
-        <label>Psiquiatra</label>
+        <label>{{ rubro.tratantes }}</label>
         <input type="text" name="psiquiatra" value="{{ f.psiquiatra or '' }}">
         <label>Medicación</label>
         <input type="text" name="medicacion" value="{{ f.medicacion or '' }}">
-        <label>Qué hacer en una crisis</label>
+        <label>{{ rubro.indicaciones }}</label>
         <textarea name="plan_crisis" rows="2">{{ f.plan_crisis or '' }}</textarea>
         <button class="btn chico" type="submit">Guardar</button>
       </form>
@@ -603,7 +617,7 @@
         <form method="post" action="{{ url_for('agenda_persona') }}" class="fila">
           {{ ocultos(f.telefono) }}
           <div><label>Nombre</label><input type="text" name="nombre" required></div>
-          <div><label>Parentesco o qué es</label><input type="text" name="vinculo" placeholder="Madre, perro…"></div>
+          <div><label>Parentesco o qué es</label><input type="text" name="vinculo" placeholder="{{ rubro.vinculo_ejemplo }}"></div>
           <div><label>Teléfono (opcional)</label><input type="text" name="telefono_persona"></div>
           <div class="ancho"><label><input type="checkbox" name="emergencia" value="1"> Contacto de emergencia</label></div>
           <div class="al-pie"><button class="btn chico" type="submit">Agregar</button></div>
@@ -628,7 +642,7 @@
         <summary class="tenue">Agregar fecha ▾</summary>
         <form method="post" action="{{ url_for('agenda_fecha') }}" class="fila">
           {{ ocultos(f.telefono) }}
-          <div class="ancho"><label>Qué fecha es</label><input type="text" name="titulo" placeholder="Navidad, aniversario, fallecimiento de…" required></div>
+          <div class="ancho"><label>Qué fecha es</label><input type="text" name="titulo" placeholder="{{ rubro.fecha_ejemplo }}" required></div>
           <div><label>Día</label><input type="number" name="dia" min="1" max="31" required></div>
           <div><label>Mes</label>
             <select name="mes" required>{% for m in meses %}<option value="{{ loop.index }}">{{ m }}</option>{% endfor %}</select>
@@ -652,7 +666,7 @@
         <dt>Valor</dt><dd>{{ f.valor|pesos if f.valor is not none else '—' }}</dd>
         <dt>Edad</dt><dd>{{ f.edad if f.edad is not none else '—' }}</dd>
         <dt>Cumple</dt><dd>{{ f.cumpleanios or '—' }}</dd>
-        <dt>WhatsApp</dt><dd>{{ f.telefono }}</dd>
+        <dt>{{ rubro.contacto }}</dt><dd>{{ f.telefono }}</dd>
         <dt>Obra social</dt><dd>{{ f.obra_social or '—' }}{% if f.numero_afiliado %} · {{ f.numero_afiliado }}{% endif %}</dd>
         <dt>Desde</dt><dd>{{ f.desde }}</dd>
         <dt>Debe</dt><dd{% if f.sin_pagar %} class="debe"{% endif %}>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}Nada{% endif %}</dd>
@@ -715,7 +729,7 @@
     dialogo.scrollTop = 0;
     return elegida;
   }
-  // Cada vez que se abre arranca en Terapia, salvo al volver de guardar.
+  // Cada vez que se abre arranca en la primera pestaña, salvo al volver de guardar.
   function abrir(id, clave) {
     const dialogo = document.getElementById(id);
     if (!dialogo) return;

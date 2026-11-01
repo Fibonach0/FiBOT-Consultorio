@@ -22,6 +22,7 @@ from openpyxl import Workbook
 import config
 import conversation
 import db
+import rubros
 from fechas import alerta_de_seguimiento, proxima_vez, sesiones_que_quedan
 import scheduler
 import whatsapp
@@ -322,6 +323,10 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "psiquiatra": datos.get(telefono, {}).get("psiquiatra"),
                 "medicacion": datos.get(telefono, {}).get("medicacion"),
                 "plan_crisis": datos.get(telefono, {}).get("plan_crisis"),
+                "escuela": datos.get(telefono, {}).get("escuela"),
+                "grado": datos.get(telefono, {}).get("grado"),
+                "docente": datos.get(telefono, {}).get("docente"),
+                "equipo_orientador": datos.get(telefono, {}).get("equipo_orientador"),
                 "obra_social": datos.get(telefono, {}).get("obra_social"),
                 "numero_afiliado": datos.get(telefono, {}).get("numero_afiliado"),
                 "personas": personas.get(telefono, []),
@@ -484,6 +489,7 @@ def agenda():
         primero = _mes_de(request.args.get("mes"), ahora.date())
         return render_template(
             "agenda.html",
+            rubro=rubros.de(tenant),
             vista="mes",
             semanas=_calendario(tenant, primero, tz, ahora, bloqueado),
             mes_titulo=_meses_label(primero),
@@ -534,6 +540,7 @@ def agenda():
 
     return render_template(
         "agenda.html",
+        rubro=rubros.de(tenant),
         vista="semana",
         dias=dias,
         resumen=resumen,
@@ -847,7 +854,8 @@ def agenda_paciente():
     # Cada form de la ficha manda sólo sus campos: lo que no viene no se pisa.
     campos = {"fecha_nacimiento": fecha} if "fecha_nacimiento" in request.form else {}
     for campo in ("notas", "obra_social", "numero_afiliado", "motivo_consulta", "objetivos", "como_viene",
-                  "psiquiatra", "medicacion", "plan_crisis"):
+                  "psiquiatra", "medicacion", "plan_crisis",
+                  "escuela", "grado", "docente", "equipo_orientador"):
         if campo in request.form:
             campos[campo] = request.form[campo].strip() or None
     db.guardar_paciente(session["tenant_id"], telefono, campos)
