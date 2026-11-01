@@ -129,6 +129,19 @@ def _se_pisa(tenant_id: str, inicio: str, fin: str, excluir_id: str) -> bool:
     return bool(res.data)
 
 
+def _esta_bloqueado(tenant_id: str, inicio: str, fin: str) -> bool:
+    res = (
+        _client.table("bloqueos")
+        .select("id")
+        .eq("tenant_id", tenant_id)
+        .lt("desde", fin)
+        .gt("hasta", inicio)
+        .limit(1)
+        .execute()
+    )
+    return bool(res.data)
+
+
 def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | None,
                    valor: int | None = None, frecuencia: str | None = None,
                    modalidad: str | None = None) -> bool:
@@ -138,6 +151,8 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
     horario desde antes de que la pasaran a esa hora."""
     turno = turno_por_id(tenant_id, turno_id)
     if not turno or _se_pisa(tenant_id, turno["inicio"], turno["fin"], turno_id):
+        return False
+    if _esta_bloqueado(tenant_id, turno["inicio"], turno["fin"]):
         return False
     res = (
         _client.table("turnos")
@@ -287,6 +302,8 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
     nuevo_fin = nuevo_inicio + timedelta(minutes=duracion_minutos)
     if _se_pisa(tenant_id, nuevo_inicio.isoformat(), nuevo_fin.isoformat(), turno_id):
         return "Ese horario ya está ocupado por otra sesión."
+    if _esta_bloqueado(tenant_id, nuevo_inicio.isoformat(), nuevo_fin.isoformat()):
+        return "Ese día está bloqueado."
 
     crear_turnos_libres(tenant_id, [nuevo_inicio], duracion_minutos)
     res = (
@@ -444,6 +461,28 @@ def sesiones_sin_pagar_desde(tenant_id: str, desde: datetime) -> list[dict]:
         .execute()
     )
     return res.data
+
+
+def bloqueos_vigentes(tenant_id: str, ahora: datetime) -> list[dict]:
+    res = (
+        _client.table("bloqueos")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .gt("hasta", ahora.isoformat())
+        .order("desde")
+        .execute()
+    )
+    return res.data
+
+
+def agregar_bloqueo(tenant_id: str, desde: datetime, hasta: datetime, motivo: str | None) -> None:
+    _client.table("bloqueos").insert(
+        {"tenant_id": tenant_id, "desde": desde.isoformat(), "hasta": hasta.isoformat(), "motivo": motivo}
+    ).execute()
+
+
+def borrar_bloqueo(tenant_id: str, bloqueo_id: str) -> None:
+    _client.table("bloqueos").delete().eq("tenant_id", tenant_id).eq("id", bloqueo_id).execute()
 
 
 def cancelaciones_desde(tenant_id: str, desde: datetime) -> list[dict]:

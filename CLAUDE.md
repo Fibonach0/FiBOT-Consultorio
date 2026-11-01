@@ -277,6 +277,13 @@ texto: el nombre viene de una página pública y podría ser una fórmula.
 `/agenda/aumento` cambia, por % o valor fijo, el valor de las sesiones sin pagar
 desde una fecha, sólo de los pacientes tildados. Lo pasado o cobrado no se toca.
 
+### Días bloqueados (`migrations/019`)
+
+Un bloqueo no cancela nada: saca los horarios de `turnos_disponibles`,
+`db.reservar_turno` y `reprogramar_turno` lo rechazan, y el panel lista las
+sesiones que quedan adentro para que el profesional avise o las mueva. `hasta` es
+exclusivo (medianoche local del día siguiente).
+
 ### CSRF del panel
 
 `app.verificar_csrf` exige `csrf_token` en todo POST bajo `/agenda`. Cualquier
