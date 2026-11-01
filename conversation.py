@@ -54,6 +54,8 @@ def _reservar(tenant: dict, telefono: str, indice: int, nombre: str | None) -> s
     if indice < 1 or indice > len(libres):
         return "Ese número no corresponde a ningún horario de la lista. Escribí *turno* para ver los disponibles."
     elegido = libres[indice - 1]
+    if not nombre and len(db.fichas_del_telefono(tenant["id"], telefono)) > 1:
+        return f"Este WhatsApp es de más de un paciente. Escribí el número y el nombre, ej: *{indice} Lola*."
     if db.reservar_turno(tenant["id"], elegido["id"], telefono, nombre):
         return (
             f"Listo, quedó reservado para el {_fmt(elegido['inicio'], tz)}. "
@@ -68,7 +70,8 @@ def _cancelar(tenant: dict, telefono: str) -> str:
     if not turno:
         return "No tenés ningún turno reservado a tu nombre."
     db.cancelar_turno(tenant["id"], turno["id"], "paciente")
-    return f"Cancelado el turno del {_fmt(turno['inicio'], tz)}. Escribí *turno* si querés reservar otro horario."
+    de_quien = f" de {turno['paciente_nombre']}" if len(db.fichas_del_telefono(tenant["id"], telefono)) > 1 else ""
+    return f"Cancelado el turno{de_quien} del {_fmt(turno['inicio'], tz)}. Escribí *turno* si querés reservar otro horario."
 
 
 def responder(tenant: dict, telefono: str, texto: str) -> str:

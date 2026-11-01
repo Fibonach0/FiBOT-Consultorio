@@ -183,7 +183,7 @@ manana = ahora + timedelta(days=1)
 def turno(id_, tenant_id, inicio, **extra):
     base = {"id": id_, "tenant_id": tenant_id, "inicio": inicio.isoformat(),
             "fin": (inicio + timedelta(minutes=50)).isoformat(), "estado": "libre",
-            "paciente_telefono": None, "paciente_nombre": None, "recordatorio_enviado": False,
+            "paciente_telefono": None, "paciente_nombre": None, "ficha": "", "recordatorio_enviado": False,
             "asistencia": None, "pago": "pendiente", "reprogramado_desde": None,
             "valor": None, "frecuencia": None, "modalidad": None, "nota": None}
     return {**base, **extra}
@@ -995,6 +995,55 @@ chequear("psicopedagogía ve Escuela y Familia", ">Escuela</button>" in html and
 client.post("/agenda/paciente", data={"telefono": "549111", "escuela": " Escuela 12 ", "grado": "3°"})
 html = client.get("/agenda").data.decode()
 chequear("los datos de la escuela se guardan", 'value="Escuela 12"' in html and 'value="3°"' in html)
+
+# --- Hermanos con el mismo WhatsApp ---
+reset()
+TEL = "5491144445555"
+for i, id_ in enumerate(("h1", "h2", "h3", "h4")):
+    TABLAS["turnos"].append(turno(id_, "t1", manana + timedelta(hours=5 + i)))
+chequear("primera reserva: ficha de siempre", db.reservar_turno("t1", "h1", TEL, "Nina Acosta"))
+db.reservar_turno("t1", "h2", TEL, "Nina")
+db.reservar_turno("t1", "h3", TEL, "Lola Acosta")
+fila = {t["id"]: t for t in TABLAS["turnos"]}
+chequear("mismo nombre, misma ficha", fila["h1"]["ficha"] == "" and fila["h2"]["ficha"] == "")
+chequear("otro nombre, ficha aparte", fila["h3"]["ficha"] == "lola")
+html = client.get("/agenda").data.decode()
+chequear("salen dos fichas", html.count('class="ficha-dialogo"') == 4 and "Comparte WhatsApp con Lola Acosta" in html and "Comparte WhatsApp con Nina" in html)
+clave_lola = f"{TEL}~lola"
+client.post("/agenda/paciente", data={"telefono": clave_lola, "notas": "Sólo de Lola"})
+client.post("/agenda/paciente", data={"telefono": TEL, "notas": "Sólo de Nina"})
+datos = db.datos_de_pacientes("t1")
+chequear("cada hermano guarda lo suyo", datos[clave_lola]["notas"] == "Sólo de Lola" and datos[TEL]["notas"] == "Sólo de Nina")
+client.post("/agenda/paciente/persona", data={"telefono": clave_lola, "nombre": "Solo Lola"})
+filas_p = {p["nombre"]: p for p in TABLAS["paciente_personas"]}
+chequear("la persona queda en su ficha", filas_p["Solo Lola"]["ficha"] == "lola" and filas_p["Solo Lola"]["paciente_telefono"] == TEL)
+client.post("/agenda/paciente/cerrar", data={"telefono": clave_lola, "estado": "pausa", "cancelar_futuras": "1"})
+fila = {t["id"]: t for t in TABLAS["turnos"]}
+chequear("cerrar a un hermano no toca al otro", fila["h3"]["estado"] == "libre" and fila["h1"]["estado"] == "reservado" and fila["h3"]["ficha"] == "")
+db.reservar_turno("t1", "h3", TEL, "Lola")
+db.reservar_turno("t1", "h4", TEL, "Nina")
+db.cancelar_turno("t1", "h3", "paciente")
+chequear("la cancelación queda en su ficha", TABLAS["cancelaciones"][-1]["ficha"] == "lola")
+db.reservar_turno("t1", "h3", TEL, "Lola")
+client.post("/agenda/sesion/h4/ficha", data={"destino": clave_lola})
+fila = {t["id"]: t for t in TABLAS["turnos"]}
+chequear("una sesión se pasa a la otra ficha", fila["h4"]["ficha"] == "lola" and fila["h4"]["paciente_nombre"] == "Lola")
+client.post("/agenda/sesion/h4/ficha", data={"destino": "5491100000002"})
+chequear("no se pasa a una ficha de otro teléfono", {t["id"]: t for t in TABLAS["turnos"]}["h4"]["paciente_telefono"] == TEL)
+TABLAS["turnos"].append(turno("h5", "t2", manana + timedelta(hours=5), estado="reservado", paciente_telefono=TEL, paciente_nombre="De otro"))
+chequear("otro profesional no cuenta", len(db.fichas_del_telefono("t1", TEL)) == 2)
+import conversation  # noqa: E402
+
+TABLAS["turnos"].append(turno("h6", "t1", manana + timedelta(days=3)))
+respuesta = conversation.responder(dict(TENANT), TEL, "1")
+chequear("el bot pide el nombre si hay dos", "más de un paciente" in respuesta and {t["id"]: t for t in TABLAS["turnos"]}["h6"]["estado"] == "libre")
+
+motivo = db.reprogramar_turno("t1", "h3", manana + timedelta(hours=13), 50)
+movida = [t for t in TABLAS["turnos"] if t.get("reprogramado_desde") and t["paciente_telefono"] == TEL]
+chequear("reprogramar no cambia de ficha", motivo is None and len(movida) == 1 and movida[0]["ficha"] == "lola", motivo)
+TABLAS["turnos"].append(turno("h7", "t1", manana + timedelta(days=4)))
+html = client.post("/agenda/agendar/h7", data={"nombre": "Tomás", "telefono": TEL}, follow_redirects=True).data.decode()
+chequear("el panel avisa de la ficha aparte", "ficha aparte" in html and {t["id"]: t for t in TABLAS["turnos"]}["h7"]["ficha"] == "tomas")
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

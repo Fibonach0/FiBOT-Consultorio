@@ -279,36 +279,38 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     Pendientes de cobro."""
     por_paciente: dict[str, list[dict]] = {}
     for t in _con_hora_local(db.sesiones_reservadas(tenant["id"]), tz):
-        por_paciente.setdefault(t["paciente_telefono"], []).append(t)
+        por_paciente.setdefault(db.clave_de(t), []).append(t)
     datos = db.datos_de_pacientes(tenant["id"])
     personas: dict[str, list[dict]] = {}
     for p in db.personas_de_pacientes(tenant["id"]):
-        personas.setdefault(p["paciente_telefono"], []).append(p)
+        personas.setdefault(db.clave_de(p), []).append(p)
     fechas: dict[str, list[dict]] = {}
     for f in db.fechas_de_pacientes(tenant["id"]):
-        fechas.setdefault(f["paciente_telefono"], []).append(f)
+        fechas.setdefault(db.clave_de(f), []).append(f)
     hoy = ahora.date()
     corte = ahora - timedelta(days=DIAS_DE_ASISTENCIA)
     canceladas: dict[str, int] = {}
     for c in db.cancelaciones_desde(tenant["id"], corte):
-        canceladas[c["paciente_telefono"]] = canceladas.get(c["paciente_telefono"], 0) + 1
+        canceladas[db.clave_de(c)] = canceladas.get(db.clave_de(c), 0) + 1
 
     lista = []
-    for telefono, sesiones in por_paciente.items():
+    for clave, sesiones in por_paciente.items():
+        telefono = db.partir_clave(clave)[0]
         pasadas = [t for t in sesiones if datetime.fromisoformat(t["inicio"]) <= ahora]
         futuras = sesiones[len(pasadas):]
         vigente = futuras[0] if futuras else pasadas[-1]
         sin_pagar = [t for t in pasadas if t.get("pago") == "pendiente"]
-        estado = datos.get(telefono, {}).get("estado") or "activo"
+        estado = datos.get(clave, {}).get("estado") or "activo"
         faltas_recientes = sum(t.get("asistencia") == "no_vino" and datetime.fromisoformat(t["inicio"]) >= corte for t in pasadas)
-        canceladas_recientes = canceladas.get(telefono, 0)
+        canceladas_recientes = canceladas.get(clave, 0)
         alerta = alerta_de_seguimiento(sesiones, ahora) if estado == "activo" else None
         if estado == "activo" and not alerta and faltas_recientes + canceladas_recientes >= AUSENCIAS_PARA_ALERTA:
             alerta = f"{faltas_recientes + canceladas_recientes} faltas o cancelaciones en {DIAS_DE_ASISTENCIA} días"
-        nacimiento = datos.get(telefono, {}).get("fecha_nacimiento")
-        cerrado = datos.get(telefono, {}).get("estado_fecha")
+        nacimiento = datos.get(clave, {}).get("fecha_nacimiento")
+        cerrado = datos.get(clave, {}).get("estado_fecha")
         lista.append(
             {
+                "clave": clave,
                 "telefono": telefono,
                 "nombre": next((t["paciente_nombre"] for t in reversed(sesiones) if t.get("paciente_nombre")), telefono),
                 "frecuencia": vigente.get("frecuencia"),
@@ -316,21 +318,21 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "fecha_nacimiento": nacimiento,
                 "edad": _edad(nacimiento, hoy),
                 "cumpleanios": _cumpleanios(nacimiento, hoy),
-                "notas": datos.get(telefono, {}).get("notas"),
-                "motivo_consulta": datos.get(telefono, {}).get("motivo_consulta"),
-                "objetivos": datos.get(telefono, {}).get("objetivos"),
-                "como_viene": datos.get(telefono, {}).get("como_viene"),
-                "psiquiatra": datos.get(telefono, {}).get("psiquiatra"),
-                "medicacion": datos.get(telefono, {}).get("medicacion"),
-                "plan_crisis": datos.get(telefono, {}).get("plan_crisis"),
-                "escuela": datos.get(telefono, {}).get("escuela"),
-                "grado": datos.get(telefono, {}).get("grado"),
-                "docente": datos.get(telefono, {}).get("docente"),
-                "equipo_orientador": datos.get(telefono, {}).get("equipo_orientador"),
-                "obra_social": datos.get(telefono, {}).get("obra_social"),
-                "numero_afiliado": datos.get(telefono, {}).get("numero_afiliado"),
-                "personas": personas.get(telefono, []),
-                "fechas": _con_cuenta_regresiva(fechas.get(telefono, []), hoy),
+                "notas": datos.get(clave, {}).get("notas"),
+                "motivo_consulta": datos.get(clave, {}).get("motivo_consulta"),
+                "objetivos": datos.get(clave, {}).get("objetivos"),
+                "como_viene": datos.get(clave, {}).get("como_viene"),
+                "psiquiatra": datos.get(clave, {}).get("psiquiatra"),
+                "medicacion": datos.get(clave, {}).get("medicacion"),
+                "plan_crisis": datos.get(clave, {}).get("plan_crisis"),
+                "escuela": datos.get(clave, {}).get("escuela"),
+                "grado": datos.get(clave, {}).get("grado"),
+                "docente": datos.get(clave, {}).get("docente"),
+                "equipo_orientador": datos.get(clave, {}).get("equipo_orientador"),
+                "obra_social": datos.get(clave, {}).get("obra_social"),
+                "numero_afiliado": datos.get(clave, {}).get("numero_afiliado"),
+                "personas": personas.get(clave, []),
+                "fechas": _con_cuenta_regresiva(fechas.get(clave, []), hoy),
                 "desde": datetime.fromisoformat(sesiones[0]["inicio"]).astimezone(tz).strftime("%d/%m/%Y"),
                 "proxima": f"{futuras[0]['_dia']} {futuras[0]['_hora']}" if futuras else None,
                 "asistio": sum(t.get("asistencia") == "vino" for t in pasadas),
@@ -338,21 +340,24 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "sin_pagar": len(sin_pagar),
                 "adeudado": sum(t.get("valor") or 0 for t in sin_pagar),
                 "historial": pasadas[:-11:-1],
+                "proximas": futuras,
                 "ultima_nota": next((t for t in reversed(pasadas) if t.get("nota")), None),
                 "estado": estado,
                 "estado_fecha": date.fromisoformat(cerrado).strftime("%d/%m/%Y") if cerrado else None,
-                "estado_motivo": datos.get(telefono, {}).get("estado_motivo"),
+                "estado_motivo": datos.get(clave, {}).get("estado_motivo"),
                 "quedan": sesiones_que_quedan(sesiones, ahora) if estado == "activo" else None,
                 "alerta": alerta,
                 "faltas_recientes": faltas_recientes,
                 "canceladas_recientes": canceladas_recientes,
                 "sesiones": sesiones,
-                "recordado_hoy": datos.get(telefono, {}).get("ultimo_recordatorio_pago") == hoy.isoformat(),
+                "recordado_hoy": datos.get(clave, {}).get("ultimo_recordatorio_pago") == hoy.isoformat(),
             }
         )
     lista.sort(key=lambda f: f["nombre"].casefold())
     for i, f in enumerate(lista, start=1):
         f["dom"] = f"ficha-{i}"
+        f["hermanos"] = [{"clave": o["clave"], "nombre": o["nombre"]} for o in lista
+                         if o["telefono"] == f["telefono"] and o is not f]
     return lista
 
 
@@ -428,10 +433,10 @@ def _hoy(tenant: dict, fichas: list[dict], tz: ZoneInfo, ahora: datetime) -> lis
     inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
     utc = ZoneInfo("UTC")
     turnos = db.agenda_semana(tenant["id"], inicio.astimezone(utc), (inicio + timedelta(days=1)).astimezone(utc))
-    por_telefono = {f["telefono"]: f for f in fichas}
+    por_clave = {f["clave"]: f for f in fichas}
     filas = []
     for t in _con_hora_local([t for t in turnos if t["estado"] == "reservado"], tz):
-        ficha = por_telefono.get(t["paciente_telefono"])
+        ficha = por_clave.get(db.clave_de(t))
         if ficha:
             cerca = [c for c in ficha["fechas"] if c["_dias"] <= DIAS_FECHA_CERCA]
             filas.append({"hora": t["_hora"], "asistencia": t.get("asistencia"), "ficha": ficha, "fechas": cerca})
@@ -754,7 +759,7 @@ def agenda_aumento():
         cambiadas = 0
         for t in db.sesiones_sin_pagar_desde(tenant["id"], inicio):
             nuevo = _con_aumento(t.get("valor"), modo, monto)
-            if t["paciente_telefono"] in telefonos and nuevo != t.get("valor"):
+            if db.clave_de(t) in telefonos and nuevo != t.get("valor"):
                 db.marcar_valor(tenant["id"], t["id"], nuevo)
                 cambiadas += 1
         flash(f"Se actualizó el valor de {cambiadas} sesiones desde el {desde:%d/%m/%Y}.")
@@ -859,6 +864,19 @@ def agenda_paciente():
         if campo in request.form:
             campos[campo] = request.form[campo].strip() or None
     db.guardar_paciente(session["tenant_id"], telefono, campos)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/sesion/<turno_id>/ficha")
+@login_required
+def agenda_mover(turno_id):
+    """Corrige una sesión que cayó en la ficha equivocada del mismo teléfono."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    clave = request.form.get("destino") or ""
+    destino = next((f for f in _fichas(tenant, tz, datetime.now(tz)) if f["clave"] == clave), None)
+    if not destino or not db.mover_sesion(tenant["id"], turno_id, clave, destino["nombre"]):
+        flash("No se pudo pasar la sesión a esa ficha.")
     return _volver_a_agenda()
 
 
@@ -989,7 +1007,7 @@ def agenda_constancia():
     tz = _tz_de(tenant)
     ahora = datetime.now(tz)
     telefono = request.form.get("telefono") or ""
-    ficha = next((f for f in _fichas(tenant, tz, ahora) if f["telefono"] == telefono), None)
+    ficha = next((f for f in _fichas(tenant, tz, ahora) if f["clave"] == telefono), None)
     if not ficha:
         return "No encontrado.", 404
     primero = _mes_de(request.form.get("mes"), ahora.date())
@@ -1009,7 +1027,7 @@ def agenda_recordar_pago():
     tenant = db.get_tenant_by_id(session["tenant_id"])
     tz = _tz_de(tenant)
     telefono = request.form.get("telefono") or ""
-    ficha = next((f for f in _fichas(tenant, tz, datetime.now(tz)) if f["telefono"] == telefono), None)
+    ficha = next((f for f in _fichas(tenant, tz, datetime.now(tz)) if f["clave"] == telefono), None)
     if not ficha or not ficha["adeudado"]:
         flash("Ese paciente no tiene deuda con valor cargado.")
     elif ficha["recordado_hoy"]:
@@ -1017,7 +1035,7 @@ def agenda_recordar_pago():
     else:
         db.guardar_paciente(tenant["id"], telefono, {"ultimo_recordatorio_pago": datetime.now(tz).date().isoformat()})
         monto = app.jinja_env.filters["pesos"](ficha["adeudado"])
-        if _recordar_pago(tenant, telefono, monto):
+        if _recordar_pago(tenant, db.partir_clave(telefono)[0], monto):
             flash(f"Le recordamos a {ficha['nombre']} que tiene {monto} pendientes.")
         else:
             flash(f"No se pudo mandar el recordatorio a {ficha['nombre']}.")
@@ -1131,9 +1149,13 @@ def agenda_agendar(turno_id):
     if modalidad not in MODALIDADES:
         modalidad = None
     turno = db.turno_por_id(tenant["id"], turno_id)
+    ficha_nueva = db.ficha_para(tenant["id"], telefono, nombre)[1]
     if not turno or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre, valor, frecuencia, modalidad):
         flash("Ese horario ya no está libre.")
         return _volver_a_agenda()
+    if ficha_nueva:
+        flash(f"{nombre} quedó en una ficha aparte porque ese WhatsApp ya lo usa otro paciente. "
+              "Si es la misma persona, pasá la sesión desde la pestaña Sesiones.")
     if not frecuencia:
         return _volver_a_agenda()
 
@@ -1172,7 +1194,7 @@ def agenda_renovar():
     ya se cortó hace unas semanas, retoma desde la próxima fecha que le toca."""
     tenant = db.get_tenant_by_id(session["tenant_id"])
     telefono = request.form.get("telefono") or ""
-    sesiones = [t for t in db.sesiones_reservadas(tenant["id"]) if t["paciente_telefono"] == telefono]
+    sesiones = [t for t in db.sesiones_reservadas(tenant["id"]) if db.clave_de(t) == telefono]
     if not sesiones or sesiones[-1].get("frecuencia") not in FRECUENCIAS:
         flash("Ese paciente no tiene una frecuencia fija.")
         return _volver_a_agenda()
@@ -1184,9 +1206,9 @@ def agenda_renovar():
     ahora = datetime.now(tz)
     while base + paso <= ahora:
         base += paso
-    salteadas = _agendar_serie(tenant, base, duracion, range(1, SESIONES_AL_RENOVAR + 1), telefono,
+    salteadas = _agendar_serie(tenant, base, duracion, range(1, SESIONES_AL_RENOVAR + 1), ultima["paciente_telefono"],
                                ultima.get("paciente_nombre"), ultima.get("valor"), ultima["frecuencia"], ultima.get("modalidad"))
-    flash(f"Se renovaron {SESIONES_AL_RENOVAR - len(salteadas)} sesiones de {ultima.get('paciente_nombre') or telefono}.")
+    flash(f"Se renovaron {SESIONES_AL_RENOVAR - len(salteadas)} sesiones de {ultima.get('paciente_nombre') or ultima['paciente_telefono']}.")
     if salteadas:
         flash(f"Quedaron sin agendar por estar ocupadas: {', '.join(salteadas)}.")
     return _volver_a_agenda()

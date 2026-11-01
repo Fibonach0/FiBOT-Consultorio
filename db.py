@@ -2,6 +2,7 @@
 y TODO recibe tenant_id explícito — no hay una sola función que pueda tocar
 datos de un tenant sin que se lo pidan a propósito. Esa disciplina es la que
 evita que un bug cruce datos de un profesional a otro."""
+import unicodedata
 from datetime import datetime, timedelta, timezone
 
 from supabase import create_client
@@ -142,6 +143,73 @@ def _esta_bloqueado(tenant_id: str, inicio: str, fin: str) -> bool:
     return bool(res.data)
 
 
+def clave_de(fila: dict) -> str:
+    """Identidad de una ficha. El teléfono sólo no alcanza: dos hermanos pueden
+    usar el WhatsApp del mismo adulto."""
+    ficha = fila.get("ficha")
+    return f"{fila['paciente_telefono']}~{ficha}" if ficha else fila["paciente_telefono"]
+
+
+def partir_clave(clave: str) -> tuple[str, str]:
+    telefono, _, ficha = clave.partition("~")
+    return telefono, ficha
+
+
+def _primer_nombre(nombre: str | None) -> str:
+    sin_acentos = unicodedata.normalize("NFD", nombre or "")
+    limpio = "".join(c for c in sin_acentos if not unicodedata.combining(c)).lower().split()
+    return "".join(c for c in limpio[0] if c.isalnum()) if limpio else ""
+
+
+def fichas_del_telefono(tenant_id: str, telefono: str) -> list[dict]:
+    """Una fila por persona que usa este teléfono, la más reciente primero."""
+    res = (
+        _client.table("turnos")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .eq("estado", "reservado")
+        .eq("paciente_telefono", telefono)
+        .order("inicio", desc=True)
+        .execute()
+    )
+    vistas: dict[str, dict] = {}
+    for t in res.data:
+        vistas.setdefault(t.get("ficha") or "", t)
+    return list(vistas.values())
+
+
+def ficha_para(tenant_id: str, telefono: str, nombre: str | None) -> tuple[str, bool]:
+    """A qué ficha va una reserva nueva, y si es una ficha nueva junto a otra.
+    Mismo primer nombre, misma ficha: «Nina» y «Nina Acosta» son la misma
+    persona. Si el nombre es otro, ficha aparte; un error de tipeo se corrige
+    moviendo la sesión desde la ficha."""
+    filas = fichas_del_telefono(tenant_id, telefono)
+    if not filas:
+        return "", False
+    if not nombre:
+        return filas[0].get("ficha") or "", False
+    buscado = _primer_nombre(nombre)
+    for f in filas:
+        if not f.get("paciente_nombre") or _primer_nombre(f["paciente_nombre"]) == buscado:
+            return f.get("ficha") or "", False
+    return buscado or "otra", True
+
+
+def mover_sesion(tenant_id: str, turno_id: str, clave: str, nombre: str) -> bool:
+    """Pasa una sesión a otra ficha del mismo teléfono."""
+    telefono, ficha = partir_clave(clave)
+    res = (
+        _client.table("turnos")
+        .update({"ficha": ficha, "paciente_nombre": nombre})
+        .eq("tenant_id", tenant_id)
+        .eq("id", turno_id)
+        .eq("estado", "reservado")
+        .eq("paciente_telefono", telefono)
+        .execute()
+    )
+    return len(res.data) > 0
+
+
 def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | None,
                    valor: int | None = None, frecuencia: str | None = None,
                    modalidad: str | None = None) -> bool:
@@ -154,9 +222,10 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
         return False
     if _esta_bloqueado(tenant_id, turno["inicio"], turno["fin"]):
         return False
+    ficha, _ = ficha_para(tenant_id, telefono, nombre)
     res = (
         _client.table("turnos")
-        .update({"estado": "reservado", "paciente_telefono": telefono, "paciente_nombre": nombre,
+        .update({"estado": "reservado", "paciente_telefono": telefono, "paciente_nombre": nombre, "ficha": ficha,
                  "valor": valor, "frecuencia": frecuencia, "modalidad": modalidad})
         .eq("tenant_id", tenant_id)
         .eq("id", turno_id)
@@ -191,6 +260,7 @@ _LIBERADO = {
     "estado": "libre",
     "paciente_telefono": None,
     "paciente_nombre": None,
+    "ficha": "",
     "recordatorio_enviado": False,
     "asistencia": None,
     "pago": "pendiente",
@@ -211,7 +281,7 @@ def cancelar_turno(tenant_id: str, turno_id: str, origen: str | None = None) -> 
         if turno and turno["estado"] == "reservado":
             _client.table("cancelaciones").insert(
                 {"tenant_id": tenant_id, "paciente_telefono": turno["paciente_telefono"],
-                 "inicio": turno["inicio"], "origen": origen,
+                 "ficha": turno.get("ficha") or "", "inicio": turno["inicio"], "origen": origen,
                  "created_at": datetime.now(timezone.utc).isoformat()}
             ).execute()
     _client.table("turnos").update(_LIBERADO).eq("tenant_id", tenant_id).eq("id", turno_id).execute()
@@ -325,6 +395,7 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
                 "estado": "reservado",
                 "paciente_telefono": original["paciente_telefono"],
                 "paciente_nombre": original["paciente_nombre"],
+                "ficha": original.get("ficha") or "",
                 "pago": original.get("pago") or "pendiente",
                 "valor": original.get("valor"),
                 "frecuencia": original.get("frecuencia"),
@@ -424,24 +495,27 @@ def sesiones_reservadas(tenant_id: str) -> list[dict]:
 
 def datos_de_pacientes(tenant_id: str) -> dict[str, dict]:
     res = _client.table("pacientes").select("*").eq("tenant_id", tenant_id).execute()
-    return {p["paciente_telefono"]: p for p in res.data}
+    return {clave_de(p): p for p in res.data}
 
 
-def guardar_paciente(tenant_id: str, telefono: str, campos: dict) -> None:
+def guardar_paciente(tenant_id: str, clave: str, campos: dict) -> None:
     """Sólo pisa las columnas que vienen en `campos`."""
+    telefono, ficha = partir_clave(clave)
     _client.table("pacientes").upsert(
-        {"tenant_id": tenant_id, "paciente_telefono": telefono, **campos},
-        on_conflict="tenant_id,paciente_telefono",
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha, **campos},
+        on_conflict="tenant_id,paciente_telefono,ficha",
     ).execute()
 
 
-def cancelar_sesiones_futuras(tenant_id: str, telefono: str, desde: datetime) -> int:
+def cancelar_sesiones_futuras(tenant_id: str, clave: str, desde: datetime) -> int:
+    telefono, ficha = partir_clave(clave)
     res = (
         _client.table("turnos")
         .select("id")
         .eq("tenant_id", tenant_id)
         .eq("estado", "reservado")
         .eq("paciente_telefono", telefono)
+        .eq("ficha", ficha)
         .gt("inicio", desde.isoformat())
         .execute()
     )
@@ -501,10 +575,11 @@ def personas_de_pacientes(tenant_id: str) -> list[dict]:
     return res.data
 
 
-def agregar_persona(tenant_id: str, telefono: str, nombre: str, vinculo: str | None,
+def agregar_persona(tenant_id: str, clave: str, nombre: str, vinculo: str | None,
                     telefono_persona: str | None = None, emergencia: bool = False) -> None:
+    telefono, ficha = partir_clave(clave)
     _client.table("paciente_personas").insert(
-        {"tenant_id": tenant_id, "paciente_telefono": telefono, "nombre": nombre, "vinculo": vinculo,
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha, "nombre": nombre, "vinculo": vinculo,
          "telefono": telefono_persona, "emergencia": emergencia}
     ).execute()
 
@@ -524,10 +599,11 @@ def fechas_de_pacientes(tenant_id: str) -> list[dict]:
     return res.data
 
 
-def agregar_fecha(tenant_id: str, telefono: str, titulo: str, dia: int, mes: int,
+def agregar_fecha(tenant_id: str, clave: str, titulo: str, dia: int, mes: int,
                   anio: int | None, animo: str | None) -> None:
+    telefono, ficha = partir_clave(clave)
     _client.table("paciente_fechas").insert(
-        {"tenant_id": tenant_id, "paciente_telefono": telefono, "titulo": titulo,
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha, "titulo": titulo,
          "dia": dia, "mes": mes, "anio": anio, "animo": animo}
     ).execute()
 

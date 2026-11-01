@@ -211,8 +211,16 @@ orientación, más los datos de salud y emergencia), Terapia a Trabajo y Persona
 Familia. Las claves internas de las pestañas y las columnas no cambian. Los demás
 rubros siguen igual.
 
-Límite: la ficha se identifica por teléfono, así que dos hermanos con el WhatsApp
-del mismo adulto caen en una sola ficha.
+### Una ficha por persona (`migrations/022`)
+
+Una ficha es teléfono + `ficha`, no sólo teléfono: dos hermanos pueden usar el
+WhatsApp del mismo adulto. `db.clave_de` arma esa identidad y es lo que viaja en
+los forms; `paciente_telefono` sigue siendo el número al que se escribe. Nunca
+agrupar datos de un paciente por teléfono solo.
+
+`db.ficha_para` decide al reservar, en panel, página pública y bot: mismo primer
+nombre, misma ficha; otro nombre, ficha aparte. Un error se corrige con «Es de
+otra persona» en la sesión. Sin nombre, el bot pide uno si hay más de una ficha.
 
 ### Hoy
 
