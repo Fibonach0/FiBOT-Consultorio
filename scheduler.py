@@ -37,16 +37,18 @@ def cuando_de(turno: dict, tenant: dict, tz: ZoneInfo) -> str:
 def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
     """Sólo cuentas: el detalle queda en el panel. Por WhatsApp no sale ningún
     nombre ni dato de un paciente."""
+    datos = db.datos_de_pacientes(tenant["id"])
+    cerrado = lambda telefono: datos.get(telefono, {}).get("estado", "activo") != "activo"
     fechas = sum(
         (proxima_vez(f["mes"], f["dia"], hoy) - hoy).days <= DIAS_AVISO
-        for f in db.fechas_de_pacientes(tenant["id"])
+        for f in db.fechas_de_pacientes(tenant["id"]) if not cerrado(f["paciente_telefono"])
     )
     partes = [f"{fechas} fecha{'s' if fechas > 1 else ''} importante{'s' if fechas > 1 else ''} en la semana"] if fechas else []
     por_paciente: dict[str, list[dict]] = {}
     for t in db.sesiones_reservadas(tenant["id"]):
         por_paciente.setdefault(t["paciente_telefono"], []).append(t)
     ahora = datetime.now(timezone.utc)
-    renovar = sum(sesiones_que_quedan(s, ahora) is not None for s in por_paciente.values())
+    renovar = sum(sesiones_que_quedan(s, ahora) is not None for tel, s in por_paciente.items() if not cerrado(tel))
     if renovar:
         partes.append(f"{renovar} paciente{'s' if renovar > 1 else ''} por renovar")
     return partes
