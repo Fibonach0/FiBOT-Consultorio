@@ -187,9 +187,18 @@ _LIBERADO = {
 }
 
 
-def cancelar_turno(tenant_id: str, turno_id: str) -> None:
+def cancelar_turno(tenant_id: str, turno_id: str, origen: str | None = None) -> None:
     """Libera el slot en vez de borrarlo — así vuelve a aparecer en
-    turnos_libres() para que otro paciente lo pueda tomar."""
+    turnos_libres() para que otro paciente lo pueda tomar. Con `origen` queda
+    registrada como cancelación; reprogramar o cerrar un tratamiento no lo pasan."""
+    if origen:
+        turno = turno_por_id(tenant_id, turno_id)
+        if turno and turno["estado"] == "reservado":
+            _client.table("cancelaciones").insert(
+                {"tenant_id": tenant_id, "paciente_telefono": turno["paciente_telefono"],
+                 "inicio": turno["inicio"], "origen": origen,
+                 "created_at": datetime.now(timezone.utc).isoformat()}
+            ).execute()
     _client.table("turnos").update(_LIBERADO).eq("tenant_id", tenant_id).eq("id", turno_id).execute()
 
 
@@ -422,6 +431,17 @@ def cancelar_sesiones_futuras(tenant_id: str, telefono: str, desde: datetime) ->
     for t in res.data:
         cancelar_turno(tenant_id, t["id"])
     return len(res.data)
+
+
+def cancelaciones_desde(tenant_id: str, desde: datetime) -> list[dict]:
+    res = (
+        _client.table("cancelaciones")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .gte("created_at", desde.isoformat())
+        .execute()
+    )
+    return res.data
 
 
 def personas_de_pacientes(tenant_id: str) -> list[dict]:

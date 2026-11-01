@@ -67,7 +67,7 @@ def _cancelar(tenant: dict, telefono: str) -> str:
     turno = db.turno_reservado_de(tenant["id"], telefono)
     if not turno:
         return "No tenés ningún turno reservado a tu nombre."
-    db.cancelar_turno(tenant["id"], turno["id"])
+    db.cancelar_turno(tenant["id"], turno["id"], "paciente")
     return f"Cancelado el turno del {_fmt(turno['inicio'], tz)}. Escribí *turno* si querés reservar otro horario."
 
 

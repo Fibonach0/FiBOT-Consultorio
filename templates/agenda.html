@@ -462,6 +462,7 @@
         <dt>Desde</dt><dd>{{ f.desde }}</dd>
         <dt>Próxima</dt><dd>{{ f.proxima or '—' }}</dd>
         <dt>Asistió</dt><dd>{{ f.asistio }}{% if f.falto %} · faltó {{ f.falto }}{% endif %}</dd>
+        <dt>Últimos 90 días</dt><dd>{{ f.faltas_recientes }} falta{{ 's' if f.faltas_recientes != 1 }} · {{ f.canceladas_recientes }} cancelaci{{ 'ones' if f.canceladas_recientes != 1 else 'ón' }}</dd>
         <dt>Debe</dt><dd{% if f.sin_pagar %} class="debe"{% endif %}>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}Nada{% endif %}</dd>
       </dl>
 
