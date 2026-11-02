@@ -131,6 +131,19 @@
     .fichas-aparte .fichero { margin-top:10px; opacity:.75; }
     button.chip { border:none; cursor:pointer; margin:0; }
     .ficha-sesion { padding:3px 0; font-size:.74rem; border-bottom:1px dotted var(--rule); }
+    .test-grupo { margin:10px 0 14px; }
+    .resultado-fila { display:grid; grid-template-columns:minmax(0, 2fr) minmax(0, 1.6fr) minmax(0, 1fr) minmax(0, 1.4fr); gap:6px; margin-bottom:6px; }
+    .resultado-fila input, .resultado-fila select { width:100%; min-width:0; }
+    .resultado-cabecera { font-size:.72rem; color:var(--muted); margin-bottom:2px; }
+    .evolucion { width:100%; border-collapse:collapse; font-size:.8rem; margin:6px 0; }
+    .evolucion th { text-align:left; font-weight:600; color:var(--muted); font-size:.72rem; }
+    .evolucion td, .evolucion th { padding:4px 6px 4px 0; border-bottom:1px dotted var(--rule); vertical-align:top; }
+    .cambio-sube { color: var(--green); }
+    .cambio-baja { color:#c1652f; }
+    @media (max-width: 480px) {
+      .resultado-fila { grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); }
+      .resultado-cabecera { display:none; }
+    }
     @media print {
       .no-imprimir { display:none; }
       body { background:#fff; }

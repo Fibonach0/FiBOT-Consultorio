@@ -1358,6 +1358,71 @@ chequear("otro profesional no se entera", not TABLAS["tenants"][1].get("plazos_t
 TABLAS["tenants"][0]["rubro"] = "psicología"
 chequear("psicología no ve plazos", "Plazo para repetir cada test" not in client.get("/agenda").data.decode())
 
+# --- Resultados de tests y evolución ---
+import resultados_tests  # noqa: E402
+
+leer = resultados_tests.leer_formulario
+filas, error = leer({"escala-0": " CI Total ", "tipo-0": "compuesto", "puntaje-0": "98", "nivel-0": "Promedio",
+                     "escala-1": "", "puntaje-1": "", "escala-2": "Precisión", "tipo-2": "percentil", "puntaje-2": "12,5"})
+chequear("lee las filas e ignora las vacías", error is None and filas == [
+    {"escala": "CI Total", "tipo": "compuesto", "puntaje": 98, "nivel": "Promedio"},
+    {"escala": "Precisión", "tipo": "percentil", "puntaje": 12.5, "nivel": ""}])
+chequear("pide escala", leer({"puntaje-0": "98"})[1] == "Cada resultado necesita el nombre de la escala.")
+chequear("rechaza texto como puntaje", "tiene que ser un número" in leer({"escala-0": "CI", "puntaje-0": "noventa"})[1])
+chequear("rechaza un CI imposible", "va de 40 a 160" in leer({"escala-0": "CI", "tipo-0": "compuesto", "puntaje-0": "300"})[1])
+chequear("rechaza percentil 120", "va de 0 a 100" in leer({"escala-0": "CL", "tipo-0": "percentil", "puntaje-0": "120"})[1])
+chequear("rechaza tipo inventado", "tipo de puntaje" in leer({"escala-0": "CI", "tipo-0": "z", "puntaje-0": "1"})[1])
+chequear("acepta sólo nivel", leer({"escala-0": "Nombre de letras", "nivel-0": "Normal"})[0][0]["puntaje"] is None)
+chequear("pide puntaje o nivel", "le falta el puntaje o el nivel" in leer({"escala-0": "CI"})[1])
+chequear("no repite escalas", leer({"escala-0": "CI", "puntaje-0": "90", "escala-1": "ci", "puntaje-1": "95"})[1] == "Hay una escala repetida.")
+
+tomas = [
+    {"_fecha": "01/03/2025", "resultados": [{"escala": "CI Total", "tipo": "compuesto", "puntaje": 85, "nivel": "Medio bajo"},
+                                           {"escala": "Memoria de Trabajo", "tipo": "compuesto", "puntaje": 90, "nivel": ""},
+                                           {"escala": "Velocidad", "tipo": "compuesto", "puntaje": 100, "nivel": ""},
+                                           {"escala": "Lectura", "tipo": "bruto", "puntaje": None, "nivel": "Dificultad"}]},
+    {"_fecha": "01/03/2026", "resultados": [{"escala": "CI Total", "tipo": "compuesto", "puntaje": 96, "nivel": "Promedio"},
+                                           {"escala": "Memoria de Trabajo", "tipo": "compuesto", "puntaje": 87, "nivel": ""},
+                                           {"escala": "Velocidad", "tipo": "compuesto", "puntaje": 92, "nivel": ""},
+                                           {"escala": "Lectura", "tipo": "bruto", "puntaje": None, "nivel": "Normal"},
+                                           {"escala": "Nueva", "tipo": "compuesto", "puntaje": 100, "nivel": ""}]},
+]
+ev = {e["escala"]: e for e in resultados_tests.evolucion(tomas)}
+chequear("sube con el número", ev["CI Total"]["sentido"] == "sube" and ev["CI Total"]["cambio"] == "subió 11")
+chequear("cambio chico se mantiene", ev["Memoria de Trabajo"]["sentido"] == "igual" and ev["Memoria de Trabajo"]["cambio"] == "se mantuvo")
+chequear("baja", ev["Velocidad"]["cambio"] == "bajó 8")
+chequear("muestra el cambio de nivel", ev["CI Total"]["nivel_cambio"] == "Medio bajo → Promedio")
+chequear("compara niveles sin puntaje", ev["Lectura"]["cambio"] == "cambió de nivel")
+chequear("una sola toma no es evolución", "Nueva" not in ev)
+chequear("compara sólo el mismo tipo", resultados_tests.evolucion([
+    {"_fecha": "a", "resultados": [{"escala": "CL", "tipo": "percentil", "puntaje": 30}]},
+    {"_fecha": "b", "resultados": [{"escala": "CL", "tipo": "t", "puntaje": 45}]}]) == [])
+
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TEL8 = "5491113131313"
+TABLAS["turnos"].append(turno("r1", "t1", manana, estado="reservado", paciente_nombre="Juli Ruiz", paciente_telefono=TEL8))
+TABLAS["paciente_tests"] += [
+    {"id": "w1", "tenant_id": "t1", "paciente_telefono": TEL8, "ficha": "", "test": "WISC-V", "fecha": "2024-10-01"},
+    {"id": "w2", "tenant_id": "t1", "paciente_telefono": TEL8, "ficha": "", "test": "WISC-V", "fecha": "2026-10-01"},
+    {"id": "otro", "tenant_id": "t2", "paciente_telefono": TEL8, "ficha": "", "test": "WISC-V", "fecha": "2026-10-01"}]
+html = client.get("/agenda").data.decode()
+chequear("ofrece cargar resultados", "Cargar resultados del 01/10/2026" in html and "sin resultados" in html)
+chequear("sugiere las escalas del WISC-V", '<option value="Razonamiento Fluido">' in html)
+client.post("/agenda/paciente/test/w1/resultados", data={"telefono": TEL8, "escala-0": "CI Total", "tipo-0": "compuesto", "puntaje-0": "84", "nivel-0": "Medio bajo"})
+html = client.post("/agenda/paciente/test/w2/resultados", data={"telefono": TEL8, "escala-0": "CI Total", "tipo-0": "compuesto", "puntaje-0": "97", "nivel-0": "Promedio"},
+                   follow_redirects=True).data.decode()
+guardado = next(x for x in TABLAS["paciente_tests"] if x["id"] == "w2")
+chequear("guarda los resultados", "Se guardaron los resultados" in html and guardado["resultados"] == [{"escala": "CI Total", "tipo": "compuesto", "puntaje": 97, "nivel": "Promedio"}])
+chequear("muestra la evolución", "subió 13" in html and "Medio bajo → Promedio" in html and 'class="cambio-sube"' in html)
+chequear("edita con lo cargado", 'Editar resultados del 01/10/2026' in html and 'name="puntaje-0" value="97"' in html)
+html = client.post("/agenda/paciente/test/w2/resultados", data={"telefono": TEL8, "escala-0": "CI Total", "puntaje-0": "999"}, follow_redirects=True).data.decode()
+chequear("un error no pisa lo guardado", "va de 40 a 160" in html and next(x for x in TABLAS["paciente_tests"] if x["id"] == "w2")["resultados"][0]["puntaje"] == 97)
+client.post("/agenda/paciente/test/otro/resultados", data={"escala-0": "CI Total", "puntaje-0": "70"})
+chequear("no toca tests de otro profesional", not next(x for x in TABLAS["paciente_tests"] if x["id"] == "otro").get("resultados"))
+html = client.post("/agenda/paciente/test/w2/resultados", data={"telefono": TEL8}, follow_redirects=True).data.decode()
+chequear("vaciar borra los resultados", "Se borraron los resultados" in html and next(x for x in TABLAS["paciente_tests"] if x["id"] == "w2")["resultados"] == [])
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

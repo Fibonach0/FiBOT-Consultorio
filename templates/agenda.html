@@ -599,13 +599,54 @@
       {% endif %}
 
       <h5>Tests tomados</h5>
-      {% for x in f.tests_tomados %}
-      <div class="ficha-item">
-        <span><strong>{{ x.test }}</strong> <span class="tenue">{{ x._fecha }}</span></span>
-        <form method="post" action="{{ url_for('agenda_test_borrar', test_id=x.id) }}">
-          {{ ocultos(f.clave) }}
-          <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar este test?')">×</button>
-        </form>
+      {% for g in f.tests_por_test %}
+      {% set lista_escalas = f.dom ~ '-escalas-' ~ loop.index %}
+      <div class="test-grupo">
+        <strong>{{ g.test }}</strong>
+        <datalist id="{{ lista_escalas }}">{% for e in g.escalas %}<option value="{{ e }}">{% endfor %}</datalist>
+        {% if g.evolucion %}
+        <table class="evolucion">
+          <tr><th>Escala</th><th>Tomas</th><th>Último cambio</th></tr>
+          {% for e in g.evolucion %}
+          <tr>
+            <td>{{ e.escala }}<br><span class="tenue">{{ e.tipo_texto }}</span></td>
+            <td>{% for v in e.valores %}<strong>{{ v.texto or '—' }}</strong> <span class="tenue">{{ v.fecha }}</span>{% if not loop.last %} → {% endif %}{% endfor %}</td>
+            <td class="cambio-{{ e.sentido }}">{% if e.sentido == 'sube' %}↑{% elif e.sentido == 'baja' %}↓{% else %}={% endif %} {{ e.cambio }}{% if e.nivel_cambio %}<br><span class="tenue">{{ e.nivel_cambio }}</span>{% endif %}</td>
+          </tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+        {% for x in g.tomas %}
+        <div class="ficha-item">
+          <span><span class="tenue">Tomado el {{ x._fecha }}</span>
+            {% for r in x.resultados %}<br>{{ r.escala }}: <strong>{{ r.texto or r.nivel }}</strong>{% if r.texto and r.nivel %} <span class="tenue">{{ r.nivel }}</span>{% endif %}{% else %}<span class="tenue"> · sin resultados</span>{% endfor %}
+          </span>
+          <form method="post" action="{{ url_for('agenda_test_borrar', test_id=x.id) }}">
+            {{ ocultos(f.clave) }}
+            <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar este test y sus resultados?')">×</button>
+          </form>
+        </div>
+        <details>
+          <summary class="tenue">{{ 'Editar' if x.resultados else 'Cargar' }} resultados del {{ x._fecha }} ▾</summary>
+          <form method="post" action="{{ url_for('agenda_test_resultados', test_id=x.id) }}">
+            {{ ocultos(f.clave) }}
+            <div class="resultado-fila resultado-cabecera"><span>Escala</span><span>Tipo</span><span>Puntaje</span><span>Nivel</span></div>
+            {% for n in range(x.resultados|length + filas_vacias) %}
+            {% set r = x.resultados[n] if n < x.resultados|length else {} %}
+            <div class="resultado-fila">
+              <input type="text" name="escala-{{ n }}" value="{{ r.escala or '' }}" list="{{ lista_escalas }}" maxlength="60" placeholder="Escala" aria-label="Escala">
+              <select name="tipo-{{ n }}" aria-label="Tipo de puntaje">
+                {% for k, etiqueta in tipos_resultado %}<option value="{{ k }}"{% if r.tipo == k %} selected{% endif %}>{{ etiqueta }}</option>{% endfor %}
+              </select>
+              <input type="text" name="puntaje-{{ n }}" value="{{ r.texto or '' }}" inputmode="decimal" maxlength="8" placeholder="Puntaje" aria-label="Puntaje">
+              <input type="text" name="nivel-{{ n }}" value="{{ r.nivel or '' }}" maxlength="60" placeholder="Nivel (opcional)" aria-label="Nivel">
+            </div>
+            {% endfor %}
+            <div class="tenue">Los puntajes ya corregidos, con el manual o la plataforma de la editorial. Para sumar más escalas, guardá y volvé a abrir. Una fila vacía se ignora.</div>
+            <button class="btn chico" type="submit">Guardar resultados</button>
+          </form>
+        </details>
+        {% endfor %}
       </div>
       {% else %}
       <div class="tenue">Todavía no anotaste ninguno.</div>
