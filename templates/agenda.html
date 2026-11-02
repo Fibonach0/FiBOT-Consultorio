@@ -3,7 +3,7 @@
 {% block cuerpo %}
 <header>
   <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
-  <a href="{{ url_for('logout') }}">Salir</a>
+  <span><a href="{{ url_for('ayuda') }}">Cómo se usa</a> · <a href="{{ url_for('logout') }}">Salir</a></span>
 </header>
 <main class="panel">
   {% with mensajes = get_flashed_messages() %}

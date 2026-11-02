@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block titulo %}Cómo se usa — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<header>
+  <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
+  <a href="{{ url_for('agenda') }}">Volver al panel</a>
+</header>
+<main>
+  <div class="card">
+    <h2>Cómo se usa</h2>
+    <p class="tenue">Lo necesario para arrancar, y qué hacer cuando algo pide tu atención.</p>
+  </div>
+
+  <div class="card">
+    <h3>Para arrancar</h3>
+    <ol>
+      <li>En «Generar horarios disponibles», cargá los días y horas en que atendés.</li>
+      <li>En «Ajustes» cargá tu matrícula, tu link de videollamada y tu WhatsApp para avisos.</li>
+      {% if tenant.slug %}<li>Pasale a tus pacientes tu página de reservas: <code>{{ url_for('publico', slug=tenant.slug, _external=True) }}</code></li>{% endif %}
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>Agendar</h3>
+    <ol>
+      <li>En el calendario tocá el día para abrir su semana.</li>
+      <li>En un horario libre tocá «Agendar paciente», y completá nombre y WhatsApp.</li>
+      <li>Si viene seguido, elegí la frecuencia y la cantidad de sesiones.</li>
+    </ol>
+    <p>Si dos personas comparten WhatsApp, cada una tiene su ficha: alcanza con poner su nombre. Si además se llaman igual, tildá «Es otra persona con el mismo nombre y WhatsApp».</p>
+  </div>
+
+  <div class="card">
+    <h3>Reservas que llegan solas</h3>
+    <p>Lo que se reserva por tu página entra directo al calendario y aparece arriba en «Reservas nuevas». Tocá «Visto» cuando lo hayas leído. Si cargaste tu WhatsApp para avisos, además te llega un mensaje en unos minutos, con la fecha y sin el nombre del paciente.</p>
+    <p>Si aparece «Revisar de quién es», esa reserva coincide con más de una ficha. Entrá a la ficha, pestaña Sesiones, y elegí «Es de esta ficha» o «Es de otra persona».</p>
+  </div>
+
+  <div class="card">
+    <h3>Después de cada sesión</h3>
+    <ol>
+      <li>Marcá si asistió y si pagó, desde la semana.</li>
+      <li>Si querés, dejá la nota de la sesión: la vas a ver antes del próximo encuentro en «Hoy».</li>
+    </ol>
+  </div>
+
+  <div class="card">
+    <h3>La ficha</h3>
+    <p>Tocá una ficha para abrirla. Arriba siempre ves la próxima sesión y la deuda.</p>
+    <ul>
+      {% set p = dict(rubro.pestanias) %}
+      <li><strong>{{ p.terapia }}:</strong> motivo, qué están trabajando, cómo viene y notas.{% if rubro.tests %} Abajo aparecen los tests para considerar.{% endif %}</li>
+      <li><strong>{{ p.sesiones }}:</strong> asistencia, notas de cada sesión y constancia.</li>
+      {% if rubro.escuela %}
+      <li><strong>{{ p.crisis }}:</strong> escuela, docente y equipo de orientación, otros profesionales, medicación y contactos de emergencia.</li>
+      {% else %}
+      <li><strong>{{ p.crisis }}:</strong> contactos de emergencia, psiquiatra, medicación y qué hacer.</li>
+      {% endif %}
+      <li><strong>{{ p.personas }}:</strong> personas importantes y fechas para tener presentes.</li>
+      <li><strong>{{ p.datos }}:</strong> datos, obra social, recordar un pago, y pausa o alta.</li>
+    </ul>
+    <p>Quien se queda sin sesiones sigue en el desplegable «Sin sesiones», y su ficha se recupera cuando vuelve.</p>
+  </div>
+
+  {% if rubro.tests %}
+  <div class="card">
+    <h3>Tests para considerar</h3>
+    <p>La pestaña {{ dict(rubro.pestanias).terapia }} sugiere tests según lo que anotaste y la edad. Cada área muestra la palabra que la disparó. Mientras más completes el motivo y las notas, y con la fecha de nacimiento cargada, mejor filtra.</p>
+    <p>Es una ayuda para pensar, no una indicación: no entiende el contexto, así que «no tiene problemas de lectura» también sugiere lectura. Las edades son orientativas: confirmalas con el manual y el baremo que uses.</p>
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>Cobros y papeles</h3>
+    <ul>
+      <li><strong>Resumen:</strong> lo cobrado, lo que falta y el Excel del mes. Sale sin nombres salvo que tildes «Con nombres».</li>
+      <li><strong>Aumento de honorarios:</strong> cambia sólo las sesiones futuras sin pagar.</li>
+      <li><strong>Planilla para obra social:</strong> cuenta las sesiones marcadas como «Asistió».</li>
+      <li><strong>Días bloqueados:</strong> no cancelan sesiones; te muestran a quién avisarle.</li>
+    </ul>
+  </div>
+
+  <div class="card">
+    <h3>Tus pacientes por WhatsApp</h3>
+    <ul>
+      <li><code>turno</code>: ve los horarios libres.</li>
+      <li><code>2 Lola Acosta</code>: reserva el horario 2 a ese nombre.</li>
+      <li><code>cancelar</code>: cancela. Si el teléfono tiene más de un paciente, pide <code>cancelar Lola</code>.</li>
+    </ul>
+  </div>
+</main>
+{% endblock %}

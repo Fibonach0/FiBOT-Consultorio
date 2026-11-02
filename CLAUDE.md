@@ -243,6 +243,11 @@ Cancelar por WhatsApp nunca adivina: con turnos de dos personas en el teléfono,
 o con un nombre que no coincide, el bot los lista y no cancela nada hasta recibir
 `cancelar Lola`.
 
+### Cómo se usa (`templates/ayuda.html`)
+
+Guía dentro del panel, adaptada al rubro. Si cambia un flujo o un texto visible,
+se actualiza acá en el mismo PR.
+
 ### Reservas nuevas (`migrations/025`)
 
 Una reserva sin ficha explícita (página pública o bot) lleva `reserva_nueva`: se ve

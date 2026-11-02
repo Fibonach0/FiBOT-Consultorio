@@ -919,6 +919,13 @@ def agenda_reserva_vista(turno_id):
     return _volver_a_agenda()
 
 
+@app.get("/agenda/ayuda")
+@login_required
+def ayuda():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    return render_template("ayuda.html", tenant=tenant, rubro=rubros.de(tenant))
+
+
 @app.post("/agenda/paciente/cerrar")
 @login_required
 def agenda_cerrar():
