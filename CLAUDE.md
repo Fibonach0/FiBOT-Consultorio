@@ -270,7 +270,12 @@ por la misma ruta que «Cargar resultados» (como `bruto`), sumando lo que ya ha
 `informe.py` arma el borrador con reglas locales (nada sale a servicios externos)
 y `templates/informe.html` se edita en pantalla. «Guardar en la ficha» manda el
 contenido como JSON (`informe.leer_guardado` lo limpia) a `informes`
-(`migrations/032`): cada guardado es una versión nueva, nunca se pisa. `tests_sugeridos.
+(`migrations/032`): cada guardado es una versión nueva, nunca se pisa.
+`plantillas_informe` (`migrations/034`) guarda sólo títulos de secciones;
+`informe.AUTOMATICAS` decide qué títulos se completan solos. `tenants.firma_imagen`
+es un data URL PNG/JPG validado por los primeros bytes (nunca SVG: es HTML).
+`templates/_firma.html` la pone en informes y en la ficha completa
+(`/agenda/paciente/ficha-completa`), que incluye notas: es para entregar a mano. `tests_sugeridos.
 para_repetir` avisa durante `VENTANA_AVISO` días desde que vence el plazo; el
 resumen de WhatsApp cuenta sólo los que vencen hoy (sale una vez por día).
 

@@ -212,6 +212,7 @@ def reset():
     TABLAS["cuestionarios"] = []
     TABLAS["informes"] = []
     TABLAS["plantillas_cuestionario"] = []
+    TABLAS["plantillas_informe"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -1823,6 +1824,60 @@ chequear("generalizada: padres 9 sobre el corte, chico 0", "no coinciden" in fil
 fila_esc = tabla.split("Evitación escolar")[1].split("</tr>")[0]
 chequear("los dos sobre el corte no se marcan", "no coinciden" not in fila_esc and fila_esc.count("sobre el corte") == 2)
 chequear("total con las dos", "<strong>41</strong>" in tabla.split(">Total")[1] and "<strong>22</strong>" in tabla.split(">Total")[1])
+
+# --- Ficha completa, plantillas de informe y firma ---
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TELF = "5491112223334"
+TABLAS["turnos"].append(turno("fc1", "t1", ahora - timedelta(days=7), estado="reservado", paciente_nombre="Fede Gil", paciente_telefono=TELF,
+                              asistencia="vino", nota="Trabajamos conciencia fonológica."))
+TABLAS["turnos"].append(turno("fc2", "t1", manana, estado="reservado", paciente_nombre="Fede Gil", paciente_telefono=TELF))
+TABLAS["pacientes"].append({"tenant_id": "t1", "paciente_telefono": TELF, "ficha": "", "motivo_consulta": "Deriva la escuela por lectura.",
+                            "notas": "Nota privada de prueba.", "escuela": "Escuela 9", "fecha_nacimiento": "2016-05-01"})
+TABLAS["paciente_personas"].append({"tenant_id": "t1", "paciente_telefono": TELF, "ficha": "", "nombre": "Ana", "vinculo": "Madre", "telefono": "11", "emergencia": True})
+TABLAS["cuestionarios"].append({"id": "fca", "tenant_id": "t1", "paciente_telefono": TELF, "ficha": "", "instrumento": "docente", "token": "tfc",
+                                "vence": "2026-01-01T00:00:00+00:00", "respondido_at": "2026-10-01T12:00:00+00:00",
+                                "respuestas": ["", "Lee silabeando."], "created_at": "1"})
+TABLAS["informes"].append({"id": "fci", "tenant_id": "t1", "paciente_telefono": TELF, "ficha": "", "created_at": "2",
+                           "contenido": {"titulo": "Informe psicopedagógico", "datos": [], "secciones": [{"titulo": "Conclusiones", "texto": "Avanza bien."}]}})
+html = client.get("/agenda").data.decode()
+chequear("ofrece la ficha completa", "Ficha completa en PDF" in html)
+pagina = client.post("/agenda/paciente/ficha-completa", data={"telefono": TELF}).data.decode()
+for texto in ("Ficha de Fede Gil", "Deriva la escuela por lectura.", "Nota privada de prueba.", "Escuela 9", "Ana", "Madre",
+              "contacto de emergencia", "Trabajamos conciencia fonológica.", "asistió", "próxima", "Lee silabeando.",
+              "Avanza bien.", "Confidencial", "01/05/2016"):
+    chequear(f"la ficha completa trae: {texto}", texto in pagina)
+chequear("ficha completa de otro no existe", client.post("/agenda/paciente/ficha-completa", data={"telefono": "nada"}).status_code == 404)
+
+html = client.post("/agenda/plantillas-informe", data={"nombre": "Para la escuela", "secciones": json.dumps(["Motivo de derivación", "Lo que observamos", " ", "Objetivos"])},
+                   follow_redirects=True).data.decode()
+chequear("guarda la plantilla de informe", "Se guardó la plantilla «Para la escuela»" in html
+         and TABLAS["plantillas_informe"][0]["contenido"] == {"nombre": "Para la escuela", "secciones": ["Motivo de derivación", "Lo que observamos", "Objetivos"]})
+chequear("plantilla sin secciones", "no tiene secciones" in client.post("/agenda/plantillas-informe", data={"nombre": "x", "secciones": "[]"}, follow_redirects=True).data.decode())
+html = client.get("/agenda").data.decode()
+chequear("se elige al armar el informe", '<option value="">Estándar</option>' in html and ">Para la escuela</option>" in html)
+pid = TABLAS["plantillas_informe"][0]["id"]
+borr = client.post("/agenda/paciente/informe", data={"telefono": TELF, "plantilla_id": pid}).data.decode()
+chequear("el borrador sigue la plantilla", "Para la escuela" in borr and "Lo que observamos" in borr and "Conclusiones" not in borr
+         and "Deriva la escuela por lectura." in borr.split("Motivo de derivación")[1].split("Lo que observamos")[0])
+chequear("y ofrece guardarse como plantilla", "Guardar estructura como plantilla" in borr and "Sumar sección" in borr)
+TABLAS["plantillas_informe"].append({"id": "pi-ajena", "tenant_id": "t2", "contenido": {"nombre": "Ajena", "secciones": ["Secreta"]}})
+borr = client.post("/agenda/paciente/informe", data={"telefono": TELF, "plantilla_id": "pi-ajena"}).data.decode()
+chequear("no usa plantillas de otro", "Secreta" not in borr and "Conclusiones" in borr)
+client.post("/agenda/plantillas-informe/pi-ajena/borrar", data={})
+chequear("ni las borra", any(p["id"] == "pi-ajena" for p in TABLAS["plantillas_informe"]))
+
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 50
+html = client.post("/agenda/firma", data={"firma": (io.BytesIO(PNG), "firma.png")}, content_type="multipart/form-data", follow_redirects=True).data.decode()
+chequear("guarda la firma", "Se guardó tu firma" in html and TABLAS["tenants"][0]["firma_imagen"].startswith("data:image/png;base64,"))
+pagina = client.post("/agenda/paciente/ficha-completa", data={"telefono": TELF}).data.decode()
+chequear("la firma sale en la ficha y el informe", 'alt="Firma"' in pagina and 'alt="Firma"' in client.post("/agenda/paciente/informe", data={"telefono": TELF}).data.decode())
+html = client.post("/agenda/firma", data={"firma": (io.BytesIO(b"<svg onload=alert(1)>"), "f.svg")}, content_type="multipart/form-data", follow_redirects=True).data.decode()
+chequear("rechaza lo que no es PNG o JPG", "PNG o JPG" in html and TABLAS["tenants"][0]["firma_imagen"].startswith("data:image/png"))
+html = client.post("/agenda/firma", data={"firma": (io.BytesIO(PNG + b"0" * 300_000), "f.png")}, content_type="multipart/form-data", follow_redirects=True).data.decode()
+chequear("rechaza imágenes pesadas", "muy pesada" in html)
+client.post("/agenda/firma/borrar", data={})
+chequear("quita la firma", TABLAS["tenants"][0]["firma_imagen"] is None and not TABLAS["tenants"][1].get("firma_imagen"))
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

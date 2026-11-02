@@ -1,0 +1,4 @@
+<div class="firma-bloque" style="margin-top:50px">
+  {% if tenant.firma_imagen %}<img src="{{ tenant.firma_imagen }}" alt="Firma" style="max-height:90px;max-width:240px;display:block">{% endif %}
+  <div class="firma" style="margin-top:{{ '4px' if tenant.firma_imagen else '70px' }}">{{ tenant.nombre }}{% if tenant.matricula %}<br>Matrícula {{ tenant.matricula }}{% endif %}</div>
+</div>

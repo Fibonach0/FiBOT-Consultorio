@@ -63,7 +63,34 @@ def frases_cuestionarios(cuestionarios: dict) -> list[str]:
     return frases
 
 
-def armar(ficha: dict, rubro: dict, hoy: date) -> dict:
+# Una sección de plantilla se completa sola si su título contiene una de estas
+# palabras: «Motivo de derivación» trae el motivo, «Evaluación inicial» los tests.
+AUTOMATICAS = [("motivo", "motivo"), ("evaluaci", "tests"), ("test", "tests"), ("lectura", "lectura"),
+               ("cuestionario", "cuestionarios"), ("objetivo", "objetivos")]
+MAX_PLANTILLA = 30
+
+
+def _automatico(titulo: str, textos: dict) -> str:
+    t = titulo.casefold()
+    return next((textos[clave] for palabra, clave in AUTOMATICAS if palabra in t), "")
+
+
+def leer_plantilla(nombre: str, crudo: str) -> tuple[dict | None, str | None]:
+    import json
+    nombre = (nombre or "").strip()[:60]
+    if not nombre:
+        return None, "La plantilla necesita un nombre."
+    try:
+        titulos = [str(t).strip()[:MAX_TITULO] for t in json.loads(crudo or "")]
+    except (ValueError, TypeError):
+        return None, "La plantilla llegó incompleta. Probá de nuevo."
+    titulos = [t for t in titulos if t][:MAX_PLANTILLA]
+    if not titulos:
+        return None, "La plantilla no tiene secciones."
+    return {"nombre": nombre, "secciones": titulos}, None
+
+
+def armar(ficha: dict, rubro: dict, hoy: date, plantilla: dict | None = None) -> dict:
     datos = [("Nombre", ficha["nombre"]), ("Edad", _edad(ficha.get("fecha_nacimiento"), hoy))]
     if rubro.get("escuela"):
         datos += [("Escuela", ficha.get("escuela")), ("Grado", ficha.get("grado"))]
@@ -71,6 +98,12 @@ def armar(ficha: dict, rubro: dict, hoy: date) -> dict:
     tests = frases_tests(ficha.get("tests_por_test") or [])
     lectura = frases_fluidez(ficha.get("fluidez") or {})
     cuestionarios = frases_cuestionarios(ficha.get("cuestionarios") or {})
+    if plantilla:
+        textos = {"motivo": ficha.get("motivo_consulta") or "", "tests": "\n".join(tests), "lectura": "\n".join(lectura),
+                  "cuestionarios": "\n".join(cuestionarios), "objetivos": ficha.get("objetivos") or ""}
+        secciones = [{"titulo": t, "texto": _automatico(t, textos), "vacio": "Escribí acá."} for t in plantilla["secciones"]]
+        return {"titulo": plantilla["nombre"], "datos": [(k, v) for k, v in datos if v], "tests": tests,
+                "fluidez": lectura, "cuestionarios": cuestionarios, "secciones": secciones}
     secciones = [{"titulo": "Motivo de consulta", "texto": ficha.get("motivo_consulta") or "", "vacio": "Por qué consultan y quién deriva."}]
     if tests:
         secciones.append({"titulo": "Evaluación", "texto": "\n".join(tests), "vacio": ""})
