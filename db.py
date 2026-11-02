@@ -733,6 +733,34 @@ def guardar_resultados_test(tenant_id: str, test_id: str, resultados: list[dict]
     _client.table("paciente_tests").update({"resultados": resultados}).eq("tenant_id", tenant_id).eq("id", test_id).execute()
 
 
+def textos_lectura(tenant_id: str) -> list[dict]:
+    res = _client.table("textos_lectura").select("*").eq("tenant_id", tenant_id).order("titulo").execute()
+    return res.data
+
+
+def agregar_texto_lectura(tenant_id: str, titulo: str, texto: str) -> None:
+    _client.table("textos_lectura").insert({"tenant_id": tenant_id, "titulo": titulo, "texto": texto}).execute()
+
+
+def borrar_texto_lectura(tenant_id: str, texto_id: str) -> None:
+    _client.table("textos_lectura").delete().eq("tenant_id", tenant_id).eq("id", texto_id).execute()
+
+
+def lecturas(tenant_id: str) -> list[dict]:
+    # La fecha es siempre la del día en que se guarda: alcanza con created_at.
+    res = _client.table("lecturas").select("*").eq("tenant_id", tenant_id).order("created_at", desc=True).execute()
+    return res.data
+
+
+def agregar_lectura(tenant_id: str, clave: str, fila: dict) -> None:
+    telefono, ficha = partir_clave(clave)
+    _client.table("lecturas").insert({"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha, **fila}).execute()
+
+
+def borrar_lectura(tenant_id: str, lectura_id: str) -> None:
+    _client.table("lecturas").delete().eq("tenant_id", tenant_id).eq("id", lectura_id).execute()
+
+
 def borrar_test(tenant_id: str, test_id: str) -> None:
     _client.table("paciente_tests").delete().eq("tenant_id", tenant_id).eq("id", test_id).execute()
 

@@ -23,6 +23,7 @@ import config
 import conversation
 import db
 import rubros
+import fluidez
 import resultados_tests
 import tests_sugeridos
 from fechas import alerta_de_seguimiento, proxima_vez, sesiones_que_quedan
@@ -376,9 +377,14 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
         for x in db.tests_tomados(tenant["id"]):
             x["_fecha"] = date.fromisoformat(x["fecha"]).strftime("%d/%m/%Y")
             tomados.setdefault(db.clave_de(x), []).append(x)
+        leidas: dict[str, list[dict]] = {}
+        for x in db.lecturas(tenant["id"]):
+            x["_fecha"] = date.fromisoformat(x["fecha"]).strftime("%d/%m/%Y")
+            leidas.setdefault(db.clave_de(x), []).append(x)
         for f in lista:
             f["tests_tomados"] = tomados.get(f["clave"], [])
             f["tests_por_test"] = resultados_tests.por_test(f["tests_tomados"])
+            f["fluidez"] = fluidez.para_ficha(leidas.get(f["clave"], []))
             nacimiento = f["fecha_nacimiento"]
             edad = (hoy - date.fromisoformat(nacimiento)).days / 365.25 if nacimiento else None
             textos = [f["motivo_consulta"], f["objetivos"], f["como_viene"], f["notas"], *[t.get("nota") for t in f["sesiones"]]]
@@ -511,6 +517,8 @@ def agenda():
         "catalogo_tests": [nombre for nombre, *_ in tests_sugeridos.CATALOGO],
         "tipos_resultado": [(k, v[0]) for k, v in resultados_tests.TIPOS.items()],
         "filas_vacias": resultados_tests.FILAS_VACIAS,
+        "textos_lectura": [dict(t, palabras=len(fluidez.palabras(t["texto"]))) for t in db.textos_lectura(tenant["id"])]
+                          if rubros.de(tenant)["tests"] else [],
         "plazos_tests": [{"nombre": n, "meses": m, "fabrica": f, "propio": n in (tenant.get("plazos_tests") or {})}
                          for (n, m), (_, _, _, f, _) in zip(tests_sugeridos.plazos(tenant.get("plazos_tests")).items(),
                                                             tests_sugeridos.CATALOGO)],
@@ -1219,6 +1227,82 @@ def agenda_test_resultados(test_id):
         return _volver_a_agenda()
     db.guardar_resultados_test(session["tenant_id"], test_id, filas)
     flash("Se guardaron los resultados." if filas else "Se borraron los resultados.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/fluidez")
+@login_required
+def agenda_fluidez():
+    """Pantalla de lectura. Por POST para que el teléfono no quede en la URL."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    clave = request.form.get("telefono") or ""
+    ficha = next((f for f in _fichas(tenant, tz, datetime.now(tz)) if f["clave"] == clave), None)
+    texto = next((t for t in db.textos_lectura(tenant["id"]) if t["id"] == request.form.get("texto_id")), None)
+    if not ficha or not texto:
+        flash("Elegí un texto para la lectura.")
+        return _volver_a_agenda()
+    return render_template("fluidez.html", tenant=tenant, ficha=ficha, texto=texto,
+                           palabras=fluidez.palabras(texto["texto"]), semana=request.form.get("semana") or "")
+
+
+@app.post("/agenda/fluidez/guardar")
+@login_required
+def agenda_fluidez_guardar():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    clave = request.form.get("telefono") or ""
+    texto = next((t for t in db.textos_lectura(tenant["id"]) if t["id"] == request.form.get("texto_id")), None)
+    if not clave or not texto:
+        flash("No se encontró el texto de la lectura.")
+        return _volver_a_agenda()
+    lista = fluidez.palabras(texto["texto"])
+    datos, error = fluidez.validar(len(lista), request.form.get("leidas") or "",
+                                   request.form.get("errores") or "", request.form.get("segundos") or "")
+    if error:
+        flash(error)
+        return _volver_a_agenda()
+    db.agregar_lectura(tenant["id"], clave, {
+        "fecha": datetime.now(_tz_de(tenant)).date().isoformat(),
+        "texto_titulo": texto["titulo"],
+        "palabras_texto": len(lista),
+        "palabras_leidas": datos["leidas"],
+        "errores": len(datos["errores"]),
+        "errores_palabras": [lista[i] for i in datos["errores"]],
+        "segundos": datos["segundos"],
+    })
+    r = fluidez.calcular(datos["leidas"], len(datos["errores"]), datos["segundos"])
+    flash(f"Lectura guardada: {r['pcpm']} palabras correctas por minuto, {r['precision']}% de precisión.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/fluidez/<lectura_id>/borrar")
+@login_required
+def agenda_fluidez_borrar(lectura_id):
+    db.borrar_lectura(session["tenant_id"], lectura_id)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/textos-lectura")
+@login_required
+def agenda_textos_lectura():
+    titulo = (request.form.get("titulo") or "").strip()
+    texto = (request.form.get("texto") or "").strip()
+    if not titulo or not texto:
+        flash("El texto necesita título y contenido.")
+    elif len(titulo) > fluidez.MAX_TITULO or len(texto) > fluidez.MAX_TEXTO:
+        flash("El texto es demasiado largo.")
+    elif not 1 <= len(fluidez.palabras(texto)) <= fluidez.MAX_PALABRAS:
+        flash(f"El texto tiene que tener entre 1 y {fluidez.MAX_PALABRAS} palabras.")
+    else:
+        db.agregar_texto_lectura(session["tenant_id"], titulo, texto)
+        flash(f"Se agregó «{titulo}».")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/textos-lectura/<texto_id>/borrar")
+@login_required
+def agenda_textos_lectura_borrar(texto_id):
+    db.borrar_texto_lectura(session["tenant_id"], texto_id)
     return _volver_a_agenda()
 
 

@@ -8,6 +8,7 @@ pisa el cliente de Supabase por uno en memoria, para que corra la lógica real
 de db.py — que es justo donde están las cosas que importan (el orden de
 reprogramar, que liberar un turno limpie el pago, que nada cruce de tenant).
 """
+import itertools
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -54,6 +55,9 @@ def _norm(v):
         except ValueError:
             pass
     return v
+
+
+_ALTAS = itertools.count()
 
 
 class _Query:
@@ -145,7 +149,8 @@ class _Query:
                 creadas.append(dict(fila))
             return _Res(creadas)
         if self.op == "insert":
-            filas.append({"id": f"{self.tabla}-{len(filas) + 1}", **self.payload})
+            # created_at como contador: ordena por orden de alta, igual que Postgres.
+            filas.append({"id": f"{self.tabla}-{len(filas) + 1}", "created_at": f"{next(_ALTAS):08d}", **self.payload})
             return _Res([dict(filas[-1])])
         match = [f for f in filas if all(p(f) for p in self.filtros)]
         if self.op == "delete":
@@ -198,6 +203,8 @@ def reset():
     TABLAS["cancelaciones"] = []
     TABLAS["bloqueos"] = []
     TABLAS["paciente_tests"] = []
+    TABLAS["textos_lectura"] = []
+    TABLAS["lecturas"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -1422,6 +1429,61 @@ client.post("/agenda/paciente/test/otro/resultados", data={"escala-0": "CI Total
 chequear("no toca tests de otro profesional", not next(x for x in TABLAS["paciente_tests"] if x["id"] == "otro").get("resultados"))
 html = client.post("/agenda/paciente/test/w2/resultados", data={"telefono": TEL8}, follow_redirects=True).data.decode()
 chequear("vaciar borra los resultados", "Se borraron los resultados" in html and next(x for x in TABLAS["paciente_tests"] if x["id"] == "w2")["resultados"] == [])
+
+# --- Fluidez lectora ---
+import fluidez  # noqa: E402
+
+chequear("cuenta palabras sin signos sueltos", fluidez.palabras("El perro — corre, ¡rápido!  ") == ["El", "perro", "corre,", "¡rápido!"])
+chequear("calcula las medidas", fluidez.calcular(60, 3, 60) == {"ppm": 60, "pcpm": 57, "precision": 95})
+chequear("con tiempo parcial", fluidez.calcular(40, 0, 30)["pcpm"] == 80)
+ok, error = fluidez.validar(50, "30", "3,1,3", "60.04")
+chequear("valida y ordena errores", error is None and ok == {"leidas": 30, "errores": [1, 3], "segundos": 60.0})
+chequear("pide la última palabra", fluidez.validar(50, "0", "", "60")[1] == "Falta marcar hasta dónde leyó.")
+chequear("no pasa del texto", fluidez.validar(50, "51", "", "60")[1] == "Falta marcar hasta dónde leyó.")
+chequear("errores después de lo leído", "después de la última" in fluidez.validar(50, "10", "12", "60")[1])
+chequear("tiempo inválido", "tiempo" in fluidez.validar(50, "10", "", "0")[1])
+chequear("basura no explota", "incompleta" in fluidez.validar(50, "diez", "", "60")[1])
+fl = fluidez.para_ficha([{"palabras_leidas": 70, "errores": 2, "segundos": 60}, {"palabras_leidas": 50, "errores": 5, "segundos": 60}])
+chequear("cambio contra la anterior", fl["filas"][0]["cambio"] == 23 and "cambio" not in fl["filas"][1])
+chequear("gráfico de vieja a nueva", [p["valor"] for p in fl["grafico"]["puntos"]] == [45, 68])
+chequear("una sola lectura sin gráfico", fluidez.para_ficha([{"palabras_leidas": 5, "errores": 0, "segundos": 10}])["grafico"] is None)
+
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TEL9 = "5491114141414"
+TABLAS["turnos"].append(turno("f1", "t1", manana, estado="reservado", paciente_nombre="Mora Díaz", paciente_telefono=TEL9))
+html = client.get("/agenda").data.decode()
+chequear("sin textos pide cargarlos", "cargá un texto en «Ajustes»" in html and "Textos para fluidez lectora (0)" in html)
+client.post("/agenda/textos-lectura", data={"titulo": "La plaza", "texto": "Hoy fuimos a la plaza con mi abuela y vimos patos."})
+client.post("/agenda/textos-lectura", data={"titulo": "", "texto": "algo"})
+chequear("agrega textos con título", [t["titulo"] for t in TABLAS["textos_lectura"]] == ["La plaza"])
+TABLAS["textos_lectura"].append({"id": "ajeno", "tenant_id": "t2", "titulo": "Ajeno", "texto": "uno dos"})
+html = client.get("/agenda").data.decode()
+chequear("ofrece tomar lectura con sus textos", "Tomar lectura" in html and "La plaza (11 palabras)" in html and "Ajeno" not in html)
+texto_id = TABLAS["textos_lectura"][0]["id"]
+pantalla = client.post("/agenda/fluidez", data={"telefono": TEL9, "texto_id": texto_id}).data.decode()
+chequear("abre la pantalla de lectura", "Fluidez lectora · Mora Díaz" in pantalla and pantalla.count('class="palabra"') == 11 and TEL9 in pantalla)
+html = client.post("/agenda/fluidez", data={"telefono": TEL9, "texto_id": "ajeno"}, follow_redirects=True).data.decode()
+chequear("no usa textos de otro profesional", "Elegí un texto" in html)
+html = client.post("/agenda/fluidez/guardar", data={"telefono": TEL9, "texto_id": texto_id, "leidas": "11", "errores": "2,8", "segundos": "15"},
+                   follow_redirects=True).data.decode()
+guardada = TABLAS["lecturas"][-1] if TABLAS["lecturas"] else {}
+chequear("guarda la lectura", guardada.get("palabras_leidas") == 11 and guardada.get("errores") == 2
+         and guardada.get("errores_palabras") == ["a", "y"] and guardada.get("paciente_telefono") == TEL9 and guardada.get("texto_titulo") == "La plaza")
+chequear("avisa el resultado", "36 palabras correctas por minuto, 82% de precisión" in html)
+client.post("/agenda/fluidez/guardar", data={"telefono": TEL9, "texto_id": texto_id, "leidas": "11", "errores": "", "segundos": "12"})
+html = client.get("/agenda").data.decode()
+chequear("muestra la evolución con gráfico", "grafico-fluidez" in html and "↑ 19" in html and "Errores: a, y" in html)
+n = len(TABLAS["lecturas"])
+client.post("/agenda/fluidez/guardar", data={"telefono": TEL9, "texto_id": texto_id, "leidas": "12", "errores": "", "segundos": "12"})
+chequear("rechaza más palabras que el texto", len(TABLAS["lecturas"]) == n)
+TABLAS["lecturas"].append({"id": "ajena", "tenant_id": "t2", "paciente_telefono": TEL9, "ficha": "", "fecha": "2026-10-01"})
+client.post("/agenda/fluidez/ajena/borrar", data={})
+chequear("no borra lecturas de otro", any(x["id"] == "ajena" for x in TABLAS["lecturas"]))
+client.post(f"/agenda/textos-lectura/{texto_id}/borrar", data={})
+chequear("borrar el texto deja las lecturas", not any(t["id"] == texto_id for t in TABLAS["textos_lectura"]) and len(TABLAS["lecturas"]) == n + 1)
+TABLAS["tenants"][0]["rubro"] = "psicología"
+chequear("psicología no ve fluidez", "Fluidez lectora" not in client.get("/agenda").data.decode())
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

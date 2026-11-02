@@ -477,6 +477,29 @@
         <div class="al-pie"><button class="btn chico" type="submit">Guardar plazos</button></div>
       </form>
     </details>
+    <details>
+      <summary class="tenue">Textos para fluidez lectora ({{ textos_lectura|length }}) ▾</summary>
+      {% for t in textos_lectura %}
+      <div class="ficha-item">
+        <span><strong>{{ t.titulo }}</strong> <span class="tenue">{{ t.palabras }} palabras</span></span>
+        <form method="post" action="{{ url_for('agenda_textos_lectura_borrar', texto_id=t.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="quitar" type="submit" aria-label="Borrar texto" onclick="return confirm('¿Borrar este texto? Las lecturas ya tomadas quedan.')">×</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="tenue">Todavía no cargaste ninguno.</div>
+      {% endfor %}
+      <form method="post" action="{{ url_for('agenda_textos_lectura') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <label>Título</label><input type="text" name="titulo" maxlength="80" required placeholder="Ej.: El perro de Sofía (2º grado)">
+        <label>Texto</label><textarea name="texto" rows="5" required></textarea>
+        <div class="tenue">Usá textos propios o de dominio público, no los de un test: esos son de la editorial.</div>
+        <button class="btn chico" type="submit">Agregar texto</button>
+      </form>
+    </details>
     {% endif %}
   </div>
   </div>
@@ -660,6 +683,40 @@
           <div class="al-pie"><button class="btn chico" type="submit">Anotar</button></div>
         </form>
       </details>
+
+      <h5>Fluidez lectora</h5>
+      {% set fl = f.fluidez %}
+      {% if fl.grafico %}
+      <svg class="grafico-fluidez" viewBox="0 0 {{ fl.grafico.ancho }} {{ fl.grafico.alto }}" role="img"
+           aria-label="Palabras correctas por minuto: {{ fl.grafico.puntos|map(attribute='valor')|join(', ') }}">
+        <polyline points="{{ fl.grafico.linea }}" fill="none" stroke="currentColor" stroke-width="2"/>
+        {% for p in fl.grafico.puntos %}<circle cx="{{ p.x }}" cy="{{ p.y }}" r="3" fill="currentColor"><title>{{ p.valor }}</title></circle>{% endfor %}
+      </svg>
+      {% endif %}
+      {% for x in fl.filas %}
+      <div class="ficha-item">
+        <span><strong>{{ x.pcpm }}</strong> correctas/min <span class="tenue">· {{ x.precision }}% precisión · {{ x.ppm }} ppm · {{ x._fecha }} · {{ x.texto_titulo }}</span>
+          {% if x.cambio is defined %}<span class="cambio-{{ 'sube' if x.cambio > 0 else 'baja' if x.cambio < 0 else 'igual' }}">{{ '↑' if x.cambio > 0 else '↓' if x.cambio < 0 else '=' }} {{ x.cambio|abs }}</span>{% endif %}
+          {% if x.errores_palabras %}<br><span class="tenue">Errores: {{ x.errores_palabras|join(', ') }}</span>{% endif %}
+        </span>
+        <form method="post" action="{{ url_for('agenda_fluidez_borrar', lectura_id=x.id) }}">
+          {{ ocultos(f.clave) }}
+          <button class="quitar" type="submit" aria-label="Borrar lectura" onclick="return confirm('¿Borrar esta lectura?')">×</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="tenue">Todavía no tomaste ninguna.</div>
+      {% endfor %}
+      {% if textos_lectura %}
+      <form method="post" action="{{ url_for('agenda_fluidez') }}" class="fila">
+        {{ ocultos(f.clave) }}
+        <div class="ancho"><label>Texto</label>
+          <select name="texto_id" required>{% for t in textos_lectura %}<option value="{{ t.id }}">{{ t.titulo }} ({{ t.palabras }} palabras)</option>{% endfor %}</select></div>
+        <div class="al-pie"><button class="btn chico" type="submit">Tomar lectura</button></div>
+      </form>
+      {% else %}
+      <div class="tenue">Para tomar una lectura, cargá un texto en «Ajustes» → «Textos para fluidez lectora».</div>
+      {% endif %}
       {% endif %}
       </section>
 
