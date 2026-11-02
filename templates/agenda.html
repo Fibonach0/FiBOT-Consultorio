@@ -223,6 +223,7 @@
               </select>
             </div>
             <div><label>Cantidad de sesiones</label><input type="number" name="cantidad" value="8" min="1" max="26"></div>
+            <div class="ancho"><label><input type="checkbox" name="otra_persona" value="1"> Es otra persona con el mismo nombre y WhatsApp</label></div>
             <div class="al-pie"><button class="btn chico" type="submit">Agendar</button></div>
           </form>
         </details>
@@ -508,7 +509,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
       <div><label>Pasar a</label>
-        <select name="destino">{% for o in f.hermanos %}<option value="{{ o.clave }}">{{ o.nombre }}</option>{% endfor %}</select>
+        <select name="destino">{% for o in f.hermanos %}<option value="{{ o.clave }}">{{ o.nombre }}{% if o.desde %} · desde {{ o.desde }}{% endif %}</option>{% endfor %}</select>
       </div>
       <div class="al-pie"><button class="btn chico secundario" type="submit">Pasar</button></div>
     </form>

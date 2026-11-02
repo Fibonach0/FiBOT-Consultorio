@@ -57,6 +57,9 @@ def _reservar(tenant: dict, telefono: str, indice: int, nombre: str | None) -> s
     elegido = libres[indice - 1]
     if not nombre and len(db.fichas_del_telefono(tenant["id"], telefono)) > 1:
         return f"Este WhatsApp es de más de un paciente. Escribí el número y el nombre, ej: *{indice} Lola*."
+    if nombre and db.nombre_ambiguo(tenant["id"], telefono, nombre):
+        return (f"Hay más de un paciente que se llama {nombre} con este WhatsApp. Escribí el nombre completo, "
+                f"o pedile la reserva directamente a *{tenant['nombre']}*.")
     if db.reservar_turno(tenant["id"], elegido["id"], telefono, nombre):
         return (
             f"Listo, quedó reservado para el {_fmt(elegido['inicio'], tz)}. "
@@ -73,16 +76,23 @@ def _cancelar(tenant: dict, telefono: str, nombre: str | None = None) -> str:
     if not turnos:
         return "No tenés ningún turno reservado a tu nombre."
     if nombre:
-        elegidos = [t for t in turnos if db.mismo_nombre(t.get("paciente_nombre"), nombre)]
+        elegidos = db.elegir_por_nombre(turnos, nombre)
         if not elegidos and len(turnos) == 1 and not turnos[0].get("paciente_nombre"):
             elegidos = turnos
     else:
         elegidos = turnos if len(turnos) == 1 else []
-    if not elegidos:
+    if len(elegidos) != 1:
         detalle = "\n".join(f"• {t.get('paciente_nombre') or 'Sin nombre'}: {_fmt(t['inicio'], tz)}" for t in turnos)
-        ejemplo = next((t["paciente_nombre"].split()[0] for t in turnos if t.get("paciente_nombre")), None)
-        inicio = f"No encontré un turno de {nombre}." if nombre else "Este WhatsApp tiene turnos de más de un paciente."
-        pedido = f" Escribí *cancelar {ejemplo}* para cancelar el suyo, por ejemplo." if ejemplo else ""
+        ejemplo = next((t["paciente_nombre"] for t in turnos if t.get("paciente_nombre")), None)
+        if len(elegidos) > 1:
+            inicio = f"Hay más de un turno que coincide con {nombre}."
+        else:
+            inicio = f"No encontré un turno de {nombre}." if nombre else "Este WhatsApp tiene turnos de más de un paciente."
+        iguales = len({db.nombre_normal(t.get("paciente_nombre")) for t in turnos}) < len(turnos)
+        if iguales:
+            pedido = f" Para cancelar, escribile directamente a *{tenant['nombre']}*."
+        else:
+            pedido = f" Escribí *cancelar* y el nombre completo, por ejemplo *cancelar {ejemplo}*." if ejemplo else ""
         return f"{inicio}\n\n{detalle}\n\nTodavía no se canceló nada.{pedido}"
     turno = elegidos[0]
     db.cancelar_turno(tenant["id"], turno["id"], "paciente")

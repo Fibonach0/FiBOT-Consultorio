@@ -155,10 +155,32 @@ def partir_clave(clave: str) -> tuple[str, str]:
     return telefono, ficha
 
 
-def _primer_nombre(nombre: str | None) -> str:
+def _palabras(nombre: str | None) -> list[str]:
     sin_acentos = unicodedata.normalize("NFD", nombre or "")
-    limpio = "".join(c for c in sin_acentos if not unicodedata.combining(c)).lower().split()
-    return "".join(c for c in limpio[0] if c.isalnum()) if limpio else ""
+    limpio = "".join(c for c in sin_acentos if not unicodedata.combining(c)).lower()
+    return [p for p in ("".join(c for c in crudo if c.isalnum()) for crudo in limpio.split()) if p]
+
+
+def nombre_normal(nombre: str | None) -> str:
+    return " ".join(_palabras(nombre))
+
+
+def mismo_nombre(uno: str | None, otro: str | None) -> bool:
+    """«Nina» y «Nina Acosta» pueden ser la misma persona; «Juan Pablo» y «Juan
+    Ignacio», no: el nombre más corto tiene que estar entero en el más largo."""
+    a, b = _palabras(uno), _palabras(otro)
+    if not a or not b or a[0] != b[0]:
+        return False
+    corto, largo = sorted((a, b), key=len)
+    return set(corto) <= set(largo)
+
+
+def elegir_por_nombre(filas: list[dict], nombre: str | None) -> list[dict]:
+    """Las filas que pueden ser esa persona. Si el nombre completo coincide con
+    alguna, esas ganan. Más de una significa que el nombre no alcanza."""
+    posibles = [f for f in filas if mismo_nombre(f.get("paciente_nombre"), nombre)]
+    exactas = [f for f in posibles if _palabras(f.get("paciente_nombre")) == _palabras(nombre)]
+    return exactas or posibles
 
 
 def fichas_del_telefono(tenant_id: str, telefono: str) -> list[dict]:
@@ -192,8 +214,7 @@ def fichas_del_telefono(tenant_id: str, telefono: str) -> list[dict]:
 
 def ficha_para(tenant_id: str, telefono: str, nombre: str | None) -> tuple[str, bool]:
     """A qué ficha va una reserva nueva, y si es una ficha nueva junto a otra.
-    Mismo primer nombre, misma ficha: «Nina» y «Nina Acosta» son la misma
-    persona. Si el nombre es otro, ficha aparte, aunque la otra persona ya no
+    Mismo nombre, misma ficha (ver `mismo_nombre`). Si el nombre es otro, ficha aparte, aunque la otra persona ya no
     tenga sesiones: nadie hereda los datos de otro. Un error de tipeo se corrige
     moviendo la sesión desde la ficha."""
     filas = fichas_del_telefono(tenant_id, telefono)
@@ -201,12 +222,37 @@ def ficha_para(tenant_id: str, telefono: str, nombre: str | None) -> tuple[str, 
         return "", False
     if not nombre:
         return filas[0].get("ficha") or "", False
-    buscado = _primer_nombre(nombre)
-    for f in filas:
-        sin_nombre = f["con_sesiones"] and not f.get("paciente_nombre")
-        if sin_nombre or _primer_nombre(f.get("paciente_nombre")) == buscado:
-            return f.get("ficha") or "", False
-    return buscado or "otra", True
+    elegidas = elegir_por_nombre(filas, nombre)
+    if elegidas:
+        return elegidas[0].get("ficha") or "", False
+    sin_nombre = [f for f in filas if f["con_sesiones"] and not f.get("paciente_nombre")]
+    if sin_nombre:
+        return sin_nombre[0].get("ficha") or "", False
+    return _ficha_libre(filas, nombre), True
+
+
+def _ficha_libre(filas: list[dict], nombre: str | None) -> str:
+    usadas = {f.get("ficha") or "" for f in filas}
+    palabras = _palabras(nombre)
+    base = palabras[0] if palabras else "otra"
+    for candidata in (base, "".join(palabras) or base):
+        if candidata not in usadas:
+            return candidata
+    numero = 2
+    while f"{base}{numero}" in usadas:
+        numero += 1
+    return f"{base}{numero}"
+
+
+def ficha_aparte(tenant_id: str, telefono: str, nombre: str | None) -> str:
+    """Para cuando el profesional aclara que es otra persona, aunque el nombre
+    sea idéntico: eso no se puede deducir."""
+    filas = fichas_del_telefono(tenant_id, telefono)
+    return _ficha_libre(filas, nombre) if filas else ""
+
+
+def nombre_ambiguo(tenant_id: str, telefono: str, nombre: str | None) -> bool:
+    return len(elegir_por_nombre(fichas_del_telefono(tenant_id, telefono), nombre)) > 1
 
 
 def mover_sesion(tenant_id: str, turno_id: str, clave: str, nombre: str) -> bool:
@@ -226,7 +272,7 @@ def mover_sesion(tenant_id: str, turno_id: str, clave: str, nombre: str) -> bool
 
 def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | None,
                    valor: int | None = None, frecuencia: str | None = None,
-                   modalidad: str | None = None) -> bool:
+                   modalidad: str | None = None, ficha: str | None = None) -> bool:
     """Devuelve False si el turno ya no estaba libre (alguien se adelantó) —
     el llamador tiene que chequear esto y avisarle al paciente, nunca asumir
     éxito. También si se pisa con otra sesión: alguien pudo tener abierto ese
@@ -236,7 +282,8 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
         return False
     if _esta_bloqueado(tenant_id, turno["inicio"], turno["fin"]):
         return False
-    ficha, _ = ficha_para(tenant_id, telefono, nombre)
+    if ficha is None:
+        ficha = ficha_para(tenant_id, telefono, nombre)[0]
     res = (
         _client.table("turnos")
         .update({"estado": "reservado", "paciente_telefono": telefono, "paciente_nombre": nombre, "ficha": ficha,
@@ -271,10 +318,6 @@ def proximos_turnos_de(tenant_id: str, telefono: str) -> list[dict]:
     for t in res.data:
         vistos.setdefault(t.get("ficha") or "", t)
     return list(vistos.values())
-
-
-def mismo_nombre(uno: str | None, otro: str | None) -> bool:
-    return bool(uno and otro) and _primer_nombre(uno) == _primer_nombre(otro)
 
 
 # Todo lo que describe a la RESERVA (no al horario) se limpia cuando el turno
@@ -354,7 +397,7 @@ def marcar_nota(tenant_id: str, turno_id: str, nota: str | None) -> None:
 
 def reservar_en_horario(tenant_id: str, inicio: datetime, duracion_minutos: int, telefono: str,
                         nombre: str | None, valor: int | None, frecuencia: str | None,
-                        modalidad: str | None = None) -> bool:
+                        modalidad: str | None = None, ficha: str | None = None) -> bool:
     """Agenda una sesión a una hora dada, creando el horario si no estaba
     cargado. Es lo que usan los pacientes fijos: la sesión de dentro de dos
     meses seguramente todavía no tiene horario generado. False si está ocupado."""
@@ -369,7 +412,7 @@ def reservar_en_horario(tenant_id: str, inicio: datetime, duracion_minutos: int,
     )
     if not res.data:
         return False
-    return reservar_turno(tenant_id, res.data[0]["id"], telefono, nombre, valor, frecuencia, modalidad)
+    return reservar_turno(tenant_id, res.data[0]["id"], telefono, nombre, valor, frecuencia, modalidad, ficha)
 
 
 def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, duracion_minutos: int) -> str | None:
