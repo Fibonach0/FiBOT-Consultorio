@@ -1266,6 +1266,24 @@ html = client.get("/agenda").data.decode()
 chequear("psicopedagogía los ve, también por la nota de sesión", "Tests para considerar" in html and "PROLEC-R" in html and "CARAS-R" in html)
 chequear("quedan en la pestaña Trabajo", html.index('data-panel="terapia"') < html.index("Tests para considerar") < html.index('data-panel="sesiones"'))
 
+# --- Cómo se usa ---
+reset()
+html = client.get("/agenda").data.decode()
+chequear("el panel enlaza la guía", 'href="/agenda/ayuda"' in html)
+html = client.get("/agenda/ayuda").data.decode()
+chequear("psicología ve sus pestañas", "Terapia:" in html and "Crisis:" in html and "Tests para considerar" not in html)
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TABLAS["tenants"][0]["slug"] = "marcos"
+html = client.get("/agenda/ayuda").data.decode()
+chequear("psicopedagogía ve las suyas", "Trabajo:" in html and "Escuela:" in html and "Tests para considerar" in html and "/marcos" in html)
+for texto in ("Generar horarios", "Reservas nuevas", "Es de esta ficha"):
+    chequear(f"la guía nombra lo que existe: {texto}", texto in client.get("/agenda").data.decode() + open("templates/agenda.html", encoding="utf8").read())
+with client.session_transaction() as s:
+    s.pop("tenant_id")
+chequear("la guía pide login", client.get("/agenda/ayuda").status_code == 302)
+with client.session_transaction() as s:
+    s["tenant_id"] = "t1"
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")
