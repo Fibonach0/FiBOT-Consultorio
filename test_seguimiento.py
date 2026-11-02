@@ -1728,22 +1728,22 @@ reset()
 TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
 TELS = "5491112345678"
 TABLAS["turnos"].append(turno("s1", "t1", manana, estado="reservado", paciente_nombre="Santi Rey", paciente_telefono=TELS))
-html = client.post("/agenda/plantillas", data={"modelo": "scared"}, follow_redirects=True).data.decode()
+html = client.post("/agenda/plantillas", data={"modelo": "scared_chico"}, follow_redirects=True).data.decode()
 chequear("crea el SCARED vacío", len(TABLAS["plantillas_cuestionario"]) == 1 and "faltan 41: todavía no se puede mandar" in html and "Falta pegar las 41 preguntas" in html)
-chequear("no se ofrece incompleto", "SCARED (ansiedad infantil)" not in html)
+chequear("no se ofrece incompleto", "SCARED · Chico/a (ansiedad infantil)" not in html)
 pid = TABLAS["plantillas_cuestionario"][0]["id"]
 chequear("el form trae la corrección", "Ansiedad de separación: 4, 8, 13, 16, 20, 25, 29, 31 | 5" in html and "Seguido = 2" in html)
 n = len(TABLAS["cuestionarios"])
 client.post("/agenda/cuestionario", data={"telefono": TELS, "instrumento": f"propio:{pid}"})
 chequear("no manda un cuestionario incompleto", len(TABLAS["cuestionarios"]) == n)
 subes = "\n".join(f"{x['nombre']}: {', '.join(map(str, x['items']))} | {x['corte']}" for x in M["subescalas"])
-editar = {"nombre": "SCARED", "que_mide": "ansiedad infantil", "items": "\n".join(f"Pregunta de prueba {i}" for i in range(1, 42)),
+editar = {"nombre": "SCARED", "version": "Chico/a", "que_mide": "ansiedad infantil", "items": "\n".join(f"Pregunta de prueba {i}" for i in range(1, 42)),
           "opciones": "Nunca = 0\nA veces = 1\nSeguido = 2", "subescalas": subes, "corte_total": "25", "fuente": "Crédito"}
 html = client.post(f"/agenda/plantillas/{pid}", data={**editar, "items": "solo una"}, follow_redirects=True).data.decode()
 chequear("si faltan renglones avisa y no guarda", "¿Faltan renglones" in html and not cuestionarios.completa(TABLAS["plantillas_cuestionario"][0]["contenido"]))
 client.post(f"/agenda/plantillas/{pid}", data=editar)
 html = client.get("/agenda").data.decode()
-chequear("completo se ofrece en la ficha", f'value="propio:{pid}"' in html and "SCARED (ansiedad infantil)" in html)
+chequear("completo se ofrece en la ficha", f'value="propio:{pid}"' in html and "SCARED · Chico/a (ansiedad infantil)" in html)
 client.post("/agenda/cuestionario", data={"telefono": TELS, "instrumento": f"propio:{pid}"})
 q = TABLAS["cuestionarios"][-1]
 chequear("manda una copia de la plantilla", q["instrumento"] == "propio" and q["plantilla"]["id"] == pid and len(q["plantilla"]["items"]) == 41)
@@ -1768,6 +1768,61 @@ client.post("/agenda/plantillas/ajena/borrar", data={})
 chequear("ni las edita ni las borra", any(p["id"] == "ajena" and p["contenido"]["items"] == ["a"] for p in TABLAS["plantillas_cuestionario"]))
 TABLAS["tenants"][0]["rubro"] = "psicología"
 chequear("psicología también tiene propios", "Cuestionarios propios" in client.get("/agenda").data.decode())
+
+# --- Exportar e importar cuestionarios, versiones lado a lado ---
+exp = cuestionarios.exportar({**M, "version": "Padres"})
+imp, err = cuestionarios.importar(json.dumps(exp).encode())
+chequear("exporta e importa el SCARED vacío sin perder lugares", err is None and len(imp["items"]) == 41 and imp["version"] == "Padres"
+         and imp["subescalas"] == M["subescalas"] and imp["corte_total"] == 25)
+chequear("rechaza otro JSON", cuestionarios.importar(b'{"hola": 1}')[1] == "Ese archivo no es un cuestionario exportado de FiBOT.")
+chequear("rechaza basura", cuestionarios.importar(b"\xff\xfe")[1] is not None and cuestionarios.importar(b"[1,2]")[1] is not None)
+chequear("rechaza archivos enormes", cuestionarios.importar(b" " * (cuestionarios.MAX_IMPORTAR + 1))[1] == "El archivo es demasiado grande.")
+malo = dict(exp, subescalas=[{"nombre": "X", "items": [99], "corte": 1}])
+chequear("valida como el formulario", "¿Faltan renglones" in cuestionarios.importar(json.dumps(malo).encode())[1])
+
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TELX = "5491113579135"
+TABLAS["turnos"].append(turno("x1", "t1", manana, estado="reservado", paciente_nombre="Luz Paz", paciente_telefono=TELX))
+completo = lambda version: {"nombre": "SCARED", "version": version, "que_mide": "ansiedad infantil",
+                            "items": "\n".join(f"Pregunta {i}" for i in range(1, 42)), "opciones": "Nunca = 0\nA veces = 1\nSeguido = 2",
+                            "subescalas": "\n".join(f"{x['nombre']}: {', '.join(map(str, x['items']))} | {x['corte']}" for x in M["subescalas"]),
+                            "corte_total": "25"}
+client.post("/agenda/plantillas", data=completo("Chico/a"))
+pid = TABLAS["plantillas_cuestionario"][0]["id"]
+r = client.get(f"/agenda/plantillas/{pid}/exportar")
+chequear("exporta como archivo", r.status_code == 200 and "attachment" in r.headers["Content-Disposition"] and "scared-chico-a.json" in r.headers["Content-Disposition"]
+         and json.loads(r.data)["formato"] == "fibot-cuestionario" and len(json.loads(r.data)["items"]) == 41)
+chequear("no exporta de otro", client.get("/agenda/plantillas/nada/exportar").status_code == 404)
+datos_imp = json.loads(r.data)
+datos_imp["version"] = "Padres"
+html = client.post("/agenda/plantillas/importar", data={"archivo": (io.BytesIO(json.dumps(datos_imp).encode()), "scared.json")},
+                   content_type="multipart/form-data", follow_redirects=True).data.decode()
+chequear("importa", "Se importó «SCARED»" in html and len(TABLAS["plantillas_cuestionario"]) == 2)
+html = client.post("/agenda/plantillas/importar", data={"archivo": (io.BytesIO(b"no"), "x.json")},
+                   content_type="multipart/form-data", follow_redirects=True).data.decode()
+chequear("importar basura avisa", "no es un cuestionario exportado" in html and len(TABLAS["plantillas_cuestionario"]) == 2)
+ids = {p["contenido"]["version"]: p["id"] for p in TABLAS["plantillas_cuestionario"]}
+
+def responder(version, valores):
+    client.post("/agenda/cuestionario", data={"telefono": TELX, "instrumento": f"propio:{ids[version]}"})
+    client.post(f"/cuestionario/{TABLAS['cuestionarios'][-1]['token']}", data={f"item-{i}": str(v) for i, v in enumerate(valores)})
+
+chico = [0] * 41
+for n in M["subescalas"][3]["items"] + M["subescalas"][4]["items"]:  # social y escolar altas en el chico
+    chico[n - 1] = 2
+responder("Chico/a", chico)
+responder("Padres", [1] * 41)
+html = client.get("/agenda").data.decode()
+chequear("compara las versiones lado a lado", "SCARED: versiones lado a lado" in html and "Chico/a" in html and "Padres" in html)
+tabla = html.split("SCARED: versiones lado a lado")[1].split("</table>")[0]
+fila_social = tabla.split("Ansiedad social")[1].split("</tr>")[0]
+fila_gen = tabla.split("Ansiedad generalizada")[1].split("</tr>")[0]
+chequear("marca dónde no coinciden", "no coinciden" in fila_social and "<strong>14</strong>" in fila_social and "<strong>7</strong>" in fila_social)
+chequear("generalizada: padres 9 sobre el corte, chico 0", "no coinciden" in fila_gen)
+fila_esc = tabla.split("Evitación escolar")[1].split("</tr>")[0]
+chequear("los dos sobre el corte no se marcan", "no coinciden" not in fila_esc and fila_esc.count("sobre el corte") == 2)
+chequear("total con las dos", "<strong>41</strong>" in tabla.split(">Total")[1] and "<strong>22</strong>" in tabla.split(">Total")[1])
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

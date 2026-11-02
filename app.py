@@ -10,9 +10,12 @@ import copy
 import functools
 import hmac
 import io
+import json
 import logging
 import os
+import re
 import secrets
+import unicodedata
 from datetime import date, datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 
@@ -531,10 +534,12 @@ def _cuestionarios_de_ficha(filas: list[dict], tz: ZoneInfo, ahora: datetime) ->
         inst = pares[0][1]
         for nueva, vieja in zip(rs, rs[1:]):
             nueva["cambio"] = nueva["puntaje"] - vieja["puntaje"]
+        plantilla = rs[0].get("plantilla") or {}
         grupos.append({"nombre": inst["nombre"], "que_mide": inst["que_mide"], "respuestas": rs,
-                       "maximo": inst["maximo"],
+                       "maximo": inst["maximo"], "base": plantilla.get("nombre"), "version": plantilla.get("version"),
                        "grafico": fluidez.grafico([r["puntaje"] for r in reversed(rs)])})
     return {"pendientes": pendientes, "grupos": grupos, "abiertos": abiertos,
+            "comparaciones": cuestionarios.comparar_versiones(grupos),
             "alerta": any(r.get("alerta") and not r.get("visto") for g in grupos for r in g["respuestas"])}
 
 
@@ -571,10 +576,8 @@ def agenda():
     for p in plantillas:
         c = p["contenido"]
         p["faltan"] = sum(not x.strip() for x in c["items"])
-        p["form"] = {"opciones": "\n".join(f"{o['texto']} = {o['valor']}" for o in c["opciones"]),
-                     "items": "\n".join(c["items"]),
-                     "subescalas": "\n".join(f"{x['nombre']}: {', '.join(map(str, x['items']))}"
-                                             + (f" | {x['corte']}" if x["corte"] is not None else "") for x in c["subescalas"])}
+        p["form"] = cuestionarios.a_formulario(c)
+        p["titulo"] = c["nombre"] + (f" · {c['version']}" if c.get("version") else "")
     comunes = {
         "tenant": tenant,
         "pendientes": pendientes,
@@ -596,7 +599,7 @@ def agenda():
                                        key=lambda x: (not x["c"].get("alerta"), x["c"]["respondido_at"])),
         "instrumentos": [(k, cuestionarios.INSTRUMENTOS.get(k) or cuestionarios.ABIERTOS[k])
                          for k in rubros.de(tenant)["cuestionarios"]]
-                        + [(f"propio:{p['id']}", {"nombre": p["contenido"]["nombre"], "que_mide": p["contenido"].get("que_mide") or "propio"})
+                        + [(f"propio:{p['id']}", {"nombre": p["titulo"], "que_mide": p["contenido"].get("que_mide") or "propio"})
                            for p in plantillas if cuestionarios.completa(p["contenido"])],
         "plantillas": plantillas,
         "tests_para_repetir": [{"ficha": f, **t} for f in fichas for t in f.get("para_repetir") or []],
@@ -1473,9 +1476,11 @@ def cuestionario_responder(token):
 @app.post("/agenda/plantillas")
 @login_required
 def agenda_plantilla_nueva():
-    if request.form.get("modelo") == "scared":
-        contenido = copy.deepcopy(cuestionarios.MODELO_SCARED)
-        flash("Se creó el SCARED con su corrección. Falta pegar las 41 preguntas, una por renglón, en orden.")
+    modelo = request.form.get("modelo") or ""
+    if modelo in cuestionarios.VERSIONES_SCARED:
+        contenido = {**copy.deepcopy(cuestionarios.MODELO_SCARED), "version": cuestionarios.VERSIONES_SCARED[modelo]}
+        flash(f"Se creó el SCARED ({contenido['version'].lower()}) con su corrección. "
+              "Falta pegar las 41 preguntas, una por renglón, en orden.")
     else:
         contenido, error = cuestionarios.leer_plantilla(request.form)
         if error:
@@ -1483,6 +1488,37 @@ def agenda_plantilla_nueva():
             return _volver_a_agenda()
         flash(f"Se creó «{contenido['nombre']}».")
     db.agregar_plantilla(session["tenant_id"], contenido)
+    return _volver_a_agenda()
+
+
+@app.get("/agenda/plantillas/<plantilla_id>/exportar")
+@login_required
+def agenda_plantilla_exportar(plantilla_id):
+    fila = next((p for p in db.plantillas_cuestionario(session["tenant_id"]) if p["id"] == plantilla_id), None)
+    if not fila:
+        return "No encontrado.", 404
+    c = fila["contenido"]
+    nombre = re.sub(r"[^a-z0-9]+", "-", unicodedata.normalize("NFKD", f"{c['nombre']} {c.get('version') or ''}")
+                    .encode("ascii", "ignore").decode().lower()).strip("-") or "cuestionario"
+    cuerpo = json.dumps(cuestionarios.exportar(c), ensure_ascii=False, indent=2)
+    return app.response_class(cuerpo, mimetype="application/json",
+                              headers={"Content-Disposition": f'attachment; filename="{nombre}.json"'})
+
+
+@app.post("/agenda/plantillas/importar")
+@login_required
+def agenda_plantilla_importar():
+    archivo = request.files.get("archivo")
+    if not archivo:
+        flash("Elegí el archivo del cuestionario.")
+        return _volver_a_agenda()
+    contenido, error = cuestionarios.importar(archivo.read(cuestionarios.MAX_IMPORTAR + 1))
+    if error:
+        flash(error)
+        return _volver_a_agenda()
+    db.agregar_plantilla(session["tenant_id"], contenido)
+    faltan = sum(not x.strip() for x in contenido["items"])
+    flash(f"Se importó «{contenido['nombre']}»." + (f" Faltan {faltan} preguntas para poder mandarlo." if faltan else ""))
     return _volver_a_agenda()
 
 

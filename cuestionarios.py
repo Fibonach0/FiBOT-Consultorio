@@ -184,6 +184,9 @@ MAX_TEXTO_ITEM = 400
 # separación; va el 25 porque las subescalas suman 41 ítems y el total es su
 # suma: con el 35 el 25 quedaría huérfano y el 35 contaría dos veces.
 # Los ítems van vacíos: los pega la profesional desde su copia.
+# La versión para padres y la del chico tienen la misma corrección.
+VERSIONES_SCARED = {"scared_chico": "Chico/a", "scared_padres": "Padres"}
+
 MODELO_SCARED = {
     "nombre": "SCARED",
     "que_mide": "ansiedad infantil",
@@ -208,14 +211,15 @@ def _entero(texto: str) -> int:
     return int(str(texto).strip())
 
 
-def leer_plantilla(form) -> tuple[dict | None, str | None]:
+def leer_plantilla(form, conservar_vacias: bool = False) -> tuple[dict | None, str | None]:
     """Formulario de Ajustes → plantilla limpia. Ítems: uno por renglón.
     Opciones: «texto = valor» por renglón. Subescalas: «nombre: 1, 6, 9 | corte»."""
     nombre = (form.get("nombre") or "").strip()[:60]
     if not nombre:
         return None, "El cuestionario necesita un nombre."
     items = [x.strip()[:MAX_TEXTO_ITEM] for x in (form.get("items") or "").splitlines()]
-    while items and not items[-1]:
+    # conservar_vacias: al importar un SCARED sin pegar, los 41 lugares vacíos cuentan.
+    while items and not items[-1] and not conservar_vacias:
         items.pop()
     if not 1 <= len(items) <= MAX_ITEMS:
         return None, f"Cargá entre 1 y {MAX_ITEMS} preguntas, una por renglón."
@@ -258,7 +262,8 @@ def leer_plantilla(form) -> tuple[dict | None, str | None]:
         corte_total = _entero(corte_txt) if corte_txt else None
     except ValueError:
         return None, "El corte del total tiene que ser un número."
-    return {"nombre": nombre, "que_mide": (form.get("que_mide") or "").strip()[:60],
+    return {"nombre": nombre, "version": (form.get("version") or "").strip()[:30],
+            "que_mide": (form.get("que_mide") or "").strip()[:60],
             "consigna": (form.get("consigna") or "").strip()[:600], "opciones": opciones, "items": items,
             "subescalas": subescalas, "corte_total": corte_total,
             "fuente": (form.get("fuente") or "").strip()[:400]}, None
@@ -298,7 +303,8 @@ def definicion(fila: dict) -> dict | None:
     if clave == "propio" and fila.get("plantilla"):
         p = fila["plantilla"]
         maximo = max(o["valor"] for o in p["opciones"]) * len(p["items"])
-        return {"tipo": "propio", "nombre": p["nombre"], "que_mide": p.get("que_mide") or "propio",
+        nombre = p["nombre"] + (f" · {p['version']}" if p.get("version") else "")
+        return {"tipo": "propio", "nombre": nombre, "que_mide": p.get("que_mide") or "propio",
                 "consigna": p.get("consigna") or "", "items": p["items"],
                 "opciones": [o["texto"] for o in p["opciones"]], "dificultad": None,
                 "fuente": p.get("fuente") or None, "maximo": maximo}
@@ -308,3 +314,82 @@ def definicion(fila: dict) -> dict | None:
     if clave in ABIERTOS:
         return {**ABIERTOS[clave], "tipo": "abierto", "fuente": None}
     return None
+
+
+FORMATO = "fibot-cuestionario"
+MAX_IMPORTAR = 200_000
+
+
+def a_formulario(c: dict) -> dict:
+    """Plantilla → campos del formulario de Ajustes (y de la importación)."""
+    return {
+        "nombre": c.get("nombre") or "", "version": c.get("version") or "", "que_mide": c.get("que_mide") or "",
+        "consigna": c.get("consigna") or "", "fuente": c.get("fuente") or "",
+        "items": "\n".join(c.get("items") or []),
+        "opciones": "\n".join(f"{o['texto']} = {o['valor']}" for o in c.get("opciones") or []),
+        "subescalas": "\n".join(f"{x['nombre']}: {', '.join(map(str, x['items']))}"
+                                 + (f" | {x['corte']}" if x.get("corte") is not None else "")
+                                 for x in c.get("subescalas") or []),
+        "corte_total": "" if c.get("corte_total") is None else str(c["corte_total"]),
+    }
+
+
+def exportar(c: dict) -> dict:
+    return {"formato": FORMATO, "version_formato": 1,
+            **{k: c.get(k) for k in ("nombre", "version", "que_mide", "consigna", "opciones", "items",
+                                     "subescalas", "corte_total", "fuente")}}
+
+
+def importar(crudo: bytes) -> tuple[dict | None, str | None]:
+    """Archivo exportado por otra profesional → plantilla validada con las
+    mismas reglas que el formulario (nunca se guarda el JSON tal cual)."""
+    import json
+    if len(crudo) > MAX_IMPORTAR:
+        return None, "El archivo es demasiado grande."
+    try:
+        datos = json.loads(crudo.decode("utf-8"))
+        if not isinstance(datos, dict) or datos.get("formato") != FORMATO:
+            raise ValueError
+        # Los ítems vacíos (como el SCARED sin pegar) se conservan en su lugar.
+        items = [str(x).replace("\n", " ") for x in datos.get("items") or []]
+        form = a_formulario({**datos, "items": items})
+        # Un renglón vacío al final se pierde al partir el texto: el espacio lo
+        # conserva y leer_plantilla lo vuelve a dejar vacío.
+        form["items"] = "\n".join(x.strip() or " " for x in items)
+    except (ValueError, UnicodeDecodeError, TypeError, KeyError, AttributeError):
+        return None, "Ese archivo no es un cuestionario exportado de FiBOT."
+    return leer_plantilla(form, conservar_vacias=True)
+
+
+def comparar_versiones(grupos: list[dict]) -> list[dict]:
+    """Versiones de un mismo cuestionario propio (p. ej. SCARED de padres y
+    del chico): la última respuesta de cada una, lado a lado por subescala.
+    grupos: los de la ficha, cada uno con su «base», «version» y respuestas
+    de la más nueva a la más vieja."""
+    por_base: dict[str, list[dict]] = {}
+    for g in grupos:
+        if g.get("base") and g.get("version"):
+            por_base.setdefault(g["base"].casefold(), []).append(g)
+    comparaciones = []
+    for gs in por_base.values():
+        if len(gs) < 2:
+            continue
+        gs = sorted(gs, key=lambda g: g["version"].casefold())
+        ultimas = [g["respuestas"][0] for g in gs]
+        nombres = []
+        for r in ultimas:
+            for d in r.get("detalle") or []:
+                if d["nombre"] not in nombres:
+                    nombres.append(d["nombre"])
+        filas = []
+        for nombre in nombres:
+            celdas = [next((d for d in r.get("detalle") or [] if d["nombre"] == nombre), None) for r in ultimas]
+            filas.append({"nombre": nombre, "celdas": celdas,
+                          "corte": next((c["corte"] for c in celdas if c and c["corte"] is not None), None),
+                          "difieren": len({bool(c and c["sobre_corte"]) for c in celdas}) > 1})
+        filas.append({"nombre": "Total", "celdas": [{"puntaje": r["puntaje"], "sobre_corte": r.get("severidad") == "sobre el corte"}
+                                                    for r in ultimas],
+                      "corte": None, "difieren": len({r.get("severidad") for r in ultimas}) > 1})
+        comparaciones.append({"nombre": gs[0]["base"], "versiones": [g["version"] for g in gs],
+                              "fechas": [r["_fecha"] for r in ultimas], "filas": filas})
+    return comparaciones
