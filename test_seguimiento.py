@@ -1552,6 +1552,12 @@ chequear("psicopedagogía no los ofrece todavía", "Generar link" not in client.
 client.post("/agenda/cuestionario", data={"telefono": TELC, "instrumento": "gad7"})
 chequear("ni deja crearlos", not any(c["instrumento"] == "gad7" and c.get("tenant_id") == "t1" and c["id"] not in ("venc",) for c in TABLAS["cuestionarios"]))
 
+html = client.get("/agenda", headers={"X-Forwarded-Proto": "https"}).data.decode()
+TABLAS["tenants"][0]["rubro"] = "psicología"
+client.post("/agenda/cuestionario", data={"telefono": TELC, "instrumento": "gad7"})
+html = client.get("/agenda", headers={"X-Forwarded-Proto": "https"}).data.decode()
+chequear("el link sale con https detrás del proxy", "https://localhost/cuestionario/" in html)
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

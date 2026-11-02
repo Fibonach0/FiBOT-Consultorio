@@ -17,6 +17,7 @@ from zoneinfo import ZoneInfo
 
 import bcrypt
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, session, url_for
+from werkzeug.middleware.proxy_fix import ProxyFix
 from openpyxl import Workbook
 
 import config
@@ -35,6 +36,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("app")
 
 app = Flask(__name__)
+# Railway termina TLS en su proxy: sin esto, los links absolutos (el del
+# cuestionario, el de reservas en la guía) salen con http://.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
 app.secret_key = config.FLASK_SECRET_KEY
 # Secure sólo en Railway: en local el panel corre por http y no habría login.
 app.config.update(
