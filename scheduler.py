@@ -45,7 +45,11 @@ def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
     )
     partes = [f"{fechas} fecha{'s' if fechas > 1 else ''} importante{'s' if fechas > 1 else ''} en la semana"] if fechas else []
     por_paciente: dict[str, list[dict]] = {}
-    for t in db.sesiones_reservadas(tenant["id"]):
+    sesiones = db.sesiones_reservadas(tenant["id"])
+    revisar = sum(bool(t.get("revisar_ficha")) for t in sesiones)
+    if revisar:
+        partes.append(f"{revisar} sesi{'ones' if revisar > 1 else 'ón'} para revisar de quién {'son' if revisar > 1 else 'es'}")
+    for t in sesiones:
         por_paciente.setdefault(db.clave_de(t), []).append(t)
     ahora = datetime.now(timezone.utc)
     renovar = sum(sesiones_que_quedan(s, ahora) is not None for clave, s in por_paciente.items() if not cerrado(clave))

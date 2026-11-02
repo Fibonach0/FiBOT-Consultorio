@@ -1192,6 +1192,18 @@ TABLAS["turnos"].append(turno("p9", "t1", manana + timedelta(days=30)))
 respuesta = client.post("/marcos/reservar/p9", data={"nombre": "Juan Pérez", "telefono": TEL6}).data.decode()
 chequear("la página pública no muestra otros pacientes", fila_p("p9")["revisar_ficha"] and "Lola" not in respuesta)
 
+partes = scheduler._partes_del_resumen(dict(TENANT), datetime.now(timezone.utc).date())
+chequear("el resumen cuenta las sesiones a revisar", any("2 sesiones para revisar de quién son" in p for p in partes), partes)
+chequear("el resumen no lleva nombres", not any("Juan" in p for p in partes))
+for t_rev in TABLAS["turnos"]:
+    t_rev["revisar_ficha"] = t_rev["id"] == "p9"
+partes = scheduler._partes_del_resumen(dict(TENANT), datetime.now(timezone.utc).date())
+chequear("una sola sale en singular", any("1 sesión para revisar de quién es" in p for p in partes), partes)
+for t_rev in TABLAS["turnos"]:
+    t_rev["revisar_ficha"] = False
+partes = scheduler._partes_del_resumen(dict(TENANT), datetime.now(timezone.utc).date())
+chequear("sin nada para revisar no se menciona", not any("revisar" in p for p in partes), partes)
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")
