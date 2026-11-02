@@ -1117,6 +1117,49 @@ html = client.get("/agenda").data.decode()
 chequear("pasar la sesión la recupera", html.count("<h4>Mariana</h4>") == 2 and "Ficha vieja" in html)
 chequear("la ficha abierta por error desaparece", "<h4>Mari</h4>" not in html and "Sin sesiones (" not in html)
 
+# --- Mismo nombre y mismo teléfono ---
+chequear("«Nina» es «Nina Acosta»", db.mismo_nombre("Nina", "Nina Acosta") and db.mismo_nombre("José Pérez", "jose perez"))
+chequear("«Juan Pablo» no es «Juan Ignacio»", not db.mismo_nombre("Juan Pablo", "Juan Ignacio") and not db.mismo_nombre("Juan Pérez", "Juan Gómez"))
+reset()
+TEL5 = "5491199990000"
+TABLAS["turnos"] += [turno(f"n{i}", "t1", manana + timedelta(days=i + 1)) for i in range(9)]
+reservar = lambda id_, nombre: db.reservar_turno("t1", id_, TEL5, nombre)
+ficha_de = lambda id_: {t["id"]: t for t in TABLAS["turnos"]}[id_]["ficha"]
+estado_n = lambda id_: {t["id"]: t for t in TABLAS["turnos"]}[id_]["estado"]
+reservar("n0", "Juan Pablo Ruiz")
+reservar("n1", "Juan Ignacio Ruiz")
+chequear("dos Juan con otro segundo nombre se separan", ficha_de("n0") == "" and ficha_de("n1") == "juan")
+chequear("el nombre completo va a su ficha", reservar("n2", "Juan Ignacio Ruiz") and ficha_de("n2") == "juan")
+r = conversation.responder(dict(TENANT), TEL5, "cancelar Juan")
+chequear("«cancelar Juan» con dos Juan no cancela", "Todavía no se canceló" in r and estado_n("n0") == "reservado" and estado_n("n1") == "reservado", r)
+r = conversation.responder(dict(TENANT), TEL5, "1 Juan")
+chequear("reservar «Juan» con dos Juan pregunta", "más de un paciente" in r, r)
+r = conversation.responder(dict(TENANT), TEL5, "cancelar Juan Ignacio Ruiz")
+chequear("con el nombre completo cancela el suyo", "Cancelado" in r and estado_n("n1") == "libre" and estado_n("n0") == "reservado", r)
+
+reset()
+TABLAS["turnos"] += [turno(f"n{i}", "t1", manana + timedelta(days=i + 1)) for i in range(9)]
+reservar("n0", "Juan Pérez")
+html = client.post("/agenda/agendar/n1", data={"nombre": "Juan Pérez", "telefono": TEL5, "otra_persona": "1", "frecuencia": "semanal", "cantidad": "2"},
+                   follow_redirects=True).data.decode()
+chequear("tildado, el nombre idéntico abre otra ficha", ficha_de("n1") == "juan" and html.count("<h4>Juan Pérez</h4>") == 4)
+serie = [t for t in TABLAS["turnos"] if t["paciente_telefono"] == TEL5 and t["id"] != "n0"]
+chequear("toda la serie queda en esa ficha", len(serie) == 2 and all(t["ficha"] == "juan" for t in serie), serie)
+html = client.post("/agenda/agendar/n2", data={"nombre": "Juan Pérez", "telefono": TEL5}, follow_redirects=True).data.decode()
+chequear("sin tildar, el panel avisa", "más de una ficha que coincide" in html)
+r = conversation.responder(dict(TENANT), TEL5, "cancelar Juan Pérez")
+chequear("idénticos: el bot no cancela y deriva", "Todavía no se canceló" in r and "directamente" in r and len([t for t in TABLAS["turnos"] if t["paciente_telefono"] == TEL5]) == 4, r)
+r = conversation.responder(dict(TENANT), TEL5, "1 Juan Pérez")
+chequear("idénticos: el bot no reserva", "más de un paciente" in r, r)
+client.post("/agenda/paciente", data={"telefono": f"{TEL5}~juan", "notas": "Del hijo"})
+chequear("cada Juan guarda lo suyo", not db.datos_de_pacientes("t1")[TEL5].get("notas") and db.datos_de_pacientes("t1")[f"{TEL5}~juan"]["notas"] == "Del hijo")
+for t in TABLAS["turnos"]:
+    if t["paciente_telefono"] == TEL5 and t["ficha"] == "juan":
+        t["frecuencia"] = "semanal"
+client.post("/agenda/paciente/renovar", data={"telefono": f"{TEL5}~juan"})
+chequear("renovar se queda en la ficha", len([t for t in TABLAS["turnos"] if t["paciente_telefono"] == TEL5 and t["ficha"] == ""]) <= 2
+         and len([t for t in TABLAS["turnos"] if t["ficha"] == "juan"]) > 2)
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

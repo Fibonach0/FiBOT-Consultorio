@@ -218,8 +218,11 @@ WhatsApp del mismo adulto. `db.clave_de` arma esa identidad y es lo que viaja en
 los forms; `paciente_telefono` sigue siendo el número al que se escribe. Nunca
 agrupar datos de un paciente por teléfono solo.
 
-`db.ficha_para` decide al reservar, en panel, página pública y bot: mismo primer
-nombre, misma ficha; otro nombre, ficha aparte. Un error se corrige con «Es de
+`db.ficha_para` decide al reservar, en panel, página pública y bot: mismo nombre,
+misma ficha; otro nombre, ficha aparte. `db.mismo_nombre` pide que el nombre corto
+esté entero en el largo: «Nina» es «Nina Acosta», «Juan Pablo» no es «Juan Ignacio».
+Dos nombres idénticos no se pueden deducir: en el panel se tilda «Es otra persona»
+y la serie y la renovación pasan la ficha explícita; el bot pregunta y nunca elige. Un error se corrige con «Es de
 otra persona» en la sesión. `pacientes.nombre` (`migrations/023`) recuerda de quién
 es una ficha sin sesiones: otro nombre no la hereda y esa persona la recupera al
 volver. Si tiene algo anotado se ve en el desplegable «Sin sesiones», y también

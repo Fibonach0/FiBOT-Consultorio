@@ -368,7 +368,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     lista.sort(key=lambda f: f["nombre"].casefold())
     for i, f in enumerate(lista, start=1):
         f["dom"] = f"ficha-{i}"
-        f["hermanos"] = [{"clave": o["clave"], "nombre": o["nombre"]} for o in lista
+        f["hermanos"] = [{"clave": o["clave"], "nombre": o["nombre"], "desde": o["desde"]} for o in lista
                          if o["telefono"] == f["telefono"] and o is not f]
     return lista
 
@@ -1161,10 +1161,16 @@ def agenda_agendar(turno_id):
     if modalidad not in MODALIDADES:
         modalidad = None
     turno = db.turno_por_id(tenant["id"], turno_id)
-    ficha_nueva = db.ficha_para(tenant["id"], telefono, nombre)[1]
-    if not turno or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre, valor, frecuencia, modalidad):
+    otra_persona = bool(request.form.get("otra_persona"))
+    ambiguo = not otra_persona and db.nombre_ambiguo(tenant["id"], telefono, nombre)
+    ficha, ficha_nueva = (db.ficha_aparte(tenant["id"], telefono, nombre), False) if otra_persona \
+        else db.ficha_para(tenant["id"], telefono, nombre)
+    if not turno or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre, valor, frecuencia, modalidad, ficha):
         flash("Ese horario ya no está libre.")
         return _volver_a_agenda()
+    if ambiguo:
+        flash(f"Ese WhatsApp tiene más de una ficha que coincide con {nombre}: quedó en la más reciente. "
+              "Si no es esa, pasá la sesión desde la pestaña Sesiones.")
     if ficha_nueva:
         flash(f"{nombre} quedó en una ficha aparte porque ese WhatsApp ya lo usa otro paciente. "
               "Si es la misma persona, pasá la sesión desde la pestaña Sesiones.")
@@ -1178,7 +1184,7 @@ def agenda_agendar(turno_id):
     tz = _tz_de(tenant)
     primera = datetime.fromisoformat(turno["inicio"]).astimezone(tz)
     duracion = int((datetime.fromisoformat(turno["fin"]) - primera).total_seconds() // 60)
-    salteadas = _agendar_serie(tenant, primera, duracion, range(1, cantidad), telefono, nombre, valor, frecuencia, modalidad)
+    salteadas = _agendar_serie(tenant, primera, duracion, range(1, cantidad), telefono, nombre, valor, frecuencia, modalidad, ficha)
     flash(f"Se agendaron {cantidad - len(salteadas)} sesiones ({frecuencia}).")
     if salteadas:
         flash(f"Quedaron sin agendar por estar ocupadas: {', '.join(salteadas)}.")
@@ -1186,7 +1192,8 @@ def agenda_agendar(turno_id):
 
 
 def _agendar_serie(tenant: dict, base: datetime, duracion: int, pasos: range, telefono: str,
-                   nombre: str, valor: int | None, frecuencia: str, modalidad: str | None = None) -> list[str]:
+                   nombre: str, valor: int | None, frecuencia: str, modalidad: str | None = None,
+                   ficha: str | None = None) -> list[str]:
     """Cada sesión es su propia fila: si después una se mueve o se cancela, las
     demás no se enteran. Un horario ocupado se saltea y se devuelve, para que
     el profesional decida qué hacer con esa semana."""
@@ -1194,7 +1201,7 @@ def _agendar_serie(tenant: dict, base: datetime, duracion: int, pasos: range, te
     for i in pasos:
         siguiente = base + timedelta(days=FRECUENCIAS[frecuencia] * i)
         if not db.reservar_en_horario(tenant["id"], siguiente.astimezone(ZoneInfo("UTC")), duracion,
-                                      telefono, nombre, valor, frecuencia, modalidad):
+                                      telefono, nombre, valor, frecuencia, modalidad, ficha):
             salteadas.append(f"{siguiente.day}/{siguiente.month:02d}")
     return salteadas
 
@@ -1219,7 +1226,8 @@ def agenda_renovar():
     while base + paso <= ahora:
         base += paso
     salteadas = _agendar_serie(tenant, base, duracion, range(1, SESIONES_AL_RENOVAR + 1), ultima["paciente_telefono"],
-                               ultima.get("paciente_nombre"), ultima.get("valor"), ultima["frecuencia"], ultima.get("modalidad"))
+                               ultima.get("paciente_nombre"), ultima.get("valor"), ultima["frecuencia"], ultima.get("modalidad"),
+                               ultima.get("ficha") or "")
     flash(f"Se renovaron {SESIONES_AL_RENOVAR - len(salteadas)} sesiones de {ultima.get('paciente_nombre') or ultima['paciente_telefono']}.")
     if salteadas:
         flash(f"Quedaron sin agendar por estar ocupadas: {', '.join(salteadas)}.")

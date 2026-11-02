@@ -63,6 +63,7 @@ db.turnos_libres = fake_turnos_libres
 db.reservar_turno = fake_reservar_turno
 db.proximos_turnos_de = fake_proximos_turnos_de
 db.fichas_del_telefono = lambda tenant_id, telefono: []
+db.nombre_ambiguo = lambda tenant_id, telefono, nombre: False
 db.cancelar_turno = fake_cancelar_turno
 
 TEL = "5491100000000"
