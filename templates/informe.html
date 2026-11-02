@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block titulo %}{{ inf.titulo }} — {{ ficha.nombre }}{% endblock %}
+{% block cuerpo %}
+<style>
+  .informe { max-width:760px; margin:0 auto; line-height:1.55; }
+  .informe h3 { margin:22px 0 6px; font-size:1.05rem; }
+  .editable { min-height:1.6em; padding:4px 6px; border-radius:6px; outline:1px dashed var(--rule); white-space:pre-line; }
+  .editable:focus { outline:2px solid var(--green); }
+  .editable:empty::before { content:attr(data-vacio); color:var(--muted); }
+  .seccion .quitar-seccion { float:right; font-size:.8rem; }
+  .datos { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
+  @media print {
+    .editable { outline:none; padding:0; }
+    .editable:empty, .seccion:has(.editable:empty) { display:none; }
+    header { display:none; }
+  }
+</style>
+<header class="no-imprimir">
+  <span>Borrador de informe · {{ ficha.nombre }}</span>
+  <a href="{{ url_for('agenda') }}">Volver al panel</a>
+</header>
+<main>
+  <div class="card no-imprimir">
+    Es un borrador armado con lo que está cargado en la ficha. Todo lo punteado se edita tocándolo; lo que dejes vacío no se imprime. Nada de esto se guarda: imprimí o guardá en PDF al terminar.
+    <div style="margin-top:8px"><button class="btn" type="button" onclick="window.print()">Imprimir o guardar en PDF</button></div>
+  </div>
+  <div class="card informe constancia">
+    <h2>{{ inf.titulo }}</h2>
+    <div class="datos">
+      {% for k, v in inf.datos %}<span class="tenue">{{ k }}</span><span>{{ v }}</span>{% endfor %}
+      <span class="tenue">Fecha del informe</span><span>{{ hoy }}</span>
+    </div>
+
+    {% macro seccion(titulo, texto, vacio) %}
+    <div class="seccion">
+      <button class="quitar quitar-seccion no-imprimir" type="button" onclick="this.parentElement.remove()">Quitar sección</button>
+      <h3 contenteditable="true">{{ titulo }}</h3>
+      <div class="editable" contenteditable="true" data-vacio="{{ vacio }}">{{ texto }}</div>
+    </div>
+    {% endmacro %}
+
+    {{ seccion("Motivo de consulta", inf.motivo, "Por qué consultan y quién deriva.") }}
+    {% if inf.tests %}{{ seccion("Evaluación", inf.tests|join("\n"), "") }}{% endif %}
+    {% if inf.fluidez %}{{ seccion("Lectura", inf.fluidez|join("\n"), "") }}{% endif %}
+    {% if inf.cuestionarios %}{{ seccion("Cuestionarios", inf.cuestionarios|join("\n"), "") }}{% endif %}
+    {{ seccion("Objetivos de trabajo", inf.objetivos, "Qué se está trabajando.") }}
+    {{ seccion("Conclusiones", "", "Escribí acá tus conclusiones.") }}
+    {{ seccion("Sugerencias", "", "Para la familia, la escuela u otros profesionales.") }}
+
+    <div class="firma">{{ tenant.nombre }}{% if tenant.matricula %}<br>Matrícula {{ tenant.matricula }}{% endif %}</div>
+  </div>
+</main>
+{% endblock %}

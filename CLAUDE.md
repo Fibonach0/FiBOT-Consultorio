@@ -248,6 +248,18 @@ null`) y vence a los 7 días. La página pública nunca muestra el nombre ni el
 teléfono del paciente. Pregunta 9 del PHQ-9 > 0 → `alerta`: rojo en la ficha y
 teléfonos de ayuda (135, 911) al paciente. Antes de sumar un instrumento,
 confirmar licencia Y traducción castellana (SNAP-IV y SCARED siguen en duda).
+`cuestionarios.ABIERTOS` (entrevista de familia y de adulto, docente) usan el
+mismo link pero son preguntas abiertas de redacción propia: no se corrigen.
+`cuestionarios.para` (`migrations/031`) es la referencia que ve quien responde.
+
+### Hoja de registro, informe y retest
+
+`templates/registro.html` cuenta aciertos/errores y tiempo por subprueba y guarda
+por la misma ruta que «Cargar resultados» (como `bruto`), sumando lo que ya había.
+`informe.py` arma el borrador con reglas locales (nada sale a servicios externos)
+y `templates/informe.html` se edita en pantalla y NO se guarda. `tests_sugeridos.
+para_repetir` avisa durante `VENTANA_AVISO` días desde que vence el plazo; el
+resumen de WhatsApp cuenta sólo los que vencen hoy (sale una vez por día).
 
 ### Una ficha por persona (`migrations/022`)
 

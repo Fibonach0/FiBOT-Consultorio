@@ -12,6 +12,11 @@
   </div>
 
   <div class="card">
+    <h3>Borrador de informe</h3>
+    <p>En la pestaña {{ dict(rubro.pestanias).sesiones }}, «Borrador de informe» arma un informe con lo cargado: datos, motivo, {% if rubro.tests %}resultados de tests y su evolución, lectura, {% endif %}cuestionarios y objetivos. Todo se edita tocándolo; lo que dejes vacío no se imprime. Terminá con «Imprimir o guardar en PDF»: el borrador no se guarda.</p>
+  </div>
+
+  <div class="card">
     <h3>Para arrancar</h3>
     <ol>
       <li>En «Generar horarios disponibles», cargá los días y horas en que atendés.</li>
@@ -65,11 +70,16 @@
   {% if rubro.cuestionarios %}
   <div class="card">
     <h3>Cuestionarios por link</h3>
-    <p>En la pestaña {{ dict(rubro.pestanias).terapia }}, abajo, elegí el cuestionario (PHQ-9 para depresión o GAD-7 para ansiedad) y tocá «Generar link». Copialo y mandáselo al paciente: lo completa desde el celular, sin cuenta, y el sistema lo corrige solo.</p>
+    <p>En la pestaña {{ dict(rubro.pestanias).terapia }}, abajo, elegí el cuestionario y tocá «Generar link». Copialo y mandalo: lo completan desde el celular, sin cuenta.</p>
+    {% if rubro.tests %}
+    <p>«Entrevista inicial» es para la familia, antes de la primera sesión. «Cuestionario para el docente» es para la escuela: completá la referencia (por ejemplo «N. A., 3º B») para que la maestra sepa de quién se trata, sin poner el nombre completo. Las respuestas quedan en la ficha, debajo de cada pregunta.</p>
+    {% else %}
+    <p>El PHQ-9 (depresión) y el GAD-7 (ansiedad) se corrigen solos. «Antes de la primera sesión» son preguntas abiertas para el paciente nuevo.</p>
+    {% endif %}
     <p>El link sirve una sola vez y vence a los 7 días. Mientras nadie lo responde, aparece en la ficha; con la × lo anulás.</p>
     <p>Cuando lo responde, aparece arriba en «Cuestionarios respondidos» hasta que tocás «Visto». En la ficha ves el puntaje, la severidad, cuánto cambió contra la vez anterior y un gráfico.</p>
-    <p>Si en el PHQ-9 marca algo en la pregunta 9 (ideas de muerte o de hacerse daño), queda resaltado en rojo. Al paciente, al terminar, se le muestran el 135 y el 911. El sistema no te avisa por WhatsApp todavía: miralo en el panel.</p>
-    <p>Son versiones oficiales en castellano de Argentina, de uso libre. Los cortes de severidad son los de los autores; el puntaje orienta, no diagnostica.</p>
+    {% if not rubro.tests %}<p>Si en el PHQ-9 marca algo en la pregunta 9 (ideas de muerte o de hacerse daño), queda resaltado en rojo. Al paciente, al terminar, se le muestran el 135 y el 911. El sistema no te avisa por WhatsApp todavía: miralo en el panel.</p>
+    <p>Son versiones oficiales en castellano de Argentina, de uso libre. Los cortes de severidad son los de los autores; el puntaje orienta, no diagnostica.</p>{% endif %}
   </div>
   {% endif %}
 
@@ -81,6 +91,10 @@
     <p>Los plazos vienen por tipo de test: 24 meses las escalas de inteligencia, 12 los de atención, memoria y neuropsicológicos, y 6 los de lectura, escritura, cálculo, lenguaje, proyectivos y cuestionarios. Los cambiás en «Ajustes», en «Plazo para repetir cada test».</p>
     <p>En cada test tomado, «Cargar resultados» guarda los puntajes ya corregidos: escala, tipo de puntaje (CI, escalar, T, percentil…), el número y, si querés, el nivel. El sistema no corrige: los baremos son de las editoriales, así que corregís como siempre con el manual o su plataforma.</p>
     <p>Cuando el mismo test tiene dos tomas con la misma escala y el mismo tipo de puntaje, aparece la evolución: los valores en orden y si subió, bajó o se mantuvo. Un cambio chico (unos 5 puntos de CI, 1 escalar, 4 de T, 10 percentiles) cuenta como «se mantuvo». No dice si es mejor o peor: en un cuestionario de síntomas, subir es peor.</p>
+    <h3>Hoja de registro</h3>
+    <p>Para tomar un test en persona: en «Tests tomados», «Hoja de registro». Escribí la subprueba, iniciá el reloj y tocá «Acierto» o «Error» con cada respuesta («Deshacer» corrige el último toque). Al cerrar la subprueba queda en la lista; al final, «Guardar en la ficha». Se guarda como puntaje bruto, con errores y tiempo; después lo pasás a puntaje con el manual.</p>
+    <h3>Tests para repetir</h3>
+    <p>Cuando un test cumple su plazo, aparece arriba en «Tests que ya se pueden repetir» durante 30 días, y ese día suma una línea al resumen de WhatsApp.</p>
     <h3>Fluidez lectora</h3>
     <p>Cargá tus textos en «Ajustes» → «Textos para fluidez lectora»: propios o de dominio público, no los de un test. En la ficha, elegí el texto y tocá «Tomar lectura».</p>
     <p>Tocá «Empezar» cuando arranque a leer y tocá cada palabra que lea mal; si te equivocás, tocala de nuevo. Con «Cortar al minuto» el reloj para solo a los 60 segundos y te pide tocar la última palabra que llegó a leer. Si no, tocá «Terminó de leer».</p>

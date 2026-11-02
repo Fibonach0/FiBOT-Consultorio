@@ -17,10 +17,19 @@
 <main>
   <div class="card">
     <h2>{{ inst.nombre }}</h2>
-    <p class="tenue">{{ tenant.nombre }} te pidió completar este cuestionario. Lleva un par de minutos y tus respuestas le llegan sólo a tu profesional.</p>
+    <p class="tenue">{{ tenant.nombre }} {{ 'le' if inst.nombre == 'Cuestionario para el docente' else 'te' }} pidió completar este cuestionario. Las respuestas le llegan sólo a {{ tenant.nombre }}.</p>
+    {% if para %}<p><strong>Sobre:</strong> {{ para }}</p>{% endif %}
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post">
       <p><strong>{{ inst.consigna }}</strong></p>
+      {% if abierto %}
+      {% for pregunta in inst.preguntas %}
+      <div class="item">
+        <label for="pregunta-{{ loop.index0 }}" style="color:var(--ink);font-size:.95rem">{{ loop.index }}. {{ pregunta }}</label>
+        <textarea id="pregunta-{{ loop.index0 }}" name="pregunta-{{ loop.index0 }}" rows="3" maxlength="{{ max_respuesta }}">{{ previas.get('pregunta-' ~ loop.index0, '') }}</textarea>
+      </div>
+      {% endfor %}
+      {% else %}
       {% for item in inst["items"] %}
       {% set i = loop.index0 %}
       <fieldset class="item" style="border-left:none;border-right:none;border-bottom:none;margin:0;padding-left:0;padding-right:0">
@@ -32,7 +41,8 @@
         </div>
       </fieldset>
       {% endfor %}
-      {% if inst.dificultad %}
+      {% endif %}
+      {% if not abierto and inst.dificultad %}
       <fieldset class="item" style="border-left:none;border-right:none;border-bottom:none;margin:0;padding-left:0;padding-right:0">
         <legend style="padding:0"><p>{{ inst.dificultad.pregunta }}</p></legend>
         <div class="opciones">
@@ -44,7 +54,7 @@
       {% endif %}
       <button class="btn" type="submit" style="margin-top:12px">Enviar</button>
     </form>
-    <p class="tenue" style="font-size:.75rem;margin-top:18px">{{ fuente }}</p>
+    {% if fuente %}<p class="tenue" style="font-size:.75rem;margin-top:18px">{{ fuente }}</p>{% endif %}
   </div>
 </main>
 {% endblock %}

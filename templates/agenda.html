@@ -15,7 +15,7 @@
     <h3>Cuestionarios respondidos <span class="contador">{{ cuestionarios_nuevos|length }}</span></h3>
     {% for x in cuestionarios_nuevos %}
     <div class="turno">
-      <span class="semana-fecha" role="button" tabindex="0" data-ficha="{{ x.ficha.dom }}"><strong>{{ x.ficha.nombre }}</strong> · {{ x.c.nombre }} {{ x.c.puntaje }} ({{ x.c.severidad }})
+      <span class="semana-fecha" role="button" tabindex="0" data-ficha="{{ x.ficha.dom }}"><strong>{{ x.ficha.nombre }}</strong> · {{ x.c.nombre }}{% if x.c.puntaje is number %} {{ x.c.puntaje }} ({{ x.c.severidad }}){% else %} respondido{% endif %}
         {% if x.c.alerta %}<span class="chip chip-alerta">marcó ideas de hacerse daño</span>{% endif %}</span>
       <form method="post" action="{{ url_for('agenda_cuestionario_visto', cuestionario_id=x.c.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -24,6 +24,19 @@
       </form>
     </div>
     {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if tests_para_repetir %}
+  <div class="card">
+    <h3>Tests que ya se pueden repetir <span class="contador">{{ tests_para_repetir|length }}</span></h3>
+    {% for t in tests_para_repetir %}
+    <div class="turno">
+      <span class="semana-fecha" role="button" tabindex="0" data-ficha="{{ t.ficha.dom }}"><strong>{{ t.ficha.nombre }}</strong> · {{ t.nombre }}
+        <span class="tenue">tomado el {{ t.ultima.strftime('%d/%m/%Y') }}, se puede repetir desde el {{ t.vence.strftime('%d/%m') }}</span></span>
+    </div>
+    {% endfor %}
+    <div class="tenue">Avisa durante {{ ventana_aviso }} días desde que se cumple el plazo; los plazos se cambian en «Ajustes».</div>
   </div>
   {% endif %}
 
@@ -650,7 +663,11 @@
           {% for e in g.evolucion %}
           <tr>
             <td>{{ e.escala }}<br><span class="tenue">{{ e.tipo_texto }}</span></td>
-            <td>{% for v in e.valores %}<strong>{{ v.texto or '—' }}</strong> <span class="tenue">{{ v.fecha }}</span>{% if not loop.last %} → {% endif %}{% endfor %}</td>
+            <td>{% for v in e.valores %}<strong>{{ v.texto or '—' }}</strong> <span class="tenue">{{ v.fecha }}</span>{% if not loop.last %} → {% endif %}{% endfor %}
+              {% if e.grafico %}<svg class="grafico-escala" viewBox="0 0 {{ e.grafico.ancho }} {{ e.grafico.alto }}" role="img" aria-label="Evolución de {{ e.escala }}">
+                <polyline points="{{ e.grafico.linea }}" fill="none" stroke="currentColor" stroke-width="2"/>
+                {% for p in e.grafico.puntos %}<circle cx="{{ p.x }}" cy="{{ p.y }}" r="2.5" fill="currentColor"><title>{{ p.valor }}</title></circle>{% endfor %}
+              </svg>{% endif %}</td>
             <td class="cambio-{{ e.sentido }}">{% if e.sentido == 'sube' %}↑{% elif e.sentido == 'baja' %}↓{% else %}={% endif %} {{ e.cambio }}{% if e.nivel_cambio %}<br><span class="tenue">{{ e.nivel_cambio }}</span>{% endif %}</td>
           </tr>
           {% endfor %}
@@ -666,6 +683,11 @@
             <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar este test y sus resultados?')">×</button>
           </form>
         </div>
+        <form method="post" action="{{ url_for('agenda_registro') }}">
+          {{ ocultos(f.clave) }}
+          <input type="hidden" name="test_id" value="{{ x.id }}">
+          <button class="btn chico secundario" type="submit">Hoja de registro</button>
+        </form>
         <details>
           <summary class="tenue">{{ 'Editar' if x.resultados else 'Cargar' }} resultados del {{ x._fecha }} ▾</summary>
           <form method="post" action="{{ url_for('agenda_test_resultados', test_id=x.id) }}">
@@ -764,9 +786,19 @@
         {% endfor %}
       </div>
       {% endfor %}
+      {% for a in cu.abiertos %}
+      <details class="test-grupo">
+        <summary><strong>{{ a.nombre }}</strong> <span class="tenue">· {{ a._fecha }}{% if a.para %} · {{ a.para }}{% endif %}</span></summary>
+        {% for p, r in a.pares %}<p style="margin:8px 0 2px" class="tenue">{{ p }}</p><p style="margin:0;white-space:pre-line">{{ r }}</p>{% endfor %}
+        <form method="post" action="{{ url_for('agenda_cuestionario_borrar', cuestionario_id=a.id) }}" style="margin-top:6px">
+          {{ ocultos(f.clave) }}
+          <button class="quitar" type="submit" onclick="return confirm('¿Borrar estas respuestas?')">Borrar respuestas</button>
+        </form>
+      </details>
+      {% endfor %}
       {% for c in cu.pendientes %}
       <div class="ficha-item">
-        <span>{{ c.nombre }} <span class="tenue">sin responder · vence el {{ c._vence }}</span><br>
+        <span>{{ c.nombre }} <span class="tenue">sin responder · vence el {{ c._vence }}{% if c.para %} · {{ c.para }}{% endif %}</span><br>
           <input type="text" readonly value="{{ c.link }}" aria-label="Link del {{ c.nombre }}" onclick="this.select()" style="font-size:.75rem;padding:4px 6px">
           <button class="btn chico secundario" type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(() => this.textContent = 'Copiado')">Copiar link</button>
         </span>
@@ -776,11 +808,13 @@
         </form>
       </div>
       {% endfor %}
-      {% if not cu.grupos and not cu.pendientes %}<div class="tenue">Mandale un link y lo completa desde el celular. El sistema lo corrige solo.</div>{% endif %}
+      {% if not cu.grupos and not cu.pendientes and not cu.abiertos %}<div class="tenue">Mandá un link y lo completan desde el celular, sin cuenta.</div>{% endif %}
       <form method="post" action="{{ url_for('agenda_cuestionario') }}" class="fila">
         {{ ocultos(f.clave) }}
         <div class="ancho"><label>Cuestionario</label>
           <select name="instrumento">{% for k, inst in instrumentos %}<option value="{{ k }}">{{ inst.nombre }} ({{ inst.que_mide }})</option>{% endfor %}</select></div>
+        <div class="ancho"><label>Referencia que ve quien responde <span class="tenue">(opcional, ej.: «N. A., 3º B»)</span></label>
+          <input type="text" name="para" maxlength="40"></div>
         <div class="al-pie"><button class="btn chico" type="submit">Generar link</button></div>
       </form>
       {% endif %}
@@ -841,6 +875,13 @@
         {{ ocultos(f.clave) }}
         <div><label>Mes</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
         <div class="al-pie"><button class="btn chico secundario" type="submit">Generar</button></div>
+      </form>
+
+      <h5>Informe</h5>
+      <form method="post" action="{{ url_for('agenda_informe') }}" target="_blank">
+        {{ ocultos(f.clave) }}
+        <button class="btn chico secundario" type="submit">Borrador de informe</button>
+        <span class="tenue">Arma un borrador con lo cargado, para editar e imprimir.</span>
       </form>
       </section>
 

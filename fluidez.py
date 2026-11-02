@@ -62,14 +62,19 @@ def para_ficha(lecturas: list[dict]) -> dict:
     return {"filas": filas, "grafico": grafico([f["pcpm"] for f in reversed(filas)])}
 
 
-def grafico(valores: list[int], ancho: int = 280, alto: int = 70) -> dict | None:
-    """Puntos de una línea simple en SVG (de la más vieja a la más nueva)."""
+def grafico(valores: list, ancho: int = 280, alto: int = 70, desde_cero: bool = True) -> dict | None:
+    """Puntos de una línea simple en SVG (de la más vieja a la más nueva).
+    desde_cero=False ajusta el eje al rango de los valores: un CI de 85 a 97
+    se ve plano si el eje arranca en 0."""
     if len(valores) < 2:
         return None
-    techo = max(max(valores), 1)
+    piso = 0 if desde_cero else min(valores)
+    techo = max(valores)
+    if techo == piso:
+        techo = piso + 1
     margen = 6
     paso = (ancho - 2 * margen) / (len(valores) - 1)
-    puntos = [(round(margen + i * paso, 1), round(alto - margen - v * (alto - 2 * margen) / techo, 1))
+    puntos = [(round(margen + i * paso, 1), round(alto - margen - (v - piso) * (alto - 2 * margen) / (techo - piso), 1))
               for i, v in enumerate(valores)]
     return {"ancho": ancho, "alto": alto, "techo": techo,
             "linea": " ".join(f"{x},{y}" for x, y in puntos),

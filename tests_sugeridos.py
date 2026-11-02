@@ -92,12 +92,40 @@ def plazos(propios: dict | None) -> dict[str, int]:
     return {nombre: propios.get(nombre, meses) for nombre, _, _, meses, _ in CATALOGO}
 
 
-def _se_puede_repetir(ultima: date, meses: int, hoy: date) -> bool:
+def _vence(ultima: date, meses: int) -> date:
+    """Desde cuándo se puede repetir: meses de calendario, al fin de mes si no existe el día."""
     mes = ultima.month - 1 + meses
     anio, mes = ultima.year + mes // 12, mes % 12 + 1
     dia = min(ultima.day, [31, 29 if anio % 4 == 0 and (anio % 100 or anio % 400 == 0) else 28,
                            31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mes - 1])
-    return hoy >= date(anio, mes, dia)
+    return date(anio, mes, dia)
+
+
+def _se_puede_repetir(ultima: date, meses: int, hoy: date) -> bool:
+    return hoy >= _vence(ultima, meses)
+
+
+VENTANA_AVISO = 30
+
+
+def para_repetir(tomados: list[dict], hoy: date, plazos_propios: dict | None = None) -> list[dict]:
+    """Tests del catálogo cuyo plazo para repetir se cumplió en los últimos
+    VENTANA_AVISO días, contando la última toma de cada uno. Pasada la
+    ventana deja de avisar (sigue apareciendo en las sugerencias)."""
+    meses = {n.casefold(): (n, m) for n, m in plazos(plazos_propios).items()}
+    ultimas: dict[str, date] = {}
+    for x in tomados:
+        k = x["test"].casefold()
+        if k in meses:
+            f = date.fromisoformat(x["fecha"])
+            ultimas[k] = max(ultimas.get(k, f), f)
+    avisos = []
+    for k, ultima in ultimas.items():
+        nombre, m = meses[k]
+        vence = _vence(ultima, m)
+        if 0 <= (hoy - vence).days < VENTANA_AVISO:
+            avisos.append({"nombre": nombre, "ultima": ultima, "vence": vence})
+    return sorted(avisos, key=lambda a: a["vence"])
 
 
 def sugerir(textos: list[str | None], edad: float | None,

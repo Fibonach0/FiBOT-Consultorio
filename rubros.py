@@ -18,7 +18,7 @@ _BASE = {
     "escuela": False,
     "tests": False,
     # Cuestionarios por link que se ofrecen (claves de cuestionarios.INSTRUMENTOS).
-    "cuestionarios": ["phq9", "gad7"],
+    "cuestionarios": ["phq9", "gad7", "entrevista_adulto"],
 }
 
 _PSICOPEDAGOGIA = {
@@ -34,7 +34,7 @@ _PSICOPEDAGOGIA = {
     "escuela": True,
     "tests": True,
     # PHQ-9 y GAD-7 son para adultos; SNAP-IV y SCARED esperan licencia.
-    "cuestionarios": [],
+    "cuestionarios": ["entrevista_familia", "docente"],
 }
 
 

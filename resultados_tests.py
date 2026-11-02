@@ -11,6 +11,8 @@ mejor o peor: en los cuestionarios de síntomas un puntaje más alto es peor.
 import math
 import re
 
+from fluidez import grafico
+
 # tipo: (etiqueta, mínimo, máximo, umbral). Por debajo del umbral se toma
 # como «se mantuvo»: un tercio de desvío aprox., para no leer ruido como
 # cambio. No es una prueba de significación clínica.
@@ -124,6 +126,8 @@ def evolucion(tomas: list[dict]) -> list[dict]:
         else:
             e["sentido"] = "igual" if antes["nivel"].casefold() == ahora["nivel"].casefold() else "nivel"
             e["cambio"] = "mismo nivel" if e["sentido"] == "igual" else "cambió de nivel"
+        numeros = [v["puntaje"] for v in e["valores"]]
+        e["grafico"] = grafico(numeros, ancho=110, alto=34, desde_cero=False) if all(n is not None for n in numeros) else None
         if antes["nivel"] and ahora["nivel"] and antes["nivel"].casefold() != ahora["nivel"].casefold():
             e["nivel_cambio"] = f"{antes['nivel']} → {ahora['nivel']}"
         filas.append(e)
