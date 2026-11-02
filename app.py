@@ -23,6 +23,7 @@ import config
 import conversation
 import db
 import rubros
+import tests_sugeridos
 from fechas import alerta_de_seguimiento, proxima_vez, sesiones_que_quedan
 import scheduler
 import whatsapp
@@ -369,6 +370,12 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "recordado_hoy": datos.get(clave, {}).get("ultimo_recordatorio_pago") == hoy.isoformat(),
             }
         )
+    if rubros.de(tenant)["tests"]:
+        for f in lista:
+            nacimiento = f["fecha_nacimiento"]
+            edad = (hoy - date.fromisoformat(nacimiento)).days / 365.25 if nacimiento else None
+            textos = [f["motivo_consulta"], f["objetivos"], f["como_viene"], f["notas"], *[t.get("nota") for t in f["sesiones"]]]
+            f["tests_sugeridos"] = tests_sugeridos.sugerir(textos, edad)
     lista.sort(key=lambda f: f["nombre"].casefold())
     for i, f in enumerate(lista, start=1):
         f["dom"] = f"ficha-{i}"

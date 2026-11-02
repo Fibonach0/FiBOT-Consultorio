@@ -567,6 +567,21 @@
         <textarea name="notas" rows="5">{{ f.notas or '' }}</textarea>
         <button class="btn chico" type="submit">Guardar</button>
       </form>
+
+      {% if rubro.tests %}
+      <h5>Tests para considerar</h5>
+      {% for s in f.tests_sugeridos %}
+      <div class="ficha-item">
+        <span><strong>{{ s.area }}</strong> <span class="tenue">por «{{ s.palabra }}»</span><br>
+        {% for x in s.tests %}<span class="chip" title="{{ x.edades }}">{{ x.nombre }}</span> {% endfor %}</span>
+      </div>
+      {% else %}
+      <div class="tenue">Cuando anotes el motivo o las sesiones, acá van a aparecer sugerencias.</div>
+      {% endfor %}
+      {% if f.tests_sugeridos %}
+      <div class="tenue">Salen de lo anotado{% if not f.fecha_nacimiento %}. Falta la fecha de nacimiento: no se filtró por edad{% else %} y de la edad{% endif %}.</div>
+      {% endif %}
+      {% endif %}
       </section>
 
       <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-sesiones" aria-labelledby="{{ f.dom }}-tab-sesiones" data-panel="sesiones" hidden>
