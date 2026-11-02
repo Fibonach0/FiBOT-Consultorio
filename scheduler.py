@@ -80,6 +80,28 @@ def _resumen_diario(tenant: dict, tz: ZoneInfo) -> None:
         logger.error("No se pudo mandar el resumen del tenant %s", tenant["id"])
 
 
+def _avisar_reservas(tenant: dict, tz: ZoneInfo) -> None:
+    """Reservas que llegaron por la página o el bot, sin nombres. Se marcan
+    ANTES de mandar, igual que el resumen: nunca le llegan dos."""
+    turnos = db.reservas_sin_avisar(tenant["id"])
+    if not turnos:
+        return
+    for t in turnos:
+        db.marcar_reserva_avisada(tenant["id"], t["id"])
+    numero = whatsapp.numero_de(tenant)
+    if not tenant.get("aviso_telefono") or not numero:
+        return
+    cuando = _fmt(turnos[0]["inicio"], tz)
+    resumen = f"1 reserva nueva para el {cuando}" if len(turnos) == 1 else f"{len(turnos)} reservas nuevas, la próxima el {cuando}"
+    if config.AVISO_TEMPLATE:
+        ok = whatsapp.enviar_plantilla(numero, tenant["aviso_telefono"], config.AVISO_TEMPLATE,
+                                       config.RECORDATORIO_TEMPLATE_LANG, [resumen])
+    else:
+        ok = whatsapp.enviar_texto(numero, tenant["aviso_telefono"], f"Tu consultorio: {resumen}. Mirá el panel.")
+    if not ok:
+        logger.error("No se pudo avisar la reserva al tenant %s", tenant["id"])
+
+
 def _tick() -> None:
     for tenant in db.tenants_activos():
         horas_antes = tenant.get("recordatorio_horas_antes") or 24
@@ -88,6 +110,10 @@ def _tick() -> None:
             _resumen_diario(tenant, tz)
         except Exception:
             logger.exception("Fallo armando el resumen de tenant %s", tenant["id"])
+        try:
+            _avisar_reservas(tenant, tz)
+        except Exception:
+            logger.exception("Fallo avisando reservas de tenant %s", tenant["id"])
         try:
             pendientes = db.turnos_para_recordar(tenant["id"], horas_antes)
         except Exception:

@@ -493,6 +493,8 @@ def agenda():
         "pendientes": pendientes,
         "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
         "fichas": fichas,
+        "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),
+                                  key=lambda r: r["turno"]["inicio"]),
         "espera": db.lista_de_espera(tenant["id"]),
         "bloqueos": bloqueos,
         "hoy_iso": ahora.date().isoformat(),
@@ -900,6 +902,13 @@ def agenda_mover(turno_id):
 @login_required
 def agenda_confirmar_ficha(turno_id):
     db.confirmar_ficha(session["tenant_id"], turno_id)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/sesion/<turno_id>/vista")
+@login_required
+def agenda_reserva_vista(turno_id):
+    db.marcar_reserva_vista(session["tenant_id"], turno_id)
     return _volver_a_agenda()
 
 

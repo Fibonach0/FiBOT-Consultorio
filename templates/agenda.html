@@ -10,6 +10,22 @@
     {% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}
   {% endwith %}
 
+  {% if reservas_nuevas %}
+  <div class="card">
+    <h3>Reservas nuevas <span class="contador">{{ reservas_nuevas|length }}</span></h3>
+    {% for r in reservas_nuevas %}
+    <div class="turno">
+      <span class="semana-fecha" role="button" tabindex="0" data-ficha="{{ r.ficha.dom }}"><strong>{{ r.ficha.nombre }}</strong> · {{ r.turno._dia }} {{ r.turno._hora }}</span>
+      <form method="post" action="{{ url_for('agenda_reserva_vista', turno_id=r.turno.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <button class="btn chico secundario" type="submit">Visto</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   <div class="card">
     <h3>Hoy{% if hoy %} <span class="contador">{{ hoy|length }}</span>{% endif %}</h3>
     {% if not hoy %}<div class="tenue">Hoy no hay sesiones.</div>{% endif %}

@@ -183,7 +183,7 @@ manana = ahora + timedelta(days=1)
 def turno(id_, tenant_id, inicio, **extra):
     base = {"id": id_, "tenant_id": tenant_id, "inicio": inicio.isoformat(),
             "fin": (inicio + timedelta(minutes=50)).isoformat(), "estado": "libre",
-            "paciente_telefono": None, "paciente_nombre": None, "ficha": "", "revisar_ficha": False, "recordatorio_enviado": False,
+            "paciente_telefono": None, "paciente_nombre": None, "ficha": "", "revisar_ficha": False, "reserva_nueva": False, "reserva_avisada": False, "recordatorio_enviado": False,
             "asistencia": None, "pago": "pendiente", "reprogramado_desde": None,
             "valor": None, "frecuencia": None, "modalidad": None, "nota": None}
     return {**base, **extra}
@@ -1203,6 +1203,41 @@ for t_rev in TABLAS["turnos"]:
     t_rev["revisar_ficha"] = False
 partes = scheduler._partes_del_resumen(dict(TENANT), datetime.now(timezone.utc).date())
 chequear("sin nada para revisar no se menciona", not any("revisar" in p for p in partes), partes)
+
+# --- Reservas que llegan solas ---
+reset()
+TABLAS["tenants"][0]["slug"] = "marcos"
+TABLAS["tenants"][0]["aviso_telefono"] = "5491100009999"
+TABLAS["turnos"] += [turno(f"w{i}", "t1", manana + timedelta(days=i + 1)) for i in range(4)]
+fila_w = lambda id_: {t["id"]: t for t in TABLAS["turnos"]}[id_]
+envios = []
+_texto, _numero = scheduler.whatsapp.enviar_texto, scheduler.whatsapp.numero_de
+scheduler.whatsapp.enviar_texto = lambda n, tel, texto: envios.append((tel, texto)) or True
+scheduler.whatsapp.numero_de = lambda t: "num"
+client.post("/marcos/reservar/w0", data={"nombre": "Mora Díaz", "telefono": "54 9 11 2222 3333"})
+chequear("la reserva pública entra en la agenda", fila_w("w0")["estado"] == "reservado" and fila_w("w0")["paciente_telefono"] == "5491122223333")
+html = client.get("/agenda").data.decode()
+chequear("aparece en Reservas nuevas", "Reservas nuevas" in html and "Mora Díaz" in html[html.index("Reservas nuevas"):html.index("<h3>Hoy")])
+semana_w = (manana + timedelta(days=1)).astimezone(zona).date().isoformat()
+chequear("aparece en el calendario", "Mora Díaz" in client.get(f"/agenda?semana={semana_w}").data.decode())
+tenant_w = db.get_tenant_by_id("t1")
+scheduler._avisar_reservas(tenant_w, zona)
+chequear("avisa al profesional sin nombres", len(envios) == 1 and envios[0][0] == "5491100009999" and "1 reserva nueva" in envios[0][1] and "Mora" not in envios[0][1], envios)
+scheduler._avisar_reservas(tenant_w, zona)
+chequear("no avisa dos veces", len(envios) == 1)
+client.post("/agenda/sesion/w0/vista", data={})
+chequear("Visto la saca de la tarjeta", "Reservas nuevas" not in client.get("/agenda").data.decode() and fila_w("w0")["estado"] == "reservado")
+client.post("/agenda/agendar/w1", data={"nombre": "Del panel", "telefono": "5491133334444"})
+chequear("lo agendado desde el panel no avisa", not fila_w("w1")["reserva_nueva"] and scheduler.db.reservas_sin_avisar("t1") == [])
+client.post("/marcos/reservar/w2", data={"nombre": "Ida", "telefono": "5491144440000"})
+db.cancelar_turno("t1", "w2")
+scheduler._avisar_reservas(tenant_w, zona)
+chequear("cancelada antes del aviso no se avisa", len(envios) == 1 and not fila_w("w2")["reserva_nueva"])
+client.post("/marcos/reservar/w2", data={"nombre": "Ida", "telefono": "5491144440000"})
+client.post("/marcos/reservar/w3", data={"nombre": "Eva", "telefono": "5491155550000"})
+scheduler._avisar_reservas(tenant_w, zona)
+chequear("varias juntas van en un solo mensaje", len(envios) == 2 and "2 reservas nuevas" in envios[1][1], envios)
+scheduler.whatsapp.enviar_texto, scheduler.whatsapp.numero_de = _texto, _numero
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
