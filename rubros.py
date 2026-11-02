@@ -16,6 +16,7 @@ _BASE = {
     "vinculo_ejemplo": "Madre, perro…",
     "fecha_ejemplo": "Navidad, aniversario, fallecimiento de…",
     "escuela": False,
+    "tests": False,
 }
 
 _PSICOPEDAGOGIA = {
@@ -29,6 +30,7 @@ _PSICOPEDAGOGIA = {
     "vinculo_ejemplo": "Madre, padre, hermana…",
     "fecha_ejemplo": "Entrega de boletín, reunión con la escuela…",
     "escuela": True,
+    "tests": True,
 }
 
 

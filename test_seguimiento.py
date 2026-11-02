@@ -1239,6 +1239,33 @@ scheduler._avisar_reservas(tenant_w, zona)
 chequear("varias juntas van en un solo mensaje", len(envios) == 2 and "2 reservas nuevas" in envios[1][1], envios)
 scheduler.whatsapp.enviar_texto, scheduler.whatsapp.numero_de = _texto, _numero
 
+# --- Tests para considerar ---
+import tests_sugeridos  # noqa: E402
+
+fila_area = lambda filas, area: next((f for f in filas if f["area"] == area), None)
+nombres = lambda fila: [x["nombre"] for x in fila["tests"]] if fila else []
+s = tests_sugeridos.sugerir(["Dificultades en la LECTURA y le cuesta la comprensión"], 9)
+chequear("detecta el área sin mayúsculas ni acentos", "PROLEC-R" in nombres(fila_area(s, "Lectura")) and fila_area(s, "Lectura")["palabra"] == "lectura", s)
+chequear("filtra por edad", "PROLEC-SE" not in nombres(fila_area(s, "Lectura")))
+s = tests_sugeridos.sugerir(["dislexia"], 14)
+chequear("a los 14 cambia de batería", "PROLEC-SE" in nombres(fila_area(s, "Lectura")) and "PROLEC-R" not in nombres(fila_area(s, "Lectura")))
+chequear("sin edad no filtra", {"PROLEC-R", "PROLEC-SE"} <= set(nombres(fila_area(tests_sugeridos.sugerir(["lectura"], None), "Lectura"))))
+chequear("no dispara dentro de otra palabra", tests_sugeridos.sugerir(["Un paseo por la plaza, recuperó su bicicleta"], 9) == [])
+chequear("sin texto no sugiere", tests_sugeridos.sugerir([None, ""], 9) == [])
+s = tests_sugeridos.sugerir(["se distrae, le cuesta matemática, olvida la tarea"], 10)
+chequear("varias áreas juntas", {"Atención", "Matemática", "Memoria"} <= {f["area"] for f in s}, s)
+chequear("el catálogo sólo usa áreas que existen", all(set(a) <= set(tests_sugeridos.AREAS) for *_, a in tests_sugeridos.CATALOGO))
+chequear("cada área tiene al menos un test", all(any(area in a for *_, a in tests_sugeridos.CATALOGO) for area in tests_sugeridos.AREAS))
+chequear("rangos legibles", tests_sugeridos._rango(6, 13) == "6 a 12 años" and tests_sugeridos._rango(2.5, 7.6) == "2 y medio a 7 años" and tests_sugeridos._rango(8, None) == "desde 8 años")
+reset()
+TABLAS["turnos"].append(turno("t9", "t1", manana, estado="reservado", paciente_nombre="Nina", paciente_telefono="5491112121212", nota="Se distrae mucho"))
+TABLAS["pacientes"].append({"tenant_id": "t1", "paciente_telefono": "5491112121212", "ficha": "", "motivo_consulta": "Lectura lenta", "fecha_nacimiento": "2017-05-14"})
+chequear("psicología no ve tests", "Tests para considerar" not in client.get("/agenda").data.decode())
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+html = client.get("/agenda").data.decode()
+chequear("psicopedagogía los ve, también por la nota de sesión", "Tests para considerar" in html and "PROLEC-R" in html and "CARAS-R" in html)
+chequear("quedan en la pestaña Trabajo", html.index('data-panel="terapia"') < html.index("Tests para considerar") < html.index('data-panel="sesiones"'))
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

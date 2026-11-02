@@ -211,6 +211,13 @@ orientación, más los datos de salud y emergencia), Terapia a Trabajo y Persona
 Familia. Las claves internas de las pestañas y las columnas no cambian. Los demás
 rubros siguen igual.
 
+### Tests para considerar (`tests_sugeridos.py`)
+
+Sólo en psicopedagogía, en la pestaña Trabajo. Cruza palabras de motivo, objetivos,
+cómo viene, notas y notas de sesión con un catálogo por área y edad. Son reglas
+locales a propósito: esas notas son de menores y no van a ningún servicio externo.
+Muestra la palabra que disparó cada área. Las edades son orientativas.
+
 ### Una ficha por persona (`migrations/022`)
 
 Una ficha es teléfono + `ficha`, no sólo teléfono: dos hermanos pueden usar el
