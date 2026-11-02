@@ -183,7 +183,7 @@ manana = ahora + timedelta(days=1)
 def turno(id_, tenant_id, inicio, **extra):
     base = {"id": id_, "tenant_id": tenant_id, "inicio": inicio.isoformat(),
             "fin": (inicio + timedelta(minutes=50)).isoformat(), "estado": "libre",
-            "paciente_telefono": None, "paciente_nombre": None, "ficha": "", "recordatorio_enviado": False,
+            "paciente_telefono": None, "paciente_nombre": None, "ficha": "", "revisar_ficha": False, "recordatorio_enviado": False,
             "asistencia": None, "pago": "pendiente", "reprogramado_desde": None,
             "valor": None, "frecuencia": None, "modalidad": None, "nota": None}
     return {**base, **extra}
@@ -1159,6 +1159,38 @@ for t in TABLAS["turnos"]:
 client.post("/agenda/paciente/renovar", data={"telefono": f"{TEL5}~juan"})
 chequear("renovar se queda en la ficha", len([t for t in TABLAS["turnos"] if t["paciente_telefono"] == TEL5 and t["ficha"] == ""]) <= 2
          and len([t for t in TABLAS["turnos"] if t["ficha"] == "juan"]) > 2)
+
+# --- Página pública con nombres idénticos ---
+reset()
+TEL6 = "5491100001111"
+TABLAS["tenants"][0]["slug"] = "marcos"
+TABLAS["turnos"] += [turno(f"p{i}", "t1", manana + timedelta(days=i + 1)) for i in range(5)]
+fila_p = lambda id_: {t["id"]: t for t in TABLAS["turnos"]}[id_]
+db.reservar_turno("t1", "p0", TEL6, "Juan Pérez")
+db.reservar_turno("t1", "p1", TEL6, "Juan Pérez", ficha="juan")
+chequear("con ficha clara no se marca", not fila_p("p0")["revisar_ficha"] and not fila_p("p1")["revisar_ficha"])
+db.reservar_turno("t1", "p2", TEL6, "Juan Pérez")
+chequear("con nombre ambiguo reserva y marca", fila_p("p2")["estado"] == "reservado" and fila_p("p2")["revisar_ficha"])
+chequear("un nombre claro no se marca", db.reservar_turno("t1", "p3", TEL6, "Lola") and not fila_p("p3")["revisar_ficha"])
+html = client.get("/agenda").data.decode()
+chequear("el panel pide revisar", "Revisar de quién es: 1 sesión" in html and "Es de esta ficha" in html)
+client.post("/agenda/sesion/p2/ficha/confirmar", data={})
+chequear("confirmar saca la marca y no mueve", not fila_p("p2")["revisar_ficha"] and fila_p("p2")["estado"] == "reservado")
+html = client.get("/agenda").data.decode()
+chequear("el aviso desaparece", "Revisar de quién es" not in html)
+db.cancelar_turno("t1", "p2")
+db.reservar_turno("t1", "p2", TEL6, "Juan Pérez")
+destino = f"{TEL6}~juan" if fila_p("p2")["ficha"] == "" else TEL6
+client.post("/agenda/sesion/p2/ficha", data={"destino": destino})
+chequear("pasarla también saca la marca", not fila_p("p2")["revisar_ficha"] and db.clave_de(fila_p("p2")) == destino)
+db.reservar_turno("t1", "p4", TEL6, "Juan Pérez")
+chequear("marcada antes de reprogramar", fila_p("p4")["revisar_ficha"])
+db.reprogramar_turno("t1", "p4", manana + timedelta(days=20), 50)
+movida = next(t for t in TABLAS["turnos"] if t.get("reprogramado_desde") and t["paciente_telefono"] == TEL6)
+chequear("reprogramar conserva la marca", movida["revisar_ficha"] and not fila_p("p4")["revisar_ficha"])
+TABLAS["turnos"].append(turno("p9", "t1", manana + timedelta(days=30)))
+respuesta = client.post("/marcos/reservar/p9", data={"nombre": "Juan Pérez", "telefono": TEL6}).data.decode()
+chequear("la página pública no muestra otros pacientes", fila_p("p9")["revisar_ficha"] and "Lola" not in respuesta)
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
