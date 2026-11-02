@@ -407,7 +407,7 @@
   </div>
   {% endif %}
 
-  {% set activos = fichas|selectattr('estado', 'equalto', 'activo')|list %}
+  {% set activos = fichas|selectattr('estado', 'equalto', 'activo')|rejectattr('sin_sesiones')|list %}
   {% if activos %}
   <div class="card">
     <h3>Aumento de honorarios</h3>
@@ -471,14 +471,23 @@
       </article>
     {% endmacro %}
     {% set cerradas = fichas|rejectattr('estado', 'equalto', 'activo')|list %}
+    {% set sin_sesiones = fichas|selectattr('estado', 'equalto', 'activo')|selectattr('sin_sesiones')|list %}
     <div class="fichero">
-      {% for f in fichas if f.estado == 'activo' %}{{ tarjeta(f) }}{% endfor %}
+      {% for f in fichas if f.estado == 'activo' and not f.sin_sesiones %}{{ tarjeta(f) }}{% endfor %}
     </div>
     {% if cerradas %}
-    <details id="fichas-cerradas">
+    <details class="fichas-aparte">
       <summary class="tenue">Alta o pausa ({{ cerradas|length }}) ▾</summary>
       <div class="fichero">
         {% for f in cerradas %}{{ tarjeta(f) }}{% endfor %}
+      </div>
+    </details>
+    {% endif %}
+    {% if sin_sesiones %}
+    <details class="fichas-aparte">
+      <summary class="tenue">Sin sesiones ({{ sin_sesiones|length }}) ▾</summary>
+      <div class="fichero">
+        {% for f in sin_sesiones %}{{ tarjeta(f) }}{% endfor %}
       </div>
     </details>
     {% endif %}
@@ -693,7 +702,7 @@
         <dt>Cumple</dt><dd>{{ f.cumpleanios or '—' }}</dd>
         <dt>{{ rubro.contacto }}</dt><dd>{{ f.telefono }}</dd>
         <dt>Obra social</dt><dd>{{ f.obra_social or '—' }}{% if f.numero_afiliado %} · {{ f.numero_afiliado }}{% endif %}</dd>
-        <dt>Desde</dt><dd>{{ f.desde }}</dd>
+        <dt>Desde</dt><dd>{{ f.desde or '—' }}</dd>
         <dt>Debe</dt><dd{% if f.sin_pagar %} class="debe"{% endif %}>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}Nada{% endif %}</dd>
       </dl>
 
@@ -798,8 +807,7 @@
       ficha.hidden = !normal(ficha.dataset.buscar).includes(buscado);
       visibles += !ficha.hidden;
     });
-    const cerradas = document.getElementById('fichas-cerradas');
-    if (cerradas) cerradas.open = buscado !== '';
+    document.querySelectorAll('.fichas-aparte').forEach(aparte => { aparte.open = buscado !== ''; });
     document.getElementById('sin-resultados').hidden = visibles > 0;
   });
   const abierta = sessionStorage.getItem('ficha');
