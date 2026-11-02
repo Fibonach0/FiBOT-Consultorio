@@ -238,6 +238,17 @@ servidor recalcula todo desde el texto (`fluidez.validar`). `lecturas` guarda el
 título y las palabras erradas, no el id del texto: borrar un texto no borra lecturas.
 Mide palabras correctas por minuto; sin normas por grado a propósito.
 
+### Cuestionarios por link (`cuestionarios.py`, `migrations/030`)
+
+PHQ-9 y GAD-7 con el texto oficial «Spanish for Argentina» de phqscreeners.com
+(uso libre, sin permiso). `rubros.py` decide cuáles ofrece cada rubro. El link
+público `/cuestionario/<token>` no usa sesión: el token aleatorio ES la
+credencial, sirve una vez (`responder_cuestionario` filtra `respondido_at is
+null`) y vence a los 7 días. La página pública nunca muestra el nombre ni el
+teléfono del paciente. Pregunta 9 del PHQ-9 > 0 → `alerta`: rojo en la ficha y
+teléfonos de ayuda (135, 911) al paciente. Antes de sumar un instrumento,
+confirmar licencia Y traducción castellana (SNAP-IV y SCARED siguen en duda).
+
 ### Una ficha por persona (`migrations/022`)
 
 Una ficha es teléfono + `ficha`, no sólo teléfono: dos hermanos pueden usar el

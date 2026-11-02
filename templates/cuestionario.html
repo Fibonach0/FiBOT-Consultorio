@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block titulo %}{{ inst.nombre }} — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<style>
+  .item { border-top:1px solid var(--rule); padding:12px 0; }
+  .item p { margin:0 0 8px; }
+  .opciones { display:grid; grid-template-columns:repeat(4, minmax(0, 1fr)); gap:6px; }
+  .opciones label { margin:0; display:flex; flex-direction:column; align-items:center; gap:4px; text-align:center;
+                    font-size:.8rem; color:var(--ink); border:1px solid var(--rule); border-radius:8px; padding:8px 4px; cursor:pointer; }
+  .opciones input { margin:0; }
+  .opciones label:has(input:checked) { border-color:var(--green); background:var(--green-bg); }
+  @media (max-width: 480px) { .opciones { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
+</style>
+<header>
+  <span>{{ tenant.nombre }}</span>
+</header>
+<main>
+  <div class="card">
+    <h2>{{ inst.nombre }}</h2>
+    <p class="tenue">{{ tenant.nombre }} te pidió completar este cuestionario. Lleva un par de minutos y tus respuestas le llegan sólo a tu profesional.</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post">
+      <p><strong>{{ inst.consigna }}</strong></p>
+      {% for item in inst["items"] %}
+      {% set i = loop.index0 %}
+      <fieldset class="item" style="border-left:none;border-right:none;border-bottom:none;margin:0;padding-left:0;padding-right:0">
+        <legend style="padding:0"><p>{{ loop.index }}. {{ item }}</p></legend>
+        <div class="opciones">
+          {% for o in opciones %}
+          <label><input type="radio" name="item-{{ i }}" value="{{ loop.index0 }}" required{% if previas.get('item-' ~ i) == loop.index0|string %} checked{% endif %}>{{ o }}</label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      {% endfor %}
+      {% if inst.dificultad %}
+      <fieldset class="item" style="border-left:none;border-right:none;border-bottom:none;margin:0;padding-left:0;padding-right:0">
+        <legend style="padding:0"><p>{{ inst.dificultad.pregunta }}</p></legend>
+        <div class="opciones">
+          {% for o in inst.dificultad.opciones %}
+          <label><input type="radio" name="dificultad" value="{{ o }}"{% if previas.get('dificultad') == o %} checked{% endif %}>{{ o }}</label>
+          {% endfor %}
+        </div>
+      </fieldset>
+      {% endif %}
+      <button class="btn" type="submit" style="margin-top:12px">Enviar</button>
+    </form>
+    <p class="tenue" style="font-size:.75rem;margin-top:18px">{{ fuente }}</p>
+  </div>
+</main>
+{% endblock %}

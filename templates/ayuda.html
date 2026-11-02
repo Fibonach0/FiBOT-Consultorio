@@ -62,6 +62,17 @@
     <p>Quien se queda sin sesiones sigue en el desplegable «Sin sesiones», y su ficha se recupera cuando vuelve.</p>
   </div>
 
+  {% if rubro.cuestionarios %}
+  <div class="card">
+    <h3>Cuestionarios por link</h3>
+    <p>En la pestaña {{ dict(rubro.pestanias).terapia }}, abajo, elegí el cuestionario (PHQ-9 para depresión o GAD-7 para ansiedad) y tocá «Generar link». Copialo y mandáselo al paciente: lo completa desde el celular, sin cuenta, y el sistema lo corrige solo.</p>
+    <p>El link sirve una sola vez y vence a los 7 días. Mientras nadie lo responde, aparece en la ficha; con la × lo anulás.</p>
+    <p>Cuando lo responde, aparece arriba en «Cuestionarios respondidos» hasta que tocás «Visto». En la ficha ves el puntaje, la severidad, cuánto cambió contra la vez anterior y un gráfico.</p>
+    <p>Si en el PHQ-9 marca algo en la pregunta 9 (ideas de muerte o de hacerse daño), queda resaltado en rojo. Al paciente, al terminar, se le muestran el 135 y el 911. El sistema no te avisa por WhatsApp todavía: miralo en el panel.</p>
+    <p>Son versiones oficiales en castellano de Argentina, de uso libre. Los cortes de severidad son los de los autores; el puntaje orienta, no diagnostica.</p>
+  </div>
+  {% endif %}
+
   {% if rubro.tests %}
   <div class="card">
     <h3>Tests para considerar</h3>

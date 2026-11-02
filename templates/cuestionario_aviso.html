@@ -1,0 +1,19 @@
+{% extends "base.html" %}
+{% block titulo %}Cuestionario{% if tenant %} — {{ tenant.nombre }}{% endif %}{% endblock %}
+{% block cuerpo %}
+<header>
+  <span>{{ tenant.nombre if tenant else 'FiBOT Consultorio' }}</span>
+</header>
+<main>
+  <div class="card">
+    <h2>{{ aviso }}</h2>
+    {% if alerta %}
+    <p>Si en algún momento sentís que podés hacerte daño, no esperes a la próxima sesión:</p>
+    <ul>
+      <li>Llamá al <strong>135</strong> (gratis desde CABA y el Gran Buenos Aires) o al <strong>(011) 5275-1135</strong> desde todo el país: Centro de Asistencia al Suicida.</li>
+      <li>En una emergencia, llamá al <strong>911</strong> o andá a la guardia más cercana.</li>
+    </ul>
+    {% endif %}
+  </div>
+</main>
+{% endblock %}
