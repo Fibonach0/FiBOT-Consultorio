@@ -713,6 +713,10 @@ def agregar_fecha(tenant_id: str, clave: str, titulo: str, dia: int, mes: int,
     ).execute()
 
 
+def guardar_plazos_tests(tenant_id: str, plazos: dict[str, int]) -> None:
+    _client.table("tenants").update({"plazos_tests": plazos}).eq("id", tenant_id).execute()
+
+
 def tests_tomados(tenant_id: str) -> list[dict]:
     res = _client.table("paciente_tests").select("*").eq("tenant_id", tenant_id).order("fecha", desc=True).execute()
     return res.data

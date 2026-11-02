@@ -463,6 +463,21 @@
       <div><label>Matrícula</label><input type="text" name="matricula" value="{{ tenant.matricula or '' }}"></div>
       <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
     </form>
+    {% if rubro.tests %}
+    <details>
+      <summary class="tenue">Plazo para repetir cada test ▾</summary>
+      <form method="post" action="{{ url_for('agenda_plazos_tests') }}" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div class="ancho tenue">Meses hasta volver a sugerir un test ya tomado. Vacío vuelve al de fábrica.</div>
+        {% for p in plazos_tests %}
+        <div><label>{{ p.nombre }}{% if p.propio %} <span class="tenue">(de fábrica: {{ p.fabrica }})</span>{% endif %}</label>
+          <input type="number" name="meses-{{ p.nombre }}" min="0" max="60" placeholder="{{ p.fabrica }}" value="{{ p.meses if p.propio else '' }}"></div>
+        {% endfor %}
+        <div class="al-pie"><button class="btn chico" type="submit">Guardar plazos</button></div>
+      </form>
+    </details>
+    {% endif %}
   </div>
   </div>
 
@@ -574,13 +589,13 @@
       {% for s in f.tests_sugeridos %}
       <div class="ficha-item">
         <span><strong>{{ s.area }}</strong> <span class="tenue">por «{{ s.palabra }}»</span><br>
-        {% for x in s.tests %}<span class="chip" title="{{ x.edades }}{% if x.ultima %} · tomado el {{ x.ultima.strftime('%d/%m/%Y') }}{% endif %}">{{ x.nombre }}{% if x.ultima %} <span class="tenue">(hace más de un año)</span>{% endif %}</span> {% endfor %}</span>
+        {% for x in s.tests %}<span class="chip" title="{{ x.edades }}{% if x.ultima %} · tomado el {{ x.ultima.strftime('%d/%m/%Y') }}{% endif %}">{{ x.nombre }}{% if x.ultima %} <span class="tenue">(ya tomado el {{ x.ultima.strftime('%d/%m/%Y') }})</span>{% endif %}</span> {% endfor %}</span>
       </div>
       {% else %}
       <div class="tenue">Cuando anotes el motivo o las sesiones, acá van a aparecer sugerencias.</div>
       {% endfor %}
       {% if f.tests_sugeridos %}
-      <div class="tenue">Salen de lo anotado{% if not f.fecha_nacimiento %}. Falta la fecha de nacimiento: no se filtró por edad{% else %} y de la edad{% endif %}. Lo tomado en el último año no aparece.</div>
+      <div class="tenue">Salen de lo anotado{% if not f.fecha_nacimiento %}. Falta la fecha de nacimiento: no se filtró por edad{% else %} y de la edad{% endif %}. Lo tomado no aparece hasta que pase su plazo para repetir.</div>
       {% endif %}
 
       <h5>Tests tomados</h5>
