@@ -62,7 +62,78 @@ INSTRUMENTOS = {
     },
 }
 
+# Preguntas abiertas: no se corrigen, se leen. Redacción propia.
+ABIERTOS = {
+    "entrevista_familia": {
+        "nombre": "Entrevista inicial",
+        "que_mide": "para la familia",
+        "consigna": "Contanos lo que sepas; si alguna pregunta no aplica, dejala en blanco.",
+        "preguntas": [
+            "¿Quién completa este cuestionario y qué vínculo tiene con el chico o la chica?",
+            "¿Por qué consultan? ¿Qué les preocupa hoy?",
+            "¿Desde cuándo lo notan? ¿Quién lo notó primero (la familia, la escuela, otro profesional)?",
+            "Embarazo, parto y primeros años: ¿hubo algo para destacar (prematurez, internaciones, demoras para caminar o hablar)?",
+            "¿Cómo es su salud en general? ¿Tiene algún diagnóstico, medicación o controles de vista o audición?",
+            "¿A qué escuela va, en qué grado y cómo le va? ¿Repitió o cambió de escuela?",
+            "¿Cómo es un día de tarea en casa? ¿Quién lo ayuda y cuánto tarda?",
+            "¿Con quién vive? ¿Hubo cambios importantes en la familia últimamente?",
+            "¿Qué le gusta hacer? ¿En qué se destaca?",
+            "¿Hizo antes evaluaciones o tratamientos (psicopedagogía, fonoaudiología, psicología)? ¿Cuáles?",
+            "¿Algo más que quieran contar?",
+        ],
+    },
+    "docente": {
+        "nombre": "Cuestionario para el docente",
+        "que_mide": "para la escuela",
+        "consigna": "Gracias por tomarse el tiempo. Lo que cuente queda entre usted y la profesional.",
+        "preguntas": [
+            "¿Qué grado o materia tiene a cargo y desde cuándo conoce al alumno o la alumna?",
+            "¿Cómo es su lectura en voz alta y su comprensión de textos?",
+            "¿Cómo es su escritura (letra, ortografía, armado de textos)?",
+            "¿Cómo le va en matemática (cálculo, resolución de problemas)?",
+            "¿Cómo es su atención y su ritmo de trabajo en clase? ¿Termina las tareas?",
+            "¿Cómo se lleva con sus compañeros y con los adultos?",
+            "¿Qué estrategias le dieron resultado en el aula?",
+            "¿Qué es lo que más le preocupa de su aprendizaje hoy?",
+            "¿Algo más que quiera agregar?",
+        ],
+    },
+    "entrevista_adulto": {
+        "nombre": "Antes de la primera sesión",
+        "que_mide": "entrevista inicial",
+        "consigna": "Respondé lo que quieras; lo que no, lo hablamos en la sesión.",
+        "preguntas": [
+            "¿Qué te trae a consulta?",
+            "¿Desde cuándo te pasa?",
+            "¿Hiciste terapia antes? ¿Cómo te fue?",
+            "¿Tomás alguna medicación o estás en algún tratamiento médico o psiquiátrico?",
+            "¿Con quién vivís y con quién contás cuando las cosas se ponen difíciles?",
+            "¿Qué te gustaría lograr con la terapia?",
+            "¿Algo más que quieras que sepa antes de empezar?",
+        ],
+    },
+}
+
+MAX_RESPUESTA = 2000
+MAX_PARA = 40
 DIAS_VIGENCIA = 7
+
+
+def nombre_de(clave: str) -> str | None:
+    inst = INSTRUMENTOS.get(clave) or ABIERTOS.get(clave)
+    return inst["nombre"] if inst else None
+
+
+def es_abierto(clave: str) -> bool:
+    return clave in ABIERTOS
+
+
+def leer_abierto(clave: str, form) -> tuple[dict | None, str | None]:
+    respuestas = [(form.get(f"pregunta-{i}") or "").strip()[:MAX_RESPUESTA]
+                  for i in range(len(ABIERTOS[clave]["preguntas"]))]
+    if not any(respuestas):
+        return None, "Respondé al menos una pregunta."
+    return {"respuestas": respuestas}, None
 
 
 def nuevo_token() -> str:

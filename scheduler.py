@@ -9,6 +9,8 @@ from zoneinfo import ZoneInfo
 
 import config
 import db
+import rubros
+import tests_sugeridos
 from fechas import proxima_vez, sesiones_que_quedan
 import whatsapp
 
@@ -55,6 +57,14 @@ def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
     renovar = sum(sesiones_que_quedan(s, ahora) is not None for clave, s in por_paciente.items() if not cerrado(clave))
     if renovar:
         partes.append(f"{renovar} paciente{'s' if renovar > 1 else ''} por renovar")
+    if rubros.de(tenant)["tests"]:
+        por_ficha: dict[str, list[dict]] = {}
+        for x in db.tests_tomados(tenant["id"]):
+            por_ficha.setdefault(db.clave_de(x), []).append(x)
+        hoy_vencen = sum(a["vence"] == hoy for clave, xs in por_ficha.items() if not cerrado(clave)
+                         for a in tests_sugeridos.para_repetir(xs, hoy, tenant.get("plazos_tests")))
+        if hoy_vencen:
+            partes.append(f"{hoy_vencen} test{'s' if hoy_vencen > 1 else ''} que hoy se {'pueden' if hoy_vencen > 1 else 'puede'} repetir")
     return partes
 
 

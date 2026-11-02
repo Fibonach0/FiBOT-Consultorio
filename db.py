@@ -761,11 +761,12 @@ def borrar_lectura(tenant_id: str, lectura_id: str) -> None:
     _client.table("lecturas").delete().eq("tenant_id", tenant_id).eq("id", lectura_id).execute()
 
 
-def crear_cuestionario(tenant_id: str, clave: str, instrumento: str, token: str, vence: str) -> None:
+def crear_cuestionario(tenant_id: str, clave: str, instrumento: str, token: str, vence: str,
+                       para: str | None = None) -> None:
     telefono, ficha = partir_clave(clave)
     _client.table("cuestionarios").insert(
         {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha,
-         "instrumento": instrumento, "token": token, "vence": vence}
+         "instrumento": instrumento, "token": token, "vence": vence, "para": para}
     ).execute()
 
 

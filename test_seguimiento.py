@@ -1548,15 +1548,122 @@ client.post("/agenda/cuestionario/ajeno/visto", data={})
 chequear("no toca cuestionarios de otro", any(c["id"] == "ajeno" and not c.get("visto") for c in TABLAS["cuestionarios"]))
 chequear("ni lo muestra", "/cuestionario/taj" not in client.get("/agenda").data.decode())
 TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
-chequear("psicopedagogía no los ofrece todavía", "Generar link" not in client.get("/agenda").data.decode())
+html = client.get("/agenda").data.decode()
+chequear("psicopedagogía ofrece entrevista y docente, no PHQ-9", "Entrevista inicial (para la familia)" in html and "Cuestionario para el docente" in html and "PHQ-9 (depresión)" not in html)
+n = len(TABLAS["cuestionarios"])
 client.post("/agenda/cuestionario", data={"telefono": TELC, "instrumento": "gad7"})
-chequear("ni deja crearlos", not any(c["instrumento"] == "gad7" and c.get("tenant_id") == "t1" and c["id"] not in ("venc",) for c in TABLAS["cuestionarios"]))
+chequear("ni deja crear un GAD-7", len(TABLAS["cuestionarios"]) == n)
 
 html = client.get("/agenda", headers={"X-Forwarded-Proto": "https"}).data.decode()
 TABLAS["tenants"][0]["rubro"] = "psicología"
 client.post("/agenda/cuestionario", data={"telefono": TELC, "instrumento": "gad7"})
 html = client.get("/agenda", headers={"X-Forwarded-Proto": "https"}).data.decode()
 chequear("el link sale con https detrás del proxy", "https://localhost/cuestionario/" in html)
+
+# --- Entrevista y docente por link ---
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TELE = "5491116161616"
+TABLAS["turnos"].append(turno("e1", "t1", manana, estado="reservado", paciente_nombre="Bauti Paz", paciente_telefono=TELE))
+client.post("/agenda/cuestionario", data={"telefono": TELE, "instrumento": "docente", "para": "B. P., 4º A"})
+doc = TABLAS["cuestionarios"][0]
+chequear("crea el link del docente con referencia", doc["instrumento"] == "docente" and doc["para"] == "B. P., 4º A")
+pagina = client.get(f"/cuestionario/{doc['token']}").data.decode()
+chequear("el docente ve preguntas abiertas y la referencia", "lectura en voz alta" in pagina and "B. P., 4º A" in pagina
+         and "<textarea" in pagina and "Bauti" not in pagina and "No es necesario ningún permiso" not in pagina)
+res = client.post(f"/cuestionario/{doc['token']}", data={"pregunta-0": " ", "pregunta-1": ""})
+chequear("pide al menos una respuesta", res.status_code == 400 and "al menos una" in res.data.decode())
+client.post(f"/cuestionario/{doc['token']}", data={"pregunta-1": "Lee silabeando.", "pregunta-7": "Se frustra rápido."})
+doc = TABLAS["cuestionarios"][0]
+chequear("guarda las respuestas abiertas", doc.get("respondido_at") and doc["respuestas"][1] == "Lee silabeando." and doc.get("puntaje") is None)
+html = client.get("/agenda").data.decode()
+chequear("se lee en la ficha con su pregunta", "Lee silabeando." in html and "¿Cómo es su lectura en voz alta" in html and "Cuestionario para el docente" in html)
+chequear("y aparece como respondido", "Cuestionario para el docente respondido" in html)
+chequear("no repite preguntas sin respuesta", "¿Cómo le va en matemática" not in html.split("Lee silabeando.")[1].split("Borrar respuestas")[0])
+TABLAS["tenants"][0]["rubro"] = "psicología"
+html = client.get("/agenda").data.decode()
+chequear("psicología ofrece entrevista de adultos", "Antes de la primera sesión (entrevista inicial)" in html)
+
+# --- Hoja de registro ---
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TELR = "5491117171717"
+TABLAS["turnos"].append(turno("h1", "t1", manana, estado="reservado", paciente_nombre="Sol Ríos", paciente_telefono=TELR))
+TABLAS["paciente_tests"].append({"id": "hr", "tenant_id": "t1", "paciente_telefono": TELR, "ficha": "", "test": "WISC-V", "fecha": "2026-10-20",
+                                 "resultados": [{"escala": "CI Total", "tipo": "compuesto", "puntaje": 95, "nivel": ""}]})
+html = client.get("/agenda").data.decode()
+chequear("ofrece la hoja de registro", "Hoja de registro" in html)
+hoja = client.post("/agenda/registro", data={"telefono": TELR, "test_id": "hr"}).data.decode()
+chequear("abre la hoja con lo que ya tenía", "Hoja de registro · WISC-V · Sol Ríos" in hoja and '"CI Total"' in hoja
+         and '<option value="Razonamiento Fluido">' in hoja and "/agenda/paciente/test/hr/resultados" in hoja)
+html = client.post("/agenda/registro", data={"telefono": TELR, "test_id": "otro"}, follow_redirects=True).data.decode()
+chequear("test ajeno o inexistente", "No se encontró ese test" in html)
+client.post("/agenda/paciente/test/hr/resultados", data={"telefono": TELR, "escala-0": "CI Total", "tipo-0": "compuesto", "puntaje-0": "95",
+                                                         "escala-1": "Vocabulario", "tipo-1": "bruto", "puntaje-1": "23", "nivel-1": "4 errores · 3:10"})
+chequear("lo de la hoja se guarda como bruto", TABLAS["paciente_tests"][0]["resultados"][1] == {"escala": "Vocabulario", "tipo": "bruto", "puntaje": 23, "nivel": "4 errores · 3:10"})
+
+# --- Gráfico por escala ---
+tres = [{"_fecha": f"0{i}/01/2026", "resultados": [{"escala": "CI", "tipo": "compuesto", "puntaje": p, "nivel": ""}]} for i, p in ((1, 85), (2, 92), (3, 97))]
+g = resultados_tests.evolucion(tres)[0]["grafico"]
+chequear("gráfico por escala ajustado al rango", g and [p["valor"] for p in g["puntos"]] == [85, 92, 97] and g["puntos"][0]["y"] > g["puntos"][-1]["y"]
+         and g["puntos"][0]["y"] == g["alto"] - 6)
+sin = resultados_tests.evolucion([{"_fecha": "a", "resultados": [{"escala": "L", "tipo": "bruto", "puntaje": None, "nivel": "x"}]},
+                                  {"_fecha": "b", "resultados": [{"escala": "L", "tipo": "bruto", "puntaje": None, "nivel": "y"}]}])[0]
+chequear("sin números no hay gráfico", sin["grafico"] is None)
+chequear("valores iguales no dividen por cero", fluidez.grafico([5, 5], desde_cero=False) is not None)
+
+# --- Borrador de informe ---
+import informe  # noqa: E402
+
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TABLAS["tenants"][0]["matricula"] = "MP 1234"
+TELI = "5491118181818"
+TABLAS["turnos"].append(turno("i1", "t1", manana, estado="reservado", paciente_nombre="Iara Sosa", paciente_telefono=TELI))
+TABLAS["pacientes"].append({"tenant_id": "t1", "paciente_telefono": TELI, "ficha": "", "motivo_consulta": "Dificultad en lectura",
+                            "fecha_nacimiento": "2017-03-10", "escuela": "Escuela 5", "grado": "3º"})
+TABLAS["paciente_tests"] += [
+    {"id": "p1", "tenant_id": "t1", "paciente_telefono": TELI, "ficha": "", "test": "PROLEC-R", "fecha": "2026-04-01",
+     "resultados": [{"escala": "Comprensión", "tipo": "percentil", "puntaje": 15, "nivel": "Dificultad"}]},
+    {"id": "p2", "tenant_id": "t1", "paciente_telefono": TELI, "ficha": "", "test": "PROLEC-R", "fecha": "2026-10-01",
+     "resultados": [{"escala": "Comprensión", "tipo": "percentil", "puntaje": 45, "nivel": "Normal"}]}]
+TABLAS["lecturas"].append({"id": "l1", "tenant_id": "t1", "paciente_telefono": TELI, "ficha": "", "fecha": "2026-10-02", "texto_titulo": "La plaza",
+                           "palabras_texto": 50, "palabras_leidas": 50, "errores": 2, "errores_palabras": [], "segundos": 60, "created_at": "1"})
+pagina = client.post("/agenda/paciente/informe", data={"telefono": TELI}).data.decode()
+chequear("arma el informe", "Informe psicopedagógico" in pagina and "Iara Sosa" in pagina and "Escuela 5" in pagina and "MP 1234" in pagina)
+chequear("con resultados y evolución", "PROLEC-R (01/10/2026): Comprensión: 45 (Normal)." in pagina
+         and "En Comprensión subió de 15 a 45 respecto de la toma del 01/04/2026." in pagina)
+chequear("con la lectura", "leyó 48 palabras correctas por minuto, con 96% de precisión" in pagina)
+chequear("edad calculada", informe._edad("2017-03-10", _date(2026, 11, 2)) == "9 años y 7 meses" and informe._edad("2017-11-02", _date(2026, 11, 2)) == "9 años")
+chequear("informe de otro no existe", client.post("/agenda/paciente/informe", data={"telefono": "999"}).status_code == 404)
+TABLAS["tenants"][0]["rubro"] = "psicología"
+chequear("psicología dice psicológico", "Informe psicológico" in client.post("/agenda/paciente/informe", data={"telefono": TELI}).data.decode())
+
+# --- Aviso de retest ---
+pr = tests_sugeridos.para_repetir
+tom = [{"test": "PROLEC-R", "fecha": "2026-04-20"}, {"test": "prolec-r", "fecha": "2025-01-01"}, {"test": "WISC-V", "fecha": "2025-11-02"},
+       {"test": "Inventado", "fecha": "2020-01-01"}]
+avisos = pr(tom, _date(2026, 11, 2))
+chequear("avisa sólo lo que se cumplió hace poco", [(a["nombre"], a["vence"]) for a in avisos] == [("PROLEC-R", _date(2026, 10, 20))])
+chequear("pasados 30 días deja de avisar", pr(tom, _date(2026, 11, 20)) == [])
+chequear("con el plazo propio", [a["nombre"] for a in pr(tom, _date(2026, 11, 2), {"WISC-V": 12})] == ["PROLEC-R", "WISC-V"])
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TELT = "5491119191919"
+TABLAS["turnos"].append(turno("t9", "t1", manana, estado="reservado", paciente_nombre="Teresa Gil", paciente_telefono=TELT))
+hoy_local = datetime.now(zona).date()
+fecha_vieja = (hoy_local.replace(day=1) - timedelta(days=200)).isoformat()
+TABLAS["paciente_tests"].append({"id": "rt", "tenant_id": "t1", "paciente_telefono": TELT, "ficha": "", "test": "TEDE", "fecha": fecha_vieja})
+vence = tests_sugeridos._vence(_date.fromisoformat(fecha_vieja), 6)
+html = client.get("/agenda").data.decode()
+en_ventana = 0 <= (hoy_local - vence).days < 30
+chequear("tarjeta de tests para repetir", ("Tests que ya se pueden repetir" in html) == en_ventana, (fecha_vieja, vence))
+TABLAS["paciente_tests"][0]["fecha"] = _date(hoy_local.year - 1, hoy_local.month, min(hoy_local.day, 28)).isoformat() if hoy_local.day <= 28 else TABLAS["paciente_tests"][0]["fecha"]
+TABLAS["paciente_tests"][0]["test"] = "D2"  # 12 meses: vence hoy si el día existe
+html = client.get("/agenda").data.decode()
+chequear("aparece el día que vence", hoy_local.day > 28 or ("Tests que ya se pueden repetir" in html and "Teresa Gil" in html and "D2" in html))
+partes = scheduler._partes_del_resumen(TABLAS["tenants"][0], hoy_local)
+chequear("el resumen cuenta los de hoy sin nombres", hoy_local.day > 28 or ("1 test que hoy se puede repetir" in ", ".join(partes) and "Teresa" not in ", ".join(partes)))
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

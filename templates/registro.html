@@ -1,0 +1,120 @@
+{% extends "base.html" %}
+{% block titulo %}Hoja de registro — {{ ficha.nombre }}{% endblock %}
+{% block cuerpo %}
+<style>
+  .reloj { font-size:2rem; font-variant-numeric:tabular-nums; }
+  .contadores { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:12px 0; }
+  .contador-btn { font-size:1.2rem; padding:22px 10px; border-radius:10px; border:2px solid var(--green); background:var(--green-bg); color:var(--green); cursor:pointer; }
+  .contador-btn.error { border-color:#c1652f; background:#fbeee4; color:#c1652f; }
+  .contador-btn strong { display:block; font-size:2rem; }
+  .barra { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+  .hechas td, .hechas th { padding:4px 8px 4px 0; border-bottom:1px dotted var(--rule); text-align:left; font-size:.9rem; }
+</style>
+<header>
+  <span>Hoja de registro · {{ toma.test }} · {{ ficha.nombre }}</span>
+  <a href="{{ url_for('agenda') }}">Volver al panel</a>
+</header>
+<main>
+  <div class="card">
+    <label for="subprueba">Subprueba o escala</label>
+    <input type="text" id="subprueba" list="escalas-registro" maxlength="60" placeholder="Ej.: Vocabulario">
+    <datalist id="escalas-registro">{% for e in escalas %}<option value="{{ e }}">{% endfor %}</datalist>
+    <div class="barra" style="margin-top:12px">
+      <span class="reloj" id="reloj">0:00</span>
+      <button class="btn" type="button" id="reloj-btn">Iniciar reloj</button>
+      <button class="btn secundario" type="button" id="deshacer">Deshacer</button>
+    </div>
+    <div class="contadores">
+      <button class="contador-btn" type="button" id="acierto">Acierto<strong id="n-aciertos">0</strong></button>
+      <button class="contador-btn error" type="button" id="error">Error<strong id="n-errores">0</strong></button>
+    </div>
+    <button class="btn" type="button" id="cerrar">Cerrar subprueba</button>
+    <div class="tenue" style="margin-top:6px">Cada subprueba se guarda como puntaje bruto (los aciertos), con los errores y el tiempo en el nivel. Después pasalos a puntaje con el manual y editalos en la ficha.</div>
+  </div>
+
+  <div class="card">
+    <h3>Subpruebas de esta toma</h3>
+    <table class="hechas"><thead><tr><th>Subprueba</th><th>Aciertos</th><th>Errores · tiempo</th><th></th></tr></thead><tbody id="hechas"></tbody></table>
+    <div class="tenue" id="vacio">Todavía ninguna.</div>
+    <form method="post" action="{{ url_for('agenda_test_resultados', test_id=toma.id) }}" id="guardar-form">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="telefono" value="{{ ficha.clave }}">
+      {% if semana %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+      <div id="campos"></div>
+      <button class="btn" type="submit" id="guardar" disabled style="margin-top:10px">Guardar en la ficha</button>
+    </form>
+  </div>
+</main>
+<script>
+(() => {
+  const previos = {{ toma.resultados|tojson }};
+  const MAX = {{ max_filas }};
+  const $ = id => document.getElementById(id);
+  let aciertos = 0, errores = 0, historial = [], inicio = null, acumulado = 0, tic = null;
+  const hechas = [];
+  const fmt = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+  const segundos = () => acumulado + (inicio ? (performance.now() - inicio) / 1000 : 0);
+
+  function contar() { $('n-aciertos').textContent = aciertos; $('n-errores').textContent = errores; }
+  function pausar() { if (inicio) { acumulado = segundos(); inicio = null; clearInterval(tic); } $('reloj-btn').textContent = acumulado ? 'Seguir' : 'Iniciar reloj'; }
+
+  $('reloj-btn').addEventListener('click', () => {
+    if (inicio) return pausar();
+    inicio = performance.now();
+    $('reloj-btn').textContent = 'Pausar';
+    tic = setInterval(() => { $('reloj').textContent = fmt(segundos()); }, 250);
+  });
+  $('acierto').addEventListener('click', () => { aciertos++; historial.push('a'); contar(); });
+  $('error').addEventListener('click', () => { errores++; historial.push('e'); contar(); });
+  $('deshacer').addEventListener('click', () => {
+    const u = historial.pop();
+    if (u === 'a') aciertos--; else if (u === 'e') errores--;
+    contar();
+  });
+
+  function pintar() {
+    $('hechas').innerHTML = '';
+    hechas.forEach((h, i) => {
+      const tr = document.createElement('tr');
+      for (const t of [h.escala, h.aciertos, h.nivel]) { const td = document.createElement('td'); td.textContent = t; tr.appendChild(td); }
+      const td = document.createElement('td'); const b = document.createElement('button');
+      b.type = 'button'; b.className = 'quitar'; b.textContent = '×'; b.setAttribute('aria-label', 'Quitar');
+      b.addEventListener('click', () => { hechas.splice(i, 1); pintar(); });
+      td.appendChild(b); tr.appendChild(td); $('hechas').appendChild(tr);
+    });
+    $('vacio').hidden = hechas.length > 0;
+    $('guardar').disabled = hechas.length === 0;
+    // Lo que ya tenía la toma va primero; si una subprueba se repite, gana la nueva.
+    const nuevas = new Set(hechas.map(h => h.escala.toLowerCase()));
+    const filas = previos.filter(r => !nuevas.has(r.escala.toLowerCase()))
+      .map(r => ({escala: r.escala, tipo: r.tipo, puntaje: r.puntaje ?? '', nivel: r.nivel || ''}))
+      .concat(hechas.map(h => ({escala: h.escala, tipo: 'bruto', puntaje: h.aciertos, nivel: h.nivel})))
+      .slice(0, MAX);
+    $('campos').innerHTML = '';
+    filas.forEach((f, n) => {
+      for (const [k, v] of Object.entries(f)) {
+        const inp = document.createElement('input'); inp.type = 'hidden'; inp.name = `${k}-${n}`; inp.value = v; $('campos').appendChild(inp);
+      }
+    });
+  }
+
+  $('cerrar').addEventListener('click', () => {
+    const escala = $('subprueba').value.trim();
+    if (!escala) { $('subprueba').focus(); $('subprueba').placeholder = 'Poné el nombre de la subprueba'; return; }
+    pausar();
+    const seg = segundos();
+    const nivel = `${errores} error${errores === 1 ? '' : 'es'}` + (seg ? ` · ${fmt(seg)}` : '');
+    const ya = hechas.findIndex(h => h.escala.toLowerCase() === escala.toLowerCase());
+    const fila = {escala, aciertos, nivel};
+    if (ya >= 0) hechas[ya] = fila; else hechas.push(fila);
+    aciertos = 0; errores = 0; historial = []; acumulado = 0; inicio = null;
+    $('reloj').textContent = '0:00'; $('reloj-btn').textContent = 'Iniciar reloj'; $('subprueba').value = '';
+    contar(); pintar();
+  });
+
+  window.addEventListener('beforeunload', e => { if (hechas.length && !window.__guardando) e.preventDefault(); });
+  $('guardar-form').addEventListener('submit', () => { window.__guardando = true; });
+  pintar();
+})();
+</script>
+{% endblock %}
