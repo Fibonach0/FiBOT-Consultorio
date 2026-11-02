@@ -17,6 +17,8 @@ _BASE = {
     "fecha_ejemplo": "Navidad, aniversario, fallecimiento de…",
     "escuela": False,
     "tests": False,
+    # Cuestionarios por link que se ofrecen (claves de cuestionarios.INSTRUMENTOS).
+    "cuestionarios": ["phq9", "gad7"],
 }
 
 _PSICOPEDAGOGIA = {
@@ -31,6 +33,8 @@ _PSICOPEDAGOGIA = {
     "fecha_ejemplo": "Entrega de boletín, reunión con la escuela…",
     "escuela": True,
     "tests": True,
+    # PHQ-9 y GAD-7 son para adultos; SNAP-IV y SCARED esperan licencia.
+    "cuestionarios": [],
 }
 
 

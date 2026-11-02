@@ -90,6 +90,10 @@ class _Query:
         self.filtros.append(lambda f: _norm(f.get(c)) == _norm(v))
         return self
 
+    def is_(self, c, v):
+        self.filtros.append(lambda f: f.get(c) is None if v == "null" else f.get(c) == v)
+        return self
+
     def neq(self, c, v):
         self.filtros.append(lambda f: _norm(f.get(c)) != _norm(v))
         return self
@@ -205,6 +209,7 @@ def reset():
     TABLAS["paciente_tests"] = []
     TABLAS["textos_lectura"] = []
     TABLAS["lecturas"] = []
+    TABLAS["cuestionarios"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -1484,6 +1489,68 @@ client.post(f"/agenda/textos-lectura/{texto_id}/borrar", data={})
 chequear("borrar el texto deja las lecturas", not any(t["id"] == texto_id for t in TABLAS["textos_lectura"]) and len(TABLAS["lecturas"]) == n + 1)
 TABLAS["tenants"][0]["rubro"] = "psicología"
 chequear("psicología no ve fluidez", "Fluidez lectora" not in client.get("/agenda").data.decode())
+
+# --- Cuestionarios por link ---
+import cuestionarios  # noqa: E402
+
+todo = lambda n, v: {f"item-{i}": str(v) for i in range(n)}
+r, e = cuestionarios.corregir("phq9", {**todo(9, 1), "dificultad": "Mucha dificultad"})
+chequear("corrige el PHQ-9", e is None and r["puntaje"] == 9 and r["severidad"] == "leve" and r["alerta"] and r["dificultad"] == "Mucha dificultad")
+r, _ = cuestionarios.corregir("phq9", {**todo(9, 3), "item-8": "0"})
+chequear("24 es severa y sin la 9 no alerta", r["puntaje"] == 24 and r["severidad"] == "severa" and not r["alerta"])
+chequear("cortes del PHQ-9", [cuestionarios.severidad("phq9", p) for p in (4, 5, 10, 15, 20)] == ["mínima", "leve", "moderada", "moderadamente severa", "severa"])
+chequear("cortes del GAD-7", [cuestionarios.severidad("gad7", p) for p in (0, 9, 14, 21)] == ["mínima", "leve", "moderada", "severa"])
+chequear("pide todas las respuestas", cuestionarios.corregir("gad7", todo(6, 1))[1] == "Falta responder alguna pregunta.")
+chequear("rechaza valores raros", cuestionarios.corregir("gad7", {**todo(7, 1), "item-3": "7"})[1] is not None)
+chequear("GAD-7 no alerta", cuestionarios.corregir("gad7", todo(7, 3))[0] == {"respuestas": [3] * 7, "puntaje": 21, "severidad": "severa", "alerta": False, "dificultad": None})
+chequear("tokens distintos y largos", len({cuestionarios.nuevo_token() for _ in range(50)}) == 50 and len(cuestionarios.nuevo_token()) >= 32)
+
+reset()
+TELC = "5491115151515"
+TABLAS["turnos"].append(turno("q1", "t1", manana, estado="reservado", paciente_nombre="Carla Gómez", paciente_telefono=TELC))
+html = client.get("/agenda").data.decode()
+chequear("psicología ofrece cuestionarios", "Generar link" in html and "PHQ-9 (depresión)" in html)
+client.post("/agenda/cuestionario", data={"telefono": TELC, "instrumento": "phq9"})
+client.post("/agenda/cuestionario", data={"telefono": TELC, "instrumento": "snap"})
+chequear("crea el link", len(TABLAS["cuestionarios"]) == 1 and TABLAS["cuestionarios"][0]["instrumento"] == "phq9")
+token = TABLAS["cuestionarios"][0]["token"]
+html = client.get("/agenda").data.decode()
+chequear("la ficha muestra el link", f"/cuestionario/{token}" in html and "sin responder" in html)
+publica = client.get(f"/cuestionario/{token}").data.decode()
+chequear("el paciente ve el cuestionario sin login", "Poco interés o placer en hacer cosas" in publica and "Carla" not in publica and TELC not in publica)
+chequear("link inventado no existe", client.get("/cuestionario/nada").status_code == 404)
+res = client.post(f"/cuestionario/{token}", data=todo(8, 2))
+chequear("incompleto vuelve con aviso y conserva", res.status_code == 400 and "Falta responder" in res.data.decode() and 'value="2" required checked' in res.data.decode())
+fin = client.post(f"/cuestionario/{token}", data={**todo(9, 2), "item-8": "1"}).data.decode()
+guardado = TABLAS["cuestionarios"][0]
+chequear("guarda corregido", guardado["puntaje"] == 17 and guardado["severidad"] == "moderadamente severa" and guardado["alerta"] and guardado.get("respondido_at"))
+chequear("con la 9 le da teléfonos de ayuda", "135" in fin and "911" in fin)
+otra = client.post(f"/cuestionario/{token}", data=todo(9, 0)).data.decode()
+chequear("un link sirve una vez", "ya se respondió" in otra and TABLAS["cuestionarios"][0]["puntaje"] == 17)
+html = client.get("/agenda").data.decode()
+chequear("aviso en el panel y en la ficha", "Cuestionarios respondidos" in html and "marcó ideas de hacerse daño" in html and "pregunta 9: varios días" in html)
+TABLAS["cuestionarios"].append({"id": "viejo", "tenant_id": "t1", "paciente_telefono": TELC, "ficha": "", "instrumento": "phq9", "token": "tv",
+                                "vence": "2026-01-01T00:00:00+00:00", "respondido_at": "2026-01-02T12:00:00+00:00", "puntaje": 22,
+                                "severidad": "severa", "alerta": False, "respuestas": [2] * 9, "visto": True, "created_at": "00000000"})
+html = client.get("/agenda").data.decode()
+chequear("evolución contra la anterior", "↓ 5" in html and "grafico-fluidez" in html)
+client.post(f"/agenda/cuestionario/{guardado['id']}/visto", data={})
+html = client.get("/agenda").data.decode()
+chequear("visto saca el aviso", "Cuestionarios respondidos" not in html and "sin ver marcó ideas" not in html)
+TABLAS["cuestionarios"].append({"id": "venc", "tenant_id": "t1", "paciente_telefono": TELC, "ficha": "", "instrumento": "gad7", "token": "tvenc",
+                                "vence": "2026-01-01T00:00:00+00:00", "created_at": "00000001"})
+chequear("link vencido avisa", "venció" in client.get("/cuestionario/tvenc").data.decode())
+chequear("vencido no se muestra como pendiente", "/cuestionario/tvenc" not in client.get("/agenda").data.decode())
+TABLAS["cuestionarios"].append({"id": "ajeno", "tenant_id": "t2", "paciente_telefono": TELC, "ficha": "", "instrumento": "gad7", "token": "taj",
+                                "vence": "2099-01-01T00:00:00+00:00", "created_at": "00000002"})
+client.post("/agenda/cuestionario/ajeno/borrar", data={})
+client.post("/agenda/cuestionario/ajeno/visto", data={})
+chequear("no toca cuestionarios de otro", any(c["id"] == "ajeno" and not c.get("visto") for c in TABLAS["cuestionarios"]))
+chequear("ni lo muestra", "/cuestionario/taj" not in client.get("/agenda").data.decode())
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+chequear("psicopedagogía no los ofrece todavía", "Generar link" not in client.get("/agenda").data.decode())
+client.post("/agenda/cuestionario", data={"telefono": TELC, "instrumento": "gad7"})
+chequear("ni deja crearlos", not any(c["instrumento"] == "gad7" and c.get("tenant_id") == "t1" and c["id"] not in ("venc",) for c in TABLAS["cuestionarios"]))
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

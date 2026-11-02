@@ -10,6 +10,23 @@
     {% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}
   {% endwith %}
 
+  {% if cuestionarios_nuevos %}
+  <div class="card">
+    <h3>Cuestionarios respondidos <span class="contador">{{ cuestionarios_nuevos|length }}</span></h3>
+    {% for x in cuestionarios_nuevos %}
+    <div class="turno">
+      <span class="semana-fecha" role="button" tabindex="0" data-ficha="{{ x.ficha.dom }}"><strong>{{ x.ficha.nombre }}</strong> · {{ x.c.nombre }} {{ x.c.puntaje }} ({{ x.c.severidad }})
+        {% if x.c.alerta %}<span class="chip chip-alerta">marcó ideas de hacerse daño</span>{% endif %}</span>
+      <form method="post" action="{{ url_for('agenda_cuestionario_visto', cuestionario_id=x.c.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <button class="btn chico secundario" type="submit">Visto</button>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if reservas_nuevas %}
   <div class="card">
     <h3>Reservas nuevas <span class="contador">{{ reservas_nuevas|length }}</span></h3>
@@ -717,6 +734,55 @@
       {% else %}
       <div class="tenue">Para tomar una lectura, cargá un texto en «Ajustes» → «Textos para fluidez lectora».</div>
       {% endif %}
+      {% endif %}
+
+      {% if instrumentos %}
+      {% set cu = f.cuestionarios %}
+      <h5>Cuestionarios</h5>
+      {% if cu.alerta %}<div class="error">En un PHQ-9 sin ver marcó ideas de muerte o de hacerse daño (pregunta 9).</div>{% endif %}
+      {% for g in cu.grupos %}
+      <div class="test-grupo">
+        <strong>{{ g.nombre }}</strong> <span class="tenue">{{ g.que_mide }} · de 0 a {{ g.maximo }}</span>
+        {% if g.grafico %}
+        <svg class="grafico-fluidez" viewBox="0 0 {{ g.grafico.ancho }} {{ g.grafico.alto }}" role="img"
+             aria-label="Puntajes de {{ g.nombre }}: {{ g.grafico.puntos|map(attribute='valor')|join(', ') }}">
+          <polyline points="{{ g.grafico.linea }}" fill="none" stroke="currentColor" stroke-width="2"/>
+          {% for p in g.grafico.puntos %}<circle cx="{{ p.x }}" cy="{{ p.y }}" r="3" fill="currentColor"><title>{{ p.valor }}</title></circle>{% endfor %}
+        </svg>
+        {% endif %}
+        {% for r in g.respuestas %}
+        <div class="ficha-item">
+          <span><strong>{{ r.puntaje }}</strong> {{ r.severidad }} <span class="tenue">· {{ r._fecha }}{% if r.dificultad %} · {{ r.dificultad|lower }}{% endif %}</span>
+            {% if r.cambio is defined %}<span class="cambio-{{ 'baja' if r.cambio > 0 else 'sube' if r.cambio < 0 else 'igual' }}">{{ '↑' if r.cambio > 0 else '↓' if r.cambio < 0 else '=' }} {{ r.cambio|abs }}</span>{% endif %}
+            {% if r.alerta %}<span class="chip chip-alerta">pregunta 9: {{ ['', 'varios días', 'más de la mitad de los días', 'casi todos los días'][r.respuestas[8]] }}</span>{% endif %}
+          </span>
+          <form method="post" action="{{ url_for('agenda_cuestionario_borrar', cuestionario_id=r.id) }}">
+            {{ ocultos(f.clave) }}
+            <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar estas respuestas?')">×</button>
+          </form>
+        </div>
+        {% endfor %}
+      </div>
+      {% endfor %}
+      {% for c in cu.pendientes %}
+      <div class="ficha-item">
+        <span>{{ c.nombre }} <span class="tenue">sin responder · vence el {{ c._vence }}</span><br>
+          <input type="text" readonly value="{{ c.link }}" aria-label="Link del {{ c.nombre }}" onclick="this.select()" style="font-size:.75rem;padding:4px 6px">
+          <button class="btn chico secundario" type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(() => this.textContent = 'Copiado')">Copiar link</button>
+        </span>
+        <form method="post" action="{{ url_for('agenda_cuestionario_borrar', cuestionario_id=c.id) }}">
+          {{ ocultos(f.clave) }}
+          <button class="quitar" type="submit" aria-label="Anular link">×</button>
+        </form>
+      </div>
+      {% endfor %}
+      {% if not cu.grupos and not cu.pendientes %}<div class="tenue">Mandale un link y lo completa desde el celular. El sistema lo corrige solo.</div>{% endif %}
+      <form method="post" action="{{ url_for('agenda_cuestionario') }}" class="fila">
+        {{ ocultos(f.clave) }}
+        <div class="ancho"><label>Cuestionario</label>
+          <select name="instrumento">{% for k, inst in instrumentos %}<option value="{{ k }}">{{ inst.nombre }} ({{ inst.que_mide }})</option>{% endfor %}</select></div>
+        <div class="al-pie"><button class="btn chico" type="submit">Generar link</button></div>
+      </form>
       {% endif %}
       </section>
 

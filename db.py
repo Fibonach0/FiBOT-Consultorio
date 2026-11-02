@@ -761,6 +761,40 @@ def borrar_lectura(tenant_id: str, lectura_id: str) -> None:
     _client.table("lecturas").delete().eq("tenant_id", tenant_id).eq("id", lectura_id).execute()
 
 
+def crear_cuestionario(tenant_id: str, clave: str, instrumento: str, token: str, vence: str) -> None:
+    telefono, ficha = partir_clave(clave)
+    _client.table("cuestionarios").insert(
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha,
+         "instrumento": instrumento, "token": token, "vence": vence}
+    ).execute()
+
+
+def cuestionarios(tenant_id: str) -> list[dict]:
+    res = _client.table("cuestionarios").select("*").eq("tenant_id", tenant_id).order("created_at", desc=True).execute()
+    return res.data
+
+
+def cuestionario_por_token(token: str) -> dict | None:
+    """Sin tenant: el token ES la credencial del link público."""
+    res = _client.table("cuestionarios").select("*").eq("token", token).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def responder_cuestionario(cuestionario_id: str, datos: dict) -> bool:
+    """Sólo si todavía no se respondió: un link sirve una vez."""
+    res = (_client.table("cuestionarios").update(datos).eq("id", cuestionario_id)
+           .is_("respondido_at", "null").execute())
+    return bool(res.data)
+
+
+def marcar_cuestionario_visto(tenant_id: str, cuestionario_id: str) -> None:
+    _client.table("cuestionarios").update({"visto": True}).eq("tenant_id", tenant_id).eq("id", cuestionario_id).execute()
+
+
+def borrar_cuestionario(tenant_id: str, cuestionario_id: str) -> None:
+    _client.table("cuestionarios").delete().eq("tenant_id", tenant_id).eq("id", cuestionario_id).execute()
+
+
 def borrar_test(tenant_id: str, test_id: str) -> None:
     _client.table("paciente_tests").delete().eq("tenant_id", tenant_id).eq("id", test_id).execute()
 
