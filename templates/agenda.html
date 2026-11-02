@@ -537,12 +537,13 @@
       {% for p in plantillas %}
       {% set c = p.contenido %}
       <details class="test-grupo">
-        <summary><strong>{{ c.nombre }}</strong> <span class="tenue">{{ c["items"]|length }} preguntas{% if p.faltan %} · faltan {{ p.faltan }}: todavía no se puede mandar{% endif %}</span></summary>
+        <summary><strong>{{ p.titulo }}</strong> <span class="tenue">{{ c["items"]|length }} preguntas{% if p.faltan %} · faltan {{ p.faltan }}: todavía no se puede mandar{% endif %}</span></summary>
         <form method="post" action="{{ url_for('agenda_plantilla_editar', plantilla_id=p.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
           <div class="fila">
             <div><label>Nombre</label><input type="text" name="nombre" value="{{ c.nombre }}" maxlength="60" required></div>
+            <div><label>Versión <span class="tenue">(padres, chico/a, docente…)</span></label><input type="text" name="version" value="{{ c.version or '' }}" maxlength="30"></div>
             <div><label>Qué mide</label><input type="text" name="que_mide" value="{{ c.que_mide or '' }}" maxlength="60"></div>
           </div>
           <label>Consigna</label><textarea name="consigna" rows="2" maxlength="600">{{ c.consigna or '' }}</textarea>
@@ -559,14 +560,22 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
           <button class="quitar" type="submit" onclick="return confirm('¿Borrar este cuestionario? Las respuestas ya recibidas quedan.')">Borrar cuestionario</button>
+          · <a href="{{ url_for('agenda_plantilla_exportar', plantilla_id=p.id) }}">Exportar para pasárselo a otra profesional</a>
         </form>
       </details>
       {% endfor %}
       <form method="post" action="{{ url_for('agenda_plantilla_nueva') }}" style="margin:8px 0">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
-        <input type="hidden" name="modelo" value="scared">
-        <button class="btn chico secundario" type="submit">Crear SCARED (corrección lista, faltan las preguntas)</button>
+        <button class="btn chico secundario" type="submit" name="modelo" value="scared_chico">Crear SCARED para el chico/a</button>
+        <button class="btn chico secundario" type="submit" name="modelo" value="scared_padres">Crear SCARED para padres</button>
+        <div class="tenue">Con la corrección lista; faltan las preguntas de cada versión. Si cargás las dos, la ficha las compara lado a lado.</div>
+      </form>
+      <form method="post" action="{{ url_for('agenda_plantilla_importar') }}" enctype="multipart/form-data" class="fila" style="margin:8px 0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div class="ancho"><label>Importar un cuestionario exportado</label><input type="file" name="archivo" accept=".json,application/json" required></div>
+        <div class="al-pie"><button class="btn chico secundario" type="submit">Importar</button></div>
       </form>
       <details>
         <summary class="tenue">Crear uno desde cero ▾</summary>
@@ -574,6 +583,7 @@
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
           <label>Nombre</label><input type="text" name="nombre" maxlength="60" required>
+          <label>Versión (opcional)</label><input type="text" name="version" maxlength="30" placeholder="Padres, chico/a…">
           <label>Qué mide</label><input type="text" name="que_mide" maxlength="60">
           <label>Consigna</label><textarea name="consigna" rows="2" maxlength="600"></textarea>
           <label>Preguntas, una por renglón</label><textarea name="items" rows="6" required></textarea>
@@ -816,6 +826,22 @@
       {% set cu = f.cuestionarios %}
       <h5>Cuestionarios</h5>
       {% if cu.alerta %}<div class="error">En un PHQ-9 sin ver marcó ideas de muerte o de hacerse daño (pregunta 9).</div>{% endif %}
+      {% for cmp in cu.comparaciones %}
+      <div class="test-grupo">
+        <strong>{{ cmp.nombre }}: versiones lado a lado</strong>
+        <table class="evolucion">
+          <tr><th>Subescala</th>{% for v in cmp.versiones %}<th>{{ v }}<br><span class="tenue">{{ cmp.fechas[loop.index0] }}</span></th>{% endfor %}</tr>
+          {% for fila in cmp.filas %}
+          <tr>
+            <td>{{ fila.nombre }}{% if fila.corte is not none %} <span class="tenue">(corte {{ fila.corte }})</span>{% endif %}
+              {% if fila.difieren %}<br><span class="chip chip-alerta">no coinciden</span>{% endif %}</td>
+            {% for c in fila.celdas %}<td>{% if c %}<strong>{{ c.puntaje }}</strong>{% if c.sobre_corte %} <span class="chip chip-alerta">sobre el corte</span>{% endif %}{% else %}—{% endif %}</td>{% endfor %}
+          </tr>
+          {% endfor %}
+        </table>
+        <div class="tenue">Compara la última respuesta de cada versión. «No coinciden» marca cuando una supera el corte y la otra no.</div>
+      </div>
+      {% endfor %}
       {% for g in cu.grupos %}
       <div class="test-grupo">
         <strong>{{ g.nombre }}</strong> <span class="tenue">{{ g.que_mide }} · de 0 a {{ g.maximo }}</span>

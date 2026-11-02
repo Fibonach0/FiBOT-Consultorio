@@ -258,6 +258,10 @@ al mandar el link se copia la plantilla a `cuestionarios.plantilla` (instrumento
 unifica fábrica, abiertos y propios. `MODELO_SCARED` trae SÓLO la clave de
 corrección verificada (UPMC): los ítems van vacíos y los pega la profesional.
 NUNCA cargar texto de ítems de tests de terceros sin licencia explícita.
+`version` (dentro del jsonb) separa padres/chico/docente de un mismo cuestionario;
+`comparar_versiones` las pone lado a lado en la ficha. Exportar/importar usa
+`formato: fibot-cuestionario` y al importar todo pasa por `leer_plantilla`, nunca
+se guarda el JSON tal cual.
 
 ### Hoja de registro, informe y retest
 
