@@ -210,6 +210,7 @@ def reset():
     TABLAS["textos_lectura"] = []
     TABLAS["lecturas"] = []
     TABLAS["cuestionarios"] = []
+    TABLAS["informes"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -1664,6 +1665,43 @@ html = client.get("/agenda").data.decode()
 chequear("aparece el día que vence", hoy_local.day > 28 or ("Tests que ya se pueden repetir" in html and "Teresa Gil" in html and "D2" in html))
 partes = scheduler._partes_del_resumen(TABLAS["tenants"][0], hoy_local)
 chequear("el resumen cuenta los de hoy sin nombres", hoy_local.day > 28 or ("1 test que hoy se puede repetir" in ", ".join(partes) and "Teresa" not in ", ".join(partes)))
+
+# --- Informes guardados ---
+import json  # noqa: E402
+
+leer_inf = informe.leer_guardado
+ok, err = leer_inf(json.dumps({"titulo": " Informe ", "datos": [["Nombre", "Iara"]], "secciones": [{"titulo": "Motivo", "texto": " lee lento "}, {"titulo": "Vacía", "texto": ""}]}))
+chequear("lee el informe guardado", err is None and ok == {"titulo": "Informe", "datos": [["Nombre", "Iara"]],
+                                                             "secciones": [{"titulo": "Motivo", "texto": "lee lento"}, {"titulo": "Vacía", "texto": ""}]})
+chequear("rechaza basura", leer_inf("no es json")[1] and leer_inf(json.dumps({"titulo": "x"}))[1] and leer_inf(json.dumps({"titulo": "x", "secciones": "hola"}))[1])
+chequear("rechaza vacío", leer_inf(json.dumps({"titulo": "x", "secciones": [{"titulo": "a", "texto": " "}]}))[1] == "El informe está vacío.")
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TELV = "5491110101010"
+TABLAS["turnos"].append(turno("v1", "t1", manana, estado="reservado", paciente_nombre="Vera Luna", paciente_telefono=TELV))
+borrador = client.post("/agenda/paciente/informe", data={"telefono": TELV}).data.decode()
+chequear("el borrador ofrece guardar", "Guardar en la ficha" in borrador and "Conclusiones" in borrador and "/agenda/paciente/informe/guardar" in borrador)
+contenido = lambda texto: json.dumps({"titulo": "Informe psicopedagógico", "datos": [["Nombre", "Vera Luna"]],
+                                      "secciones": [{"titulo": "Conclusiones", "texto": texto}]})
+html = client.post("/agenda/paciente/informe/guardar", data={"telefono": TELV, "contenido": contenido("Primera versión.")}, follow_redirects=True).data.decode()
+client.post("/agenda/paciente/informe/guardar", data={"telefono": TELV, "contenido": contenido("Segunda versión.")})
+chequear("guarda versiones sin pisar", "Se guardó el informe" in html and [i["contenido"]["secciones"][0]["texto"] for i in TABLAS["informes"]] == ["Primera versión.", "Segunda versión."])
+html = client.get("/agenda").data.decode()
+chequear("la ficha lista las versiones", "Versión 1 · Informe psicopedagógico" in html and "Versión 2 · Informe psicopedagógico" in html
+         and html.index("Versión 2") < html.index("Versión 1"))
+primera = TABLAS["informes"][0]["id"]
+abierto = client.post(f"/agenda/paciente/informe/{primera}", data={"telefono": TELV}).data.decode()
+chequear("abre la versión guardada", "Primera versión." in abierto and "Segunda versión." not in abierto and "Versión guardada el" in abierto and "Vera Luna" in abierto)
+TABLAS["informes"].append({"id": "ajeno", "tenant_id": "t2", "paciente_telefono": TELV, "ficha": "", "created_at": "x",
+                           "contenido": {"titulo": "Ajeno", "datos": [], "secciones": [{"titulo": "a", "texto": "secreto"}]}})
+chequear("no abre informes de otro", client.post("/agenda/paciente/informe/ajeno", data={"telefono": TELV}).status_code == 404)
+client.post("/agenda/paciente/informe/ajeno/borrar", data={})
+chequear("ni los borra", any(i["id"] == "ajeno" for i in TABLAS["informes"]))
+client.post(f"/agenda/paciente/informe/{primera}/borrar", data={"telefono": TELV})
+chequear("borra una versión", [i["id"] for i in TABLAS["informes"] if i["tenant_id"] == "t1"] != [] and not any(i["id"] == primera for i in TABLAS["informes"]))
+n = len(TABLAS["informes"])
+client.post("/agenda/paciente/informe/guardar", data={"telefono": TELV, "contenido": "{roto"})
+chequear("no guarda un informe roto", len(TABLAS["informes"]) == n)
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

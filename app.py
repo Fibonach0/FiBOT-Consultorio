@@ -404,6 +404,14 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
             por_clave.setdefault(db.clave_de(c), []).append(c)
         for f in lista:
             f["cuestionarios"] = _cuestionarios_de_ficha(por_clave.get(f["clave"], []), tz, ahora)
+    por_clave_inf: dict[str, list[dict]] = {}
+    for x in db.informes(tenant["id"]):
+        x["fecha"] = datetime.fromisoformat(x["created_at"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if "T" in x["created_at"] else x["created_at"]
+        por_clave_inf.setdefault(db.clave_de(x), []).append(x)
+    for f in lista:
+        f["informes"] = por_clave_inf.get(f["clave"], [])
+        for n, x in enumerate(reversed(f["informes"]), start=1):
+            x["version"] = n
     lista.sort(key=lambda f: f["nombre"].casefold())
     for i, f in enumerate(lista, start=1):
         f["dom"] = f"ficha-{i}"
@@ -1467,7 +1475,42 @@ def agenda_informe():
     if not ficha:
         return "No encontrado.", 404
     return render_template("informe.html", tenant=tenant, ficha=ficha, hoy=ahora.strftime("%d/%m/%Y"),
-                           inf=informe.armar(ficha, rubros.de(tenant), ahora.date()))
+                           inf=informe.armar(ficha, rubros.de(tenant), ahora.date()), guardado=None)
+
+
+@app.post("/agenda/paciente/informe/guardar")
+@login_required
+def agenda_informe_guardar():
+    clave = request.form.get("telefono") or ""
+    contenido, error = informe.leer_guardado(request.form.get("contenido") or "")
+    if not clave or error:
+        flash(error or "Falta el paciente.")
+        return _volver_a_agenda()
+    db.agregar_informe(session["tenant_id"], clave, contenido)
+    flash("Se guardó el informe en la ficha.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/informe/<informe_id>")
+@login_required
+def agenda_informe_ver(informe_id):
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    clave = request.form.get("telefono") or ""
+    ficha = next((f for f in _fichas(tenant, tz, datetime.now(tz)) if f["clave"] == clave), None)
+    guardado = next((i for i in (ficha or {}).get("informes", []) if i["id"] == informe_id), None)
+    if not guardado:
+        return "No encontrado.", 404
+    c = guardado["contenido"]
+    inf = {"titulo": c["titulo"], "datos": c.get("datos") or [], "secciones": c["secciones"]}
+    return render_template("informe.html", tenant=tenant, ficha=ficha, hoy=guardado["fecha"], inf=inf, guardado=guardado)
+
+
+@app.post("/agenda/paciente/informe/<informe_id>/borrar")
+@login_required
+def agenda_informe_borrar(informe_id):
+    db.borrar_informe(session["tenant_id"], informe_id)
+    return _volver_a_agenda()
 
 
 @app.post("/agenda/paciente/test/<test_id>/borrar")

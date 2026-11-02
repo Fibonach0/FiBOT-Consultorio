@@ -883,6 +883,21 @@
         <button class="btn chico secundario" type="submit">Borrador de informe</button>
         <span class="tenue">Arma un borrador con lo cargado, para editar e imprimir.</span>
       </form>
+      {% for x in f.informes %}
+      <div class="ficha-item">
+        <span>Versión {{ x.version }} · {{ x.contenido.titulo }} <span class="tenue">{{ x.fecha }}</span></span>
+        <span style="display:flex;gap:6px;align-items:center">
+          <form method="post" action="{{ url_for('agenda_informe_ver', informe_id=x.id) }}" target="_blank">
+            {{ ocultos(f.clave) }}
+            <button class="btn chico secundario" type="submit">Abrir</button>
+          </form>
+          <form method="post" action="{{ url_for('agenda_informe_borrar', informe_id=x.id) }}">
+            {{ ocultos(f.clave) }}
+            <button class="quitar" type="submit" aria-label="Borrar versión" onclick="return confirm('¿Borrar esta versión del informe?')">×</button>
+          </form>
+        </span>
+      </div>
+      {% endfor %}
       </section>
 
       <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-crisis" aria-labelledby="{{ f.dom }}-tab-crisis" data-panel="crisis" hidden>

@@ -21,33 +21,46 @@
 </header>
 <main>
   <div class="card no-imprimir">
-    Es un borrador armado con lo que está cargado en la ficha. Todo lo punteado se edita tocándolo; lo que dejes vacío no se imprime. Nada de esto se guarda: imprimí o guardá en PDF al terminar.
-    <div style="margin-top:8px"><button class="btn" type="button" onclick="window.print()">Imprimir o guardar en PDF</button></div>
+    {% if guardado %}Versión guardada el {{ guardado.fecha }}. Si la cambiás y la guardás, queda como una versión nueva; esta no se pisa.{% else %}Es un borrador armado con lo que está cargado en la ficha.{% endif %}
+    Todo lo punteado se edita tocándolo; lo que dejes vacío no se imprime.
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" type="button" onclick="window.print()">Imprimir o guardar en PDF</button>
+      <form method="post" action="{{ url_for('agenda_informe_guardar') }}" id="guardar-informe">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="telefono" value="{{ ficha.clave }}">
+        <input type="hidden" name="contenido" id="contenido">
+        <button class="btn secundario" type="submit">Guardar en la ficha</button>
+      </form>
+    </div>
   </div>
   <div class="card informe constancia">
-    <h2>{{ inf.titulo }}</h2>
-    <div class="datos">
+    <h2 contenteditable="true" id="titulo-informe">{{ inf.titulo }}</h2>
+    <div class="datos" id="datos">
       {% for k, v in inf.datos %}<span class="tenue">{{ k }}</span><span>{{ v }}</span>{% endfor %}
       <span class="tenue">Fecha del informe</span><span>{{ hoy }}</span>
     </div>
 
-    {% macro seccion(titulo, texto, vacio) %}
+    {% for x in inf.secciones %}
     <div class="seccion">
       <button class="quitar quitar-seccion no-imprimir" type="button" onclick="this.parentElement.remove()">Quitar sección</button>
-      <h3 contenteditable="true">{{ titulo }}</h3>
-      <div class="editable" contenteditable="true" data-vacio="{{ vacio }}">{{ texto }}</div>
+      <h3 contenteditable="true">{{ x.titulo }}</h3>
+      <div class="editable" contenteditable="true" data-vacio="{{ x.vacio or '' }}">{{ x.texto }}</div>
     </div>
-    {% endmacro %}
-
-    {{ seccion("Motivo de consulta", inf.motivo, "Por qué consultan y quién deriva.") }}
-    {% if inf.tests %}{{ seccion("Evaluación", inf.tests|join("\n"), "") }}{% endif %}
-    {% if inf.fluidez %}{{ seccion("Lectura", inf.fluidez|join("\n"), "") }}{% endif %}
-    {% if inf.cuestionarios %}{{ seccion("Cuestionarios", inf.cuestionarios|join("\n"), "") }}{% endif %}
-    {{ seccion("Objetivos de trabajo", inf.objetivos, "Qué se está trabajando.") }}
-    {{ seccion("Conclusiones", "", "Escribí acá tus conclusiones.") }}
-    {{ seccion("Sugerencias", "", "Para la familia, la escuela u otros profesionales.") }}
+    {% endfor %}
 
     <div class="firma">{{ tenant.nombre }}{% if tenant.matricula %}<br>Matrícula {{ tenant.matricula }}{% endif %}</div>
   </div>
+  <script>
+    document.getElementById('guardar-informe').addEventListener('submit', () => {
+      const datos = [...document.querySelectorAll('#datos > span')].reduce((filas, el, i, todos) =>
+        i % 2 === 0 && todos[i].textContent !== 'Fecha del informe' ? [...filas, [el.textContent, todos[i + 1].textContent]] : filas, []);
+      document.getElementById('contenido').value = JSON.stringify({
+        titulo: document.getElementById('titulo-informe').innerText,
+        datos,
+        secciones: [...document.querySelectorAll('.seccion')].map(s => ({
+          titulo: s.querySelector('h3').innerText, texto: s.querySelector('.editable').innerText})),
+      });
+    });
+  </script>
 </main>
 {% endblock %}
