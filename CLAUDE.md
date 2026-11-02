@@ -236,6 +236,13 @@ Cancelar por WhatsApp nunca adivina: con turnos de dos personas en el teléfono,
 o con un nombre que no coincide, el bot los lista y no cancela nada hasta recibir
 `cancelar Lola`.
 
+### Reservas nuevas (`migrations/025`)
+
+Una reserva sin ficha explícita (página pública o bot) lleva `reserva_nueva`: se ve
+en la tarjeta «Reservas nuevas» hasta marcarla vista. El scheduler la avisa por
+WhatsApp a `aviso_telefono` en el siguiente tick, con fecha y sin nombres. Lo que
+agenda el profesional pasa ficha explícita y no se marca.
+
 ### Hoy
 
 `app._hoy` arma, arriba del panel, una tarjeta por sesión del día con deuda,

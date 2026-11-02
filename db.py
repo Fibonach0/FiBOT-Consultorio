@@ -270,6 +270,28 @@ def mover_sesion(tenant_id: str, turno_id: str, clave: str, nombre: str) -> bool
     return len(res.data) > 0
 
 
+def reservas_sin_avisar(tenant_id: str) -> list[dict]:
+    res = (
+        _client.table("turnos")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .eq("estado", "reservado")
+        .eq("reserva_nueva", True)
+        .eq("reserva_avisada", False)
+        .order("inicio")
+        .execute()
+    )
+    return res.data
+
+
+def marcar_reserva_avisada(tenant_id: str, turno_id: str) -> None:
+    _client.table("turnos").update({"reserva_avisada": True}).eq("tenant_id", tenant_id).eq("id", turno_id).execute()
+
+
+def marcar_reserva_vista(tenant_id: str, turno_id: str) -> None:
+    _client.table("turnos").update({"reserva_nueva": False}).eq("tenant_id", tenant_id).eq("id", turno_id).execute()
+
+
 def confirmar_ficha(tenant_id: str, turno_id: str) -> None:
     _client.table("turnos").update({"revisar_ficha": False}).eq("tenant_id", tenant_id).eq("id", turno_id).execute()
 
@@ -290,13 +312,14 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
     # reserva igual y lo revisa el profesional. Preguntarle a quien reserva
     # mostraría nombres de pacientes a cualquiera que escriba ese teléfono.
     revisar = False
+    llego_sola = ficha is None
     if ficha is None:
         ficha = ficha_para(tenant_id, telefono, nombre)[0]
         revisar = bool(nombre) and nombre_ambiguo(tenant_id, telefono, nombre)
     res = (
         _client.table("turnos")
         .update({"estado": "reservado", "paciente_telefono": telefono, "paciente_nombre": nombre, "ficha": ficha,
-                 "revisar_ficha": revisar,
+                 "revisar_ficha": revisar, "reserva_nueva": llego_sola, "reserva_avisada": False,
                  "valor": valor, "frecuencia": frecuencia, "modalidad": modalidad})
         .eq("tenant_id", tenant_id)
         .eq("id", turno_id)
@@ -340,6 +363,8 @@ _LIBERADO = {
     "paciente_nombre": None,
     "ficha": "",
     "revisar_ficha": False,
+    "reserva_nueva": False,
+    "reserva_avisada": False,
     "recordatorio_enviado": False,
     "asistencia": None,
     "pago": "pendiente",
