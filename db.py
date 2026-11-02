@@ -729,6 +729,10 @@ def agregar_test(tenant_id: str, clave: str, test: str, fecha: str) -> None:
     ).execute()
 
 
+def guardar_resultados_test(tenant_id: str, test_id: str, resultados: list[dict]) -> None:
+    _client.table("paciente_tests").update({"resultados": resultados}).eq("tenant_id", tenant_id).eq("id", test_id).execute()
+
+
 def borrar_test(tenant_id: str, test_id: str) -> None:
     _client.table("paciente_tests").delete().eq("tenant_id", tenant_id).eq("id", test_id).execute()
 

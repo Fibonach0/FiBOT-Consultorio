@@ -23,6 +23,7 @@ import config
 import conversation
 import db
 import rubros
+import resultados_tests
 import tests_sugeridos
 from fechas import alerta_de_seguimiento, proxima_vez, sesiones_que_quedan
 import scheduler
@@ -377,6 +378,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
             tomados.setdefault(db.clave_de(x), []).append(x)
         for f in lista:
             f["tests_tomados"] = tomados.get(f["clave"], [])
+            f["tests_por_test"] = resultados_tests.por_test(f["tests_tomados"])
             nacimiento = f["fecha_nacimiento"]
             edad = (hoy - date.fromisoformat(nacimiento)).days / 365.25 if nacimiento else None
             textos = [f["motivo_consulta"], f["objetivos"], f["como_viene"], f["notas"], *[t.get("nota") for t in f["sesiones"]]]
@@ -507,6 +509,8 @@ def agenda():
         "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
         "fichas": fichas,
         "catalogo_tests": [nombre for nombre, *_ in tests_sugeridos.CATALOGO],
+        "tipos_resultado": [(k, v[0]) for k, v in resultados_tests.TIPOS.items()],
+        "filas_vacias": resultados_tests.FILAS_VACIAS,
         "plazos_tests": [{"nombre": n, "meses": m, "fabrica": f, "propio": n in (tenant.get("plazos_tests") or {})}
                          for (n, m), (_, _, _, f, _) in zip(tests_sugeridos.plazos(tenant.get("plazos_tests")).items(),
                                                             tests_sugeridos.CATALOGO)],
@@ -1203,6 +1207,18 @@ def agenda_plazos_tests():
             propios[nombre] = meses
     db.guardar_plazos_tests(session["tenant_id"], propios)
     flash("Se guardaron los plazos para repetir tests.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/test/<test_id>/resultados")
+@login_required
+def agenda_test_resultados(test_id):
+    filas, error = resultados_tests.leer_formulario(request.form)
+    if error:
+        flash(error)
+        return _volver_a_agenda()
+    db.guardar_resultados_test(session["tenant_id"], test_id, filas)
+    flash("Se guardaron los resultados." if filas else "Se borraron los resultados.")
     return _volver_a_agenda()
 
 

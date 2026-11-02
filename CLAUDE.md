@@ -222,6 +222,13 @@ pasan los meses del test en `CATALOGO`, y después vuelven con la fecha anterior
 `tenants.plazos_tests` (`migrations/027`) guarda sólo los plazos que el profesional
 cambió, así un plazo de fábrica nuevo le llega a quien no lo tocó.
 
+`paciente_tests.resultados` (`migrations/028`, `resultados_tests.py`) guarda los
+puntajes YA corregidos que carga la profesional: el sistema no corrige porque los
+baremos son de las editoriales (Pearson, TEA, Paidós) y no se pueden incluir sin
+licencia. `evolucion()` compara la misma escala y tipo entre tomas del mismo test;
+bajo el umbral de `TIPOS` (~1/3 de desvío) es «se mantuvo». Es descriptiva a
+propósito («subió/bajó», nunca «mejoró»): en cuestionarios de síntomas subir es peor.
+
 ### Una ficha por persona (`migrations/022`)
 
 Una ficha es teléfono + `ficha`, no sólo teléfono: dos hermanos pueden usar el
