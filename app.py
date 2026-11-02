@@ -6,6 +6,7 @@ le escribieron, y eso es lo que resuelve a qué tenant pertenece (ver
 db.get_tenant_by_phone_number_id). Nada de esto tiene nada de un cliente en
 particular — lo particular vive en la tabla `tenants` y se carga con
 scripts/crear_tenant.py, nunca hardcodeado acá."""
+import base64
 import copy
 import functools
 import hmac
@@ -602,6 +603,7 @@ def agenda():
                         + [(f"propio:{p['id']}", {"nombre": p["titulo"], "que_mide": p["contenido"].get("que_mide") or "propio"})
                            for p in plantillas if cuestionarios.completa(p["contenido"])],
         "plantillas": plantillas,
+        "plantillas_informe": db.plantillas_informe(tenant["id"]),
         "tests_para_repetir": [{"ficha": f, **t} for f in fichas for t in f.get("para_repetir") or []],
         "ventana_aviso": tests_sugeridos.VENTANA_AVISO,
         "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),
@@ -1571,8 +1573,97 @@ def agenda_informe():
     ficha = next((f for f in _fichas(tenant, tz, ahora) if f["clave"] == clave), None)
     if not ficha:
         return "No encontrado.", 404
+    plantilla = next((p["contenido"] for p in db.plantillas_informe(tenant["id"])
+                      if p["id"] == request.form.get("plantilla_id")), None)
     return render_template("informe.html", tenant=tenant, ficha=ficha, hoy=ahora.strftime("%d/%m/%Y"),
-                           inf=informe.armar(ficha, rubros.de(tenant), ahora.date()), guardado=None)
+                           inf=informe.armar(ficha, rubros.de(tenant), ahora.date(), plantilla), guardado=None)
+
+
+@app.post("/agenda/plantillas-informe")
+@login_required
+def agenda_plantilla_informe():
+    contenido, error = informe.leer_plantilla(request.form.get("nombre") or "", request.form.get("secciones") or "")
+    if error:
+        flash(error)
+        return _volver_a_agenda()
+    db.agregar_plantilla_informe(session["tenant_id"], contenido)
+    flash(f"Se guardó la plantilla «{contenido['nombre']}». La elegís al armar el próximo informe.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/plantillas-informe/<plantilla_id>/borrar")
+@login_required
+def agenda_plantilla_informe_borrar(plantilla_id):
+    db.borrar_plantilla_informe(session["tenant_id"], plantilla_id)
+    return _volver_a_agenda()
+
+
+FIRMA_MAX = 300_000
+FIRMA_TIPOS = {b"\x89PNG\r\n\x1a\n": "image/png", b"\xff\xd8\xff": "image/jpeg"}
+
+
+@app.post("/agenda/firma")
+@login_required
+def agenda_firma():
+    """Imagen de firma y sello para los informes. Se guarda como data URL en
+    el tenant: es chica y así el informe no depende de otro almacenamiento.
+    El tipo se decide por los primeros bytes, no por lo que diga el navegador."""
+    archivo = request.files.get("firma")
+    crudo = archivo.read(FIRMA_MAX + 1) if archivo else b""
+    tipo = next((t for firma, t in FIRMA_TIPOS.items() if crudo.startswith(firma)), None)
+    if not crudo:
+        flash("Elegí la imagen de tu firma.")
+    elif len(crudo) > FIRMA_MAX:
+        flash("La imagen es muy pesada: hasta 300 KB.")
+    elif not tipo:
+        flash("La firma tiene que ser una imagen PNG o JPG.")
+    else:
+        db.guardar_ajustes(session["tenant_id"], {"firma_imagen": f"data:{tipo};base64,{base64.b64encode(crudo).decode()}"})
+        flash("Se guardó tu firma: aparece en los informes y en la ficha completa.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/firma/borrar")
+@login_required
+def agenda_firma_borrar():
+    db.guardar_ajustes(session["tenant_id"], {"firma_imagen": None})
+    flash("Se quitó la firma.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/ficha-completa")
+@login_required
+def agenda_ficha_completa():
+    """Toda la ficha imprimible, para un cambio de profesional o si el
+    paciente pide su historia. Por POST para que el teléfono no quede en la URL."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    ahora = datetime.now(tz)
+    rubro = rubros.de(tenant)
+    clave = request.form.get("telefono") or ""
+    ficha = next((f for f in _fichas(tenant, tz, ahora) if f["clave"] == clave), None)
+    if not ficha:
+        return "No encontrado.", 404
+    datos = [("Nombre", ficha["nombre"]), ("Teléfono", ficha["telefono"]),
+             ("Fecha de nacimiento", date.fromisoformat(ficha["fecha_nacimiento"]).strftime("%d/%m/%Y") if ficha.get("fecha_nacimiento") else None),
+             ("Obra social", " · N° ".join(x for x in (ficha.get("obra_social"), ficha.get("numero_afiliado")) if x) or None),
+             ("En tratamiento desde", ficha.get("desde")),
+             ("Estado", "activo" if ficha["estado"] == "activo" else f"{ficha['estado']} desde {ficha.get('estado_fecha')}"
+              + (f" ({ficha['estado_motivo']})" if ficha.get("estado_motivo") else ""))]
+    if rubro["escuela"]:
+        datos += [("Escuela", ficha.get("escuela")), ("Grado", ficha.get("grado")), ("Docente", ficha.get("docente")),
+                  ("Equipo de orientación", ficha.get("equipo_orientador"))]
+    textos = [(rubro["motivo"], ficha.get("motivo_consulta")), ("Objetivos", ficha.get("objetivos")),
+              ("Cómo viene", ficha.get("como_viene")), ("Notas", ficha.get("notas")),
+              (rubro["tratantes"], ficha.get("psiquiatra")), ("Medicación", ficha.get("medicacion")),
+              (rubro["indicaciones"], ficha.get("plan_crisis"))]
+    asistencia = {"vino": "asistió", "no_vino": "no vino"}
+    sesiones = [{"fecha": datetime.fromisoformat(t["inicio"]).astimezone(tz).strftime("%d/%m/%Y %H:%M"),
+                 "asistencia": asistencia.get(t.get("asistencia"), "—" if datetime.fromisoformat(t["inicio"]) <= ahora else "próxima"),
+                 "nota": t.get("nota") or ""} for t in ficha["sesiones"]]
+    return render_template("ficha_completa.html", tenant=tenant, ficha=ficha, rubro=rubro, hoy=ahora.strftime("%d/%m/%Y"),
+                           datos=[(k, v) for k, v in datos if v], textos=[(k, v) for k, v in textos if v], sesiones=sesiones,
+                           inf=informe.armar(ficha, rubro, ahora.date()))
 
 
 @app.post("/agenda/paciente/informe/guardar")

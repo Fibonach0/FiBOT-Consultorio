@@ -493,6 +493,38 @@
       <div><label>Matrícula</label><input type="text" name="matricula" value="{{ tenant.matricula or '' }}"></div>
       <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
     </form>
+    <details>
+      <summary class="tenue">Firma y sello para informes{% if tenant.firma_imagen %} (cargada){% endif %} ▾</summary>
+      {% if tenant.firma_imagen %}
+      <img src="{{ tenant.firma_imagen }}" alt="Tu firma" style="max-height:80px;max-width:220px;display:block;margin:8px 0">
+      <form method="post" action="{{ url_for('agenda_firma_borrar') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <button class="quitar" type="submit">Quitar firma</button>
+      </form>
+      {% endif %}
+      <form method="post" action="{{ url_for('agenda_firma') }}" enctype="multipart/form-data" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div class="ancho"><label>Foto o escaneo de tu firma con sello (PNG o JPG, hasta 300 KB, mejor con fondo blanco)</label>
+          <input type="file" name="firma" accept="image/png,image/jpeg" required></div>
+        <div class="al-pie"><button class="btn chico" type="submit">{{ 'Cambiar' if tenant.firma_imagen else 'Cargar' }} firma</button></div>
+      </form>
+    </details>
+    <details>
+      <summary class="tenue">Plantillas de informe ({{ plantillas_informe|length }}) ▾</summary>
+      <div class="tenue" style="margin:6px 0">Se crean desde un borrador de informe: armá las secciones como te gustan y tocá «Guardar estructura como plantilla». Las secciones con «motivo», «evaluación», «lectura», «cuestionario» u «objetivo» en el título se completan solas.</div>
+      {% for p in plantillas_informe %}
+      <div class="ficha-item">
+        <span><strong>{{ p.contenido.nombre }}</strong> <span class="tenue">{{ p.contenido.secciones|join(' · ') }}</span></span>
+        <form method="post" action="{{ url_for('agenda_plantilla_informe_borrar', plantilla_id=p.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="quitar" type="submit" aria-label="Borrar plantilla" onclick="return confirm('¿Borrar esta plantilla?')">×</button>
+        </form>
+      </div>
+      {% endfor %}
+    </details>
     {% if rubro.tests %}
     <details>
       <summary class="tenue">Plazo para repetir cada test ▾</summary>
@@ -961,8 +993,15 @@
       <h5>Informe</h5>
       <form method="post" action="{{ url_for('agenda_informe') }}" target="_blank">
         {{ ocultos(f.clave) }}
+        {% if plantillas_informe %}<select name="plantilla_id" aria-label="Plantilla" style="width:auto;margin-bottom:6px"><option value="">Estándar</option>{% for p in plantillas_informe %}<option value="{{ p.id }}">{{ p.contenido.nombre }}</option>{% endfor %}</select>{% endif %}
         <button class="btn chico secundario" type="submit">Borrador de informe</button>
         <span class="tenue">Arma un borrador con lo cargado, para editar e imprimir.</span>
+      </form>
+      <h5>Ficha completa</h5>
+      <form method="post" action="{{ url_for('agenda_ficha_completa') }}" target="_blank">
+        {{ ocultos(f.clave) }}
+        <button class="btn chico secundario" type="submit">Ficha completa en PDF</button>
+        <span class="tenue">Todo lo cargado, para un cambio de profesional o si el paciente pide su historia.</span>
       </form>
       {% for x in f.informes %}
       <div class="ficha-item">

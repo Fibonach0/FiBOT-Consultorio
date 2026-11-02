@@ -32,6 +32,16 @@
         <button class="btn secundario" type="submit">Guardar en la ficha</button>
       </form>
     </div>
+    <details style="margin-top:8px">
+      <summary class="tenue">Guardar estructura como plantilla ▾</summary>
+      <form method="post" action="{{ url_for('agenda_plantilla_informe') }}" id="guardar-plantilla" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="secciones" id="titulos-plantilla">
+        <div><label>Nombre de la plantilla</label><input type="text" name="nombre" maxlength="60" required placeholder="Ej.: Informe para la escuela"></div>
+        <div class="al-pie"><button class="btn chico secundario" type="submit">Guardar plantilla</button></div>
+      </form>
+      <div class="tenue">Guarda los títulos de las secciones, no el texto. Cambiá, sumá o quitá secciones antes de guardarla.</div>
+    </details>
   </div>
   <div class="card informe constancia">
     <h2 contenteditable="true" id="titulo-informe">{{ inf.titulo }}</h2>
@@ -48,9 +58,24 @@
     </div>
     {% endfor %}
 
-    <div class="firma">{{ tenant.nombre }}{% if tenant.matricula %}<br>Matrícula {{ tenant.matricula }}{% endif %}</div>
+    <button class="btn chico secundario no-imprimir" type="button" id="sumar-seccion" style="margin-top:14px">Sumar sección</button>
+
+    {% include "_firma.html" %}
   </div>
   <script>
+    document.getElementById('sumar-seccion').addEventListener('click', e => {
+      const div = document.createElement('div');
+      div.className = 'seccion';
+      div.innerHTML = '<button class="quitar quitar-seccion no-imprimir" type="button">Quitar sección</button>'
+        + '<h3 contenteditable="true">Nueva sección</h3><div class="editable" contenteditable="true" data-vacio="Escribí acá."></div>';
+      div.querySelector('button').addEventListener('click', () => div.remove());
+      e.target.before(div);
+      div.querySelector('h3').focus();
+    });
+    document.getElementById('guardar-plantilla').addEventListener('submit', () => {
+      document.getElementById('titulos-plantilla').value = JSON.stringify(
+        [...document.querySelectorAll('.seccion h3')].map(h => h.innerText.trim()));
+    });
     document.getElementById('guardar-informe').addEventListener('submit', () => {
       const datos = [...document.querySelectorAll('#datos > span')].reduce((filas, el, i, todos) =>
         i % 2 === 0 && todos[i].textContent !== 'Fecha del informe' ? [...filas, [el.textContent, todos[i + 1].textContent]] : filas, []);

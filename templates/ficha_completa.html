@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block titulo %}Ficha completa — {{ ficha.nombre }}{% endblock %}
+{% block cuerpo %}
+<style>
+  .hoja { max-width:820px; margin:0 auto; line-height:1.5; }
+  .hoja h3 { margin:22px 0 6px; font-size:1.05rem; border-bottom:1px solid var(--rule); padding-bottom:3px; }
+  .hoja h4 { margin:12px 0 4px; font-size:.95rem; }
+  .datos { display:grid; grid-template-columns:max-content 1fr; gap:2px 14px; }
+  .texto { white-space:pre-line; margin:0 0 6px; }
+  .sesiones td, .sesiones th { padding:3px 8px 3px 0; border-bottom:1px dotted var(--rule); text-align:left; vertical-align:top; font-size:.85rem; }
+  .confidencial { font-size:.75rem; color:var(--muted); }
+  @media print { header { display:none; } .hoja h3 { break-after:avoid; } }
+</style>
+<header class="no-imprimir">
+  <span>Ficha completa · {{ ficha.nombre }}</span>
+  <a href="{{ url_for('agenda') }}">Volver al panel</a>
+</header>
+<main>
+  <div class="card no-imprimir">
+    Todo lo que está cargado en la ficha, para entregar al paciente o a otro profesional. Revisalo antes: incluye tus notas.
+    <div style="margin-top:8px"><button class="btn" type="button" onclick="window.print()">Imprimir o guardar en PDF</button></div>
+  </div>
+  <div class="card hoja constancia">
+    <p class="confidencial">Confidencial · contiene datos de salud</p>
+    <h2>Ficha de {{ ficha.nombre }}</h2>
+    <div class="datos">
+      {% for k, v in datos %}<span class="tenue">{{ k }}</span><span>{{ v }}</span>{% endfor %}
+    </div>
+
+    {% for titulo, texto in textos %}
+    <h3>{{ titulo }}</h3><p class="texto">{{ texto }}</p>
+    {% endfor %}
+
+    {% if ficha.personas %}
+    <h3>{{ 'Familia' if rubro.tests else 'Personas' }}</h3>
+    {% for p in ficha.personas %}<div>{{ p.nombre }}{% if p.vinculo %} <span class="tenue">· {{ p.vinculo }}</span>{% endif %}{% if p.telefono %} · {{ p.telefono }}{% endif %}{% if p.emergencia %} · contacto de emergencia{% endif %}</div>{% endfor %}
+    {% endif %}
+
+    {% if ficha.fechas %}
+    <h3>Fechas importantes</h3>
+    {% for c in ficha.fechas %}<div>{{ c.titulo }} <span class="tenue">· {{ c.dia }}/{{ c.mes }}{% if c.anio %}/{{ c.anio }}{% endif %}</span></div>{% endfor %}
+    {% endif %}
+
+    {% if sesiones %}
+    <h3>Sesiones ({{ sesiones|length }})</h3>
+    <table class="sesiones">
+      <tr><th>Fecha</th><th>Asistencia</th><th>Nota</th></tr>
+      {% for s in sesiones %}<tr><td>{{ s.fecha }}</td><td>{{ s.asistencia }}</td><td class="texto">{{ s.nota }}</td></tr>{% endfor %}
+    </table>
+    {% endif %}
+
+    {% if inf.tests or inf.fluidez or inf.cuestionarios %}
+    <h3>Evaluaciones</h3>
+    {% for x in inf.tests + inf.fluidez + inf.cuestionarios %}<p class="texto">{{ x }}</p>{% endfor %}
+    {% endif %}
+
+    {% for a in (ficha.cuestionarios or {}).get('abiertos', []) %}
+    <h3>{{ a.nombre }} <span class="tenue">· {{ a._fecha }}</span></h3>
+    {% for p, r in a.pares %}<h4>{{ p }}</h4><p class="texto">{{ r }}</p>{% endfor %}
+    {% endfor %}
+
+    {% for i in ficha.informes|reverse %}
+    <h3>{{ i.contenido.titulo }} <span class="tenue">· versión {{ i.version }}, {{ i.fecha }}</span></h3>
+    {% for s in i.contenido.secciones if s.texto %}<h4>{{ s.titulo }}</h4><p class="texto">{{ s.texto }}</p>{% endfor %}
+    {% endfor %}
+
+    {% include "_firma.html" %}
+    <p class="confidencial">Generado el {{ hoy }} por {{ tenant.nombre }}.</p>
+  </div>
+</main>
+{% endblock %}

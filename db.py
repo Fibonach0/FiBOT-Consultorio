@@ -830,6 +830,19 @@ def borrar_plantilla(tenant_id: str, plantilla_id: str) -> None:
     _client.table("plantillas_cuestionario").delete().eq("tenant_id", tenant_id).eq("id", plantilla_id).execute()
 
 
+def plantillas_informe(tenant_id: str) -> list[dict]:
+    res = _client.table("plantillas_informe").select("*").eq("tenant_id", tenant_id).order("created_at").execute()
+    return res.data
+
+
+def agregar_plantilla_informe(tenant_id: str, contenido: dict) -> None:
+    _client.table("plantillas_informe").insert({"tenant_id": tenant_id, "contenido": contenido}).execute()
+
+
+def borrar_plantilla_informe(tenant_id: str, plantilla_id: str) -> None:
+    _client.table("plantillas_informe").delete().eq("tenant_id", tenant_id).eq("id", plantilla_id).execute()
+
+
 def borrar_test(tenant_id: str, test_id: str) -> None:
     _client.table("paciente_tests").delete().eq("tenant_id", tenant_id).eq("id", test_id).execute()
 
