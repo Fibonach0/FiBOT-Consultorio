@@ -262,6 +262,12 @@ NUNCA cargar texto de ítems de tests de terceros sin licencia explícita.
 `comparar_versiones` las pone lado a lado en la ficha. Exportar/importar usa
 `formato: fibot-cuestionario` y al importar todo pasa por `leer_plantilla`, nunca
 se guarda el JSON tal cual.
+`todas:<nombre>` en el form de la ficha crea un link por versión completa
+(`cuestionarios.familias`). `comparar_versiones` suma «antes» con la toma previa.
+`biblioteca_cuestionarios` (`migrations/035`) es la ÚNICA tabla que se lee entre
+tenants: sólo lo que cada profesional compartió. Por defecto sin texto de ítems
+(`para_biblioteca`); con texto exige declarar que es propio o de uso libre.
+Agregar desde la biblioteca pasa por `importar` y queda como copia del tenant.
 
 ### Hoja de registro, informe y retest
 

@@ -376,6 +376,7 @@ def comparar_versiones(grupos: list[dict]) -> list[dict]:
             continue
         gs = sorted(gs, key=lambda g: g["version"].casefold())
         ultimas = [g["respuestas"][0] for g in gs]
+        anteriores = [g["respuestas"][1] if len(g["respuestas"]) > 1 else None for g in gs]
         nombres = []
         for r in ultimas:
             for d in r.get("detalle") or []:
@@ -383,13 +384,42 @@ def comparar_versiones(grupos: list[dict]) -> list[dict]:
                     nombres.append(d["nombre"])
         filas = []
         for nombre in nombres:
-            celdas = [next((d for d in r.get("detalle") or [] if d["nombre"] == nombre), None) for r in ultimas]
+            celdas = [next((dict(d) for d in r.get("detalle") or [] if d["nombre"] == nombre), None) for r in ultimas]
+            for celda, ant in zip(celdas, anteriores):
+                previa = next((d for d in (ant or {}).get("detalle") or [] if d["nombre"] == nombre), None)
+                if celda and previa:
+                    celda["antes"] = previa["puntaje"]
             filas.append({"nombre": nombre, "celdas": celdas,
                           "corte": next((c["corte"] for c in celdas if c and c["corte"] is not None), None),
                           "difieren": len({bool(c and c["sobre_corte"]) for c in celdas}) > 1})
-        filas.append({"nombre": "Total", "celdas": [{"puntaje": r["puntaje"], "sobre_corte": r.get("severidad") == "sobre el corte"}
-                                                    for r in ultimas],
+        filas.append({"nombre": "Total", "celdas": [{"puntaje": r["puntaje"], "sobre_corte": r.get("severidad") == "sobre el corte",
+                                                     **({"antes": a["puntaje"]} if a else {})}
+                                                    for r, a in zip(ultimas, anteriores)],
                       "corte": None, "difieren": len({r.get("severidad") for r in ultimas}) > 1})
         comparaciones.append({"nombre": gs[0]["base"], "versiones": [g["version"] for g in gs],
-                              "fechas": [r["_fecha"] for r in ultimas], "filas": filas})
+                              "fechas": [r["_fecha"] for r in ultimas], "filas": filas,
+                              "fechas_antes": [a["_fecha"] if a else None for a in anteriores]})
     return comparaciones
+
+
+def familias(plantillas: list[dict]) -> dict[str, tuple[str, list[str]]]:
+    """Cuestionarios propios con dos o más versiones completas, para mandar
+    todos los links en un paso: {nombre en minúsculas: (nombre, [versiones])}."""
+    grupos: dict[str, tuple[str, list[str]]] = {}
+    for p in plantillas:
+        c = p["contenido"]
+        if completa(c):
+            nombre, vs = grupos.setdefault(c["nombre"].casefold(), (c["nombre"], []))
+            vs.append(c.get("version") or "sin versión")
+    return {k: v for k, v in grupos.items() if len(v[1]) >= 2}
+
+
+def para_biblioteca(c: dict, con_preguntas: bool) -> dict:
+    """Copia para compartir. Sin preguntas viajan los lugares vacíos y la
+    corrección, como el modelo SCARED: quien lo agrega pega su texto."""
+    copia = {k: c.get(k) for k in ("nombre", "version", "que_mide", "consigna", "opciones", "items",
+                                   "subescalas", "corte_total", "fuente")}
+    if not con_preguntas:
+        copia["items"] = [""] * len(c["items"])
+        copia["consigna"] = ""
+    return copia

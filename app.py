@@ -601,9 +601,14 @@ def agenda():
         "instrumentos": [(k, cuestionarios.INSTRUMENTOS.get(k) or cuestionarios.ABIERTOS[k])
                          for k in rubros.de(tenant)["cuestionarios"]]
                         + [(f"propio:{p['id']}", {"nombre": p["titulo"], "que_mide": p["contenido"].get("que_mide") or "propio"})
-                           for p in plantillas if cuestionarios.completa(p["contenido"])],
+                           for p in plantillas if cuestionarios.completa(p["contenido"])]
+                        + [(f"todas:{base}", {"nombre": f"{nombre} · todas las versiones", "que_mide": ", ".join(vs)})
+                           for base, (nombre, vs) in cuestionarios.familias(plantillas).items()],
         "plantillas": plantillas,
         "plantillas_informe": db.plantillas_informe(tenant["id"]),
+        "biblioteca": [dict(e, propia=e["autor_tenant_id"] == tenant["id"],
+                            titulo=e["contenido"]["nombre"] + (f" · {e['contenido']['version']}" if e["contenido"].get("version") else ""))
+                       for e in db.biblioteca()],
         "tests_para_repetir": [{"ficha": f, **t} for f in fichas for t in f.get("para_repetir") or []],
         "ventana_aviso": tests_sugeridos.VENTANA_AVISO,
         "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),
@@ -1396,6 +1401,8 @@ def agenda_cuestionario():
     clave = request.form.get("telefono") or ""
     instrumento = request.form.get("instrumento") or ""
     plantilla = None
+    if instrumento.startswith("todas:"):
+        return _cuestionario_todas_las_versiones(tenant, clave, instrumento[6:])
     if instrumento.startswith("propio:"):
         fila = next((p for p in db.plantillas_cuestionario(tenant["id"]) if p["id"] == instrumento[7:]), None)
         if fila and cuestionarios.completa(fila["contenido"]):
@@ -1410,6 +1417,25 @@ def agenda_cuestionario():
     db.crear_cuestionario(tenant["id"], clave, instrumento, cuestionarios.nuevo_token(), vence.isoformat(), para, plantilla)
     nombre = plantilla["nombre"] if plantilla else cuestionarios.nombre_de(instrumento)
     flash(f"Listo el link de «{nombre}»: copialo desde la ficha y mandalo.")
+    return _volver_a_agenda()
+
+
+def _cuestionario_todas_las_versiones(tenant: dict, clave: str, base: str):
+    """Un link por cada versión completa de un cuestionario propio (p. ej.
+    SCARED de padres y del chico) en un solo paso."""
+    versiones = [p for p in db.plantillas_cuestionario(tenant["id"])
+                 if p["contenido"]["nombre"].casefold() == base and cuestionarios.completa(p["contenido"])]
+    if not clave or len(versiones) < 2:
+        flash("Ese cuestionario no está disponible.")
+        return _volver_a_agenda()
+    vence = (datetime.now(ZoneInfo("UTC")) + timedelta(days=cuestionarios.DIAS_VIGENCIA)).isoformat()
+    para = (request.form.get("para") or "").strip()[:cuestionarios.MAX_PARA] or None
+    for p in versiones:
+        db.crear_cuestionario(tenant["id"], clave, "propio", cuestionarios.nuevo_token(), vence, para,
+                              {**copy.deepcopy(p["contenido"]), "id": p["id"]})
+    nombres = ", ".join(p["contenido"].get("version") or "sin versión" for p in versiones)
+    flash(f"Listos {len(versiones)} links de «{versiones[0]['contenido']['nombre']}» ({nombres}): "
+          "en la ficha cada uno dice para quién es.")
     return _volver_a_agenda()
 
 
@@ -1534,6 +1560,52 @@ def agenda_plantilla_editar(plantilla_id):
     db.guardar_plantilla(session["tenant_id"], plantilla_id, contenido)
     faltan = sum(not x.strip() for x in contenido["items"])
     flash(f"Se guardó «{contenido['nombre']}»." + (f" Faltan {faltan} preguntas para poder mandarlo." if faltan else ""))
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/plantillas/<plantilla_id>/compartir")
+@login_required
+def agenda_plantilla_compartir(plantilla_id):
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    fila = next((p for p in db.plantillas_cuestionario(tenant["id"]) if p["id"] == plantilla_id), None)
+    if not fila:
+        flash("No se encontró ese cuestionario.")
+        return _volver_a_agenda()
+    con_preguntas = request.form.get("con_preguntas") == "1"
+    if con_preguntas and request.form.get("declaro") != "1":
+        flash("Para compartir las preguntas tenés que confirmar que son tuyas o de uso libre.")
+        return _volver_a_agenda()
+    if con_preguntas and not cuestionarios.completa(fila["contenido"]):
+        flash("Faltan preguntas: compartilo sin preguntas o completalo antes.")
+        return _volver_a_agenda()
+    db.compartir_en_biblioteca(tenant["id"], tenant["nombre"], cuestionarios.para_biblioteca(fila["contenido"], con_preguntas), con_preguntas)
+    flash(f"«{fila['contenido']['nombre']}» quedó en la biblioteca" + (" con sus preguntas." if con_preguntas else ", sin el texto de las preguntas."))
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/biblioteca/<entrada_id>/agregar")
+@login_required
+def agenda_biblioteca_agregar(entrada_id):
+    entrada = next((e for e in db.biblioteca() if e["id"] == entrada_id), None)
+    if not entrada:
+        flash("Ese cuestionario ya no está en la biblioteca.")
+        return _volver_a_agenda()
+    # Pasa por las mismas validaciones que una importación: nunca se copia el JSON tal cual.
+    contenido, error = cuestionarios.importar(json.dumps(cuestionarios.exportar(entrada["contenido"])).encode())
+    if error:
+        flash(error)
+        return _volver_a_agenda()
+    db.agregar_plantilla(session["tenant_id"], contenido)
+    faltan = sum(not x.strip() for x in contenido["items"])
+    flash(f"Se agregó «{contenido['nombre']}» a tus cuestionarios." + (f" Falta pegar {faltan} preguntas." if faltan else ""))
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/biblioteca/<entrada_id>/retirar")
+@login_required
+def agenda_biblioteca_retirar(entrada_id):
+    db.retirar_de_biblioteca(session["tenant_id"], entrada_id)
+    flash("Se retiró de la biblioteca. Quien ya lo agregó conserva su copia.")
     return _volver_a_agenda()
 
 

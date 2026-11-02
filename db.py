@@ -843,6 +843,21 @@ def borrar_plantilla_informe(tenant_id: str, plantilla_id: str) -> None:
     _client.table("plantillas_informe").delete().eq("tenant_id", tenant_id).eq("id", plantilla_id).execute()
 
 
+def biblioteca() -> list[dict]:
+    """Sin filtro de tenant a propósito: es lo que cada profesional eligió compartir."""
+    res = _client.table("biblioteca_cuestionarios").select("*").order("created_at", desc=True).execute()
+    return res.data
+
+
+def compartir_en_biblioteca(tenant_id: str, autor: str, contenido: dict, con_preguntas: bool) -> None:
+    _client.table("biblioteca_cuestionarios").insert(
+        {"autor_tenant_id": tenant_id, "autor": autor, "contenido": contenido, "con_preguntas": con_preguntas}).execute()
+
+
+def retirar_de_biblioteca(tenant_id: str, entrada_id: str) -> None:
+    _client.table("biblioteca_cuestionarios").delete().eq("autor_tenant_id", tenant_id).eq("id", entrada_id).execute()
+
+
 def borrar_test(tenant_id: str, test_id: str) -> None:
     _client.table("paciente_tests").delete().eq("tenant_id", tenant_id).eq("id", test_id).execute()
 

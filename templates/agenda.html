@@ -594,6 +594,13 @@
           <button class="quitar" type="submit" onclick="return confirm('¿Borrar este cuestionario? Las respuestas ya recibidas quedan.')">Borrar cuestionario</button>
           · <a href="{{ url_for('agenda_plantilla_exportar', plantilla_id=p.id) }}">Exportar para pasárselo a otra profesional</a>
         </form>
+        <form method="post" action="{{ url_for('agenda_plantilla_compartir', plantilla_id=p.id) }}" style="margin-top:6px">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="con_preguntas" value="1"> Incluir el texto de las preguntas</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="declaro" value="1"> Las preguntas son mías o de uso libre (sólo si las incluís)</label>
+          <button class="btn chico secundario" type="submit">Compartir en la biblioteca</button>
+        </form>
       </details>
       {% endfor %}
       <form method="post" action="{{ url_for('agenda_plantilla_nueva') }}" style="margin:8px 0">
@@ -603,6 +610,31 @@
         <button class="btn chico secundario" type="submit" name="modelo" value="scared_padres">Crear SCARED para padres</button>
         <div class="tenue">Con la corrección lista; faltan las preguntas de cada versión. Si cargás las dos, la ficha las compara lado a lado.</div>
       </form>
+      <details style="margin:8px 0">
+        <summary class="tenue">Biblioteca compartida ({{ biblioteca|length }}) ▾</summary>
+        <div class="tenue" style="margin:6px 0">Cuestionarios que otras profesionales eligieron compartir. Los que dicen «sin preguntas» traen sólo la corrección: pegás el texto desde tu copia.</div>
+        {% for e in biblioteca %}
+        <div class="ficha-item">
+          <span><strong>{{ e.titulo }}</strong> <span class="tenue">{{ e.contenido["items"]|length }} preguntas · {{ 'con preguntas' if e.con_preguntas else 'sin preguntas' }} · compartido por {{ 'vos' if e.propia else e.autor }}</span></span>
+          <span style="display:flex;gap:6px">
+            <form method="post" action="{{ url_for('agenda_biblioteca_agregar', entrada_id=e.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+              <button class="btn chico secundario" type="submit">Agregar</button>
+            </form>
+            {% if e.propia %}
+            <form method="post" action="{{ url_for('agenda_biblioteca_retirar', entrada_id=e.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+              <button class="quitar" type="submit" onclick="return confirm('¿Retirar de la biblioteca?')">Retirar</button>
+            </form>
+            {% endif %}
+          </span>
+        </div>
+        {% else %}
+        <div class="tenue">Todavía nadie compartió nada.</div>
+        {% endfor %}
+      </details>
       <form method="post" action="{{ url_for('agenda_plantilla_importar') }}" enctype="multipart/form-data" class="fila" style="margin:8px 0">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
@@ -862,16 +894,17 @@
       <div class="test-grupo">
         <strong>{{ cmp.nombre }}: versiones lado a lado</strong>
         <table class="evolucion">
-          <tr><th>Subescala</th>{% for v in cmp.versiones %}<th>{{ v }}<br><span class="tenue">{{ cmp.fechas[loop.index0] }}</span></th>{% endfor %}</tr>
+          <tr><th>Subescala</th>{% for v in cmp.versiones %}<th>{{ v }}<br><span class="tenue">{{ cmp.fechas[loop.index0] }}{% if cmp.fechas_antes[loop.index0] %} · antes {{ cmp.fechas_antes[loop.index0] }}{% endif %}</span></th>{% endfor %}</tr>
           {% for fila in cmp.filas %}
           <tr>
             <td>{{ fila.nombre }}{% if fila.corte is not none %} <span class="tenue">(corte {{ fila.corte }})</span>{% endif %}
               {% if fila.difieren %}<br><span class="chip chip-alerta">no coinciden</span>{% endif %}</td>
-            {% for c in fila.celdas %}<td>{% if c %}<strong>{{ c.puntaje }}</strong>{% if c.sobre_corte %} <span class="chip chip-alerta">sobre el corte</span>{% endif %}{% else %}—{% endif %}</td>{% endfor %}
+            {% for c in fila.celdas %}<td>{% if c %}<strong>{{ c.puntaje }}</strong>{% if c.sobre_corte %} <span class="chip chip-alerta">sobre el corte</span>{% endif %}
+              {% if c.antes is defined %}<br><span class="tenue">antes {{ c.antes }}{% if c.puntaje != c.antes %} ({{ '↑' if c.puntaje > c.antes else '↓' }} {{ (c.puntaje - c.antes)|abs }}){% endif %}</span>{% endif %}{% else %}—{% endif %}</td>{% endfor %}
           </tr>
           {% endfor %}
         </table>
-        <div class="tenue">Compara la última respuesta de cada versión. «No coinciden» marca cuando una supera el corte y la otra no.</div>
+        <div class="tenue">Compara la última respuesta de cada versión, con la anterior debajo. «No coinciden» marca cuando una supera el corte y la otra no.</div>
       </div>
       {% endfor %}
       {% for g in cu.grupos %}
