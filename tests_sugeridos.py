@@ -9,6 +9,11 @@ que validarlas contra el manual y el baremo que se use.
 """
 import re
 import unicodedata
+from datetime import date
+
+# Un test tomado hace menos que esto no se vuelve a sugerir: repetirlo antes
+# aprende la prueba en vez de medir.
+DIAS_SIN_REPETIR = 365
 
 AREAS = {
     "Lectura": ("lectu", "lector", "lee", "dislex", "decodific", "silab", "fluidez", "lectoescritura"),
@@ -75,9 +80,17 @@ def _rango(desde: float, hasta: float | None) -> str:
     return f"{inicio.replace(' años', '')} a {int(hasta) - 1 if hasta == int(hasta) else int(hasta)} años"
 
 
-def sugerir(textos: list[str | None], edad: float | None) -> list[dict]:
+def sugerir(textos: list[str | None], edad: float | None,
+            tomados: list[dict] | None = None, hoy: date | None = None) -> list[dict]:
     """Una fila por área detectada, con la palabra que la disparó y los tests
-    que corresponden a la edad. Sin edad conocida no filtra."""
+    que corresponden a la edad. Sin edad conocida no filtra. Lo tomado en el
+    último año no se sugiere; lo tomado antes vuelve con la fecha anterior."""
+    hoy = hoy or date.today()
+    ultima: dict[str, date] = {}
+    for t in tomados or []:
+        fecha = date.fromisoformat(t["fecha"])
+        clave = _normal(t["test"]).strip()
+        ultima[clave] = max(fecha, ultima.get(clave, fecha))
     texto = " ".join(_normal(t) for t in textos if t)
     filas = []
     for area, claves in AREAS.items():
@@ -85,9 +98,10 @@ def sugerir(textos: list[str | None], edad: float | None) -> list[dict]:
         if not hallada:
             continue
         tests = [
-            {"nombre": nombre, "edades": _rango(desde, hasta)}
+            {"nombre": nombre, "edades": _rango(desde, hasta), "ultima": ultima.get(_normal(nombre))}
             for nombre, desde, hasta, areas in CATALOGO
             if area in areas and (edad is None or (edad >= desde and (hasta is None or edad < hasta)))
+            and (_normal(nombre) not in ultima or (hoy - ultima[_normal(nombre)]).days >= DIAS_SIN_REPETIR)
         ]
         if tests:
             filas.append({"area": area, "palabra": hallada.group(0), "tests": tests})

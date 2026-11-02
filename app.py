@@ -371,11 +371,16 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
             }
         )
     if rubros.de(tenant)["tests"]:
+        tomados: dict[str, list[dict]] = {}
+        for x in db.tests_tomados(tenant["id"]):
+            x["_fecha"] = date.fromisoformat(x["fecha"]).strftime("%d/%m/%Y")
+            tomados.setdefault(db.clave_de(x), []).append(x)
         for f in lista:
+            f["tests_tomados"] = tomados.get(f["clave"], [])
             nacimiento = f["fecha_nacimiento"]
             edad = (hoy - date.fromisoformat(nacimiento)).days / 365.25 if nacimiento else None
             textos = [f["motivo_consulta"], f["objetivos"], f["como_viene"], f["notas"], *[t.get("nota") for t in f["sesiones"]]]
-            f["tests_sugeridos"] = tests_sugeridos.sugerir(textos, edad)
+            f["tests_sugeridos"] = tests_sugeridos.sugerir(textos, edad, f["tests_tomados"], hoy)
     lista.sort(key=lambda f: f["nombre"].casefold())
     for i, f in enumerate(lista, start=1):
         f["dom"] = f"ficha-{i}"
@@ -500,6 +505,8 @@ def agenda():
         "pendientes": pendientes,
         "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
         "fichas": fichas,
+        "catalogo_tests": [nombre for nombre, *_ in tests_sugeridos.CATALOGO],
+        "hoy_iso": ahora.date().isoformat(),
         "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),
                                   key=lambda r: r["turno"]["inicio"]),
         "espera": db.lista_de_espera(tenant["id"]),
@@ -1146,6 +1153,34 @@ def agenda_fecha():
         return _volver_a_agenda()
     animo = request.form.get("animo")
     db.agregar_fecha(session["tenant_id"], telefono, titulo, dia, mes, anio, animo if animo in ("bien", "mal") else None)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/test")
+@login_required
+def agenda_test():
+    telefono = request.form.get("telefono") or ""
+    test = (request.form.get("test") or "").strip()
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    try:
+        fecha = date.fromisoformat(request.form.get("fecha") or "")
+    except ValueError:
+        flash("Esa fecha no es válida.")
+        return _volver_a_agenda()
+    if fecha > datetime.now(_tz_de(tenant)).date():
+        flash("La fecha del test no puede ser futura.")
+        return _volver_a_agenda()
+    if not telefono or not test:
+        flash("Falta decir qué test se tomó.")
+        return _volver_a_agenda()
+    db.agregar_test(tenant["id"], telefono, test[:80], fecha.isoformat())
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/test/<test_id>/borrar")
+@login_required
+def agenda_test_borrar(test_id):
+    db.borrar_test(session["tenant_id"], test_id)
     return _volver_a_agenda()
 
 

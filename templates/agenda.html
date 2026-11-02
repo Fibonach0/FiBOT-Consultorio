@@ -533,6 +533,7 @@
   {% endif %}
   {% endmacro %}
 
+  {% if rubro.tests %}<datalist id="catalogo-tests">{% for n in catalogo_tests %}<option value="{{ n }}">{% endfor %}</datalist>{% endif %}
   {% for f in fichas %}
   <dialog class="ficha-dialogo" id="{{ f.dom }}">
     <div class="ficha">
@@ -573,14 +574,36 @@
       {% for s in f.tests_sugeridos %}
       <div class="ficha-item">
         <span><strong>{{ s.area }}</strong> <span class="tenue">por «{{ s.palabra }}»</span><br>
-        {% for x in s.tests %}<span class="chip" title="{{ x.edades }}">{{ x.nombre }}</span> {% endfor %}</span>
+        {% for x in s.tests %}<span class="chip" title="{{ x.edades }}{% if x.ultima %} · tomado el {{ x.ultima.strftime('%d/%m/%Y') }}{% endif %}">{{ x.nombre }}{% if x.ultima %} <span class="tenue">(hace más de un año)</span>{% endif %}</span> {% endfor %}</span>
       </div>
       {% else %}
       <div class="tenue">Cuando anotes el motivo o las sesiones, acá van a aparecer sugerencias.</div>
       {% endfor %}
       {% if f.tests_sugeridos %}
-      <div class="tenue">Salen de lo anotado{% if not f.fecha_nacimiento %}. Falta la fecha de nacimiento: no se filtró por edad{% else %} y de la edad{% endif %}.</div>
+      <div class="tenue">Salen de lo anotado{% if not f.fecha_nacimiento %}. Falta la fecha de nacimiento: no se filtró por edad{% else %} y de la edad{% endif %}. Lo tomado en el último año no aparece.</div>
       {% endif %}
+
+      <h5>Tests tomados</h5>
+      {% for x in f.tests_tomados %}
+      <div class="ficha-item">
+        <span><strong>{{ x.test }}</strong> <span class="tenue">{{ x._fecha }}</span></span>
+        <form method="post" action="{{ url_for('agenda_test_borrar', test_id=x.id) }}">
+          {{ ocultos(f.clave) }}
+          <button class="quitar" type="submit" aria-label="Borrar" onclick="return confirm('¿Borrar este test?')">×</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="tenue">Todavía no anotaste ninguno.</div>
+      {% endfor %}
+      <details>
+        <summary class="tenue">Anotar test tomado ▾</summary>
+        <form method="post" action="{{ url_for('agenda_test') }}" class="fila">
+          {{ ocultos(f.clave) }}
+          <div class="ancho"><label>Test</label><input type="text" name="test" list="catalogo-tests" maxlength="80" required></div>
+          <div><label>Fecha</label><input type="date" name="fecha" value="{{ hoy_iso }}" max="{{ hoy_iso }}" required></div>
+          <div class="al-pie"><button class="btn chico" type="submit">Anotar</button></div>
+        </form>
+      </details>
       {% endif %}
       </section>
 

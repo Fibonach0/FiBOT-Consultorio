@@ -197,6 +197,7 @@ def reset():
     TABLAS["lista_espera"] = []
     TABLAS["cancelaciones"] = []
     TABLAS["bloqueos"] = []
+    TABLAS["paciente_tests"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -1283,6 +1284,47 @@ with client.session_transaction() as s:
 chequear("la guía pide login", client.get("/agenda/ayuda").status_code == 302)
 with client.session_transaction() as s:
     s["tenant_id"] = "t1"
+
+# --- Tests ya tomados ---
+from datetime import date as _date  # noqa: E402
+
+hoy_t = _date(2026, 11, 2)
+s = tests_sugeridos.sugerir(["lectura"], 9, [{"test": "prolec-r", "fecha": "2026-06-01"}], hoy_t)
+chequear("tomado este año no se sugiere", "PROLEC-R" not in nombres(fila_area(s, "Lectura")) and "TEDE" in nombres(fila_area(s, "Lectura")))
+s = tests_sugeridos.sugerir(["lectura"], 9, [{"test": "PROLEC-R", "fecha": "2025-06-01"}], hoy_t)
+vuelve = next(x for x in fila_area(s, "Lectura")["tests"] if x["nombre"] == "PROLEC-R")
+chequear("hace más de un año vuelve con la fecha", vuelve["ultima"] == _date(2025, 6, 1))
+s = tests_sugeridos.sugerir(["lectura"], 9, [{"test": "PROLEC-R", "fecha": "2025-06-01"}, {"test": "PROLEC-R", "fecha": "2026-10-01"}], hoy_t)
+chequear("cuenta la última vez", "PROLEC-R" not in nombres(fila_area(s, "Lectura")))
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TEL7 = "5491112121212"
+TABLAS["turnos"] += [turno("k1", "t1", manana, estado="reservado", paciente_nombre="Nina", paciente_telefono=TEL7),
+                     turno("k2", "t1", manana + timedelta(hours=2), estado="reservado", paciente_nombre="Lola", paciente_telefono=TEL7, ficha="lola")]
+TABLAS["pacientes"] += [{"tenant_id": "t1", "paciente_telefono": TEL7, "ficha": "", "motivo_consulta": "lectura", "fecha_nacimiento": "2017-05-14"},
+                        {"tenant_id": "t1", "paciente_telefono": TEL7, "ficha": "lola", "motivo_consulta": "lectura", "fecha_nacimiento": "2017-05-14"}]
+ayer_iso = (datetime.now(zona) - timedelta(days=1)).date().isoformat()
+client.post("/agenda/paciente/test", data={"telefono": TEL7, "test": " PROLEC-R ", "fecha": ayer_iso})
+chequear("se anota en su ficha", len(TABLAS["paciente_tests"]) == 1 and TABLAS["paciente_tests"][0]["test"] == "PROLEC-R" and TABLAS["paciente_tests"][0]["ficha"] == "")
+html = client.get("/agenda").data.decode()
+de_nina = next(d for d in html.split('<dialog class="ficha-dialogo"')[1:] if "<h4>Nina</h4>" in d)
+de_lola = next(d for d in html.split('<dialog class="ficha-dialogo"')[1:] if "<h4>Lola</h4>" in d)
+sugeridos_nina = de_nina[de_nina.index("Tests para considerar"):de_nina.index("<h5>Tests tomados")]
+chequear("deja de sugerirse a Nina y queda en tomados", "PROLEC-R" not in sugeridos_nina and "PROLEC-R" in de_nina[de_nina.index("<h5>Tests tomados"):])
+chequear("a la hermana se le sigue sugiriendo", "PROLEC-R" in de_lola[de_lola.index("Tests para considerar"):de_lola.index("<h5>Tests tomados")])
+manana_iso = (datetime.now(zona) + timedelta(days=1)).date().isoformat()
+html = client.post("/agenda/paciente/test", data={"telefono": TEL7, "test": "TEDE", "fecha": manana_iso}, follow_redirects=True).data.decode()
+chequear("no acepta fechas futuras", "no puede ser futura" in html and len(TABLAS["paciente_tests"]) == 1)
+client.post("/agenda/paciente/test", data={"telefono": TEL7, "test": "", "fecha": ayer_iso})
+chequear("pide el nombre del test", len(TABLAS["paciente_tests"]) == 1)
+TABLAS["paciente_tests"].append({"id": "ajeno", "tenant_id": "t2", "paciente_telefono": TEL7, "ficha": "", "test": "D2", "fecha": ayer_iso})
+client.post("/agenda/paciente/test/ajeno/borrar", data={})
+chequear("no borra tests de otro profesional", any(x["id"] == "ajeno" for x in TABLAS["paciente_tests"]))
+client.post(f"/agenda/paciente/test/{TABLAS['paciente_tests'][0]['id']}/borrar", data={})
+html = client.get("/agenda").data.decode()
+de_nina = next(d for d in html.split('<dialog class="ficha-dialogo"')[1:] if "<h4>Nina</h4>" in d)
+chequear("borrar lo vuelve a sugerir", len(TABLAS["paciente_tests"]) == 1
+         and "PROLEC-R" in de_nina[de_nina.index("Tests para considerar"):de_nina.index("<h5>Tests tomados")])
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
