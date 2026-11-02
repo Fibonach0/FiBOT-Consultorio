@@ -1084,7 +1084,14 @@ fila = {t["id"]: t for t in TABLAS["turnos"]}
 chequear("el hermano no hereda la ficha vacía", fila["v1"]["ficha"] == "lola")
 chequear("los datos siguen siendo de Nina", db.datos_de_pacientes("t1")[TEL3]["notas"] == "De Nina" and not db.datos_de_pacientes("t1")[f"{TEL3}~lola"].get("notas"))
 html = client.get("/agenda").data.decode()
-chequear("el panel no le muestra a Lola las notas de Nina", "De Nina" not in html)
+dialogos = html.split('<dialog class="ficha-dialogo"')[1:]
+de_lola = next(d for d in dialogos if "<h4>Lola Acosta</h4>" in d)
+de_nina = next(d for d in dialogos if "<h4>Nina Acosta</h4>" in d)
+chequear("la ficha sin sesiones se ve con su nombre y sus notas", "De Nina" in de_nina and "Sin sesiones (1)" in html)
+chequear("a Lola no le aparecen las notas de Nina", "De Nina" not in de_lola)
+chequear("no entra en el aumento", f'name="pacientes" value="{TEL3}"' not in html)
+for ruta in ("/agenda?vista=semana", "/agenda/exportar", "/agenda/obra-social"):
+    chequear(f"{ruta} no se rompe", client.get(ruta).status_code in (200, 302))
 db.reservar_turno("t1", "v2", TEL3, "Nina")
 fila = {t["id"]: t for t in TABLAS["turnos"]}
 chequear("si vuelve, recupera su ficha", fila["v2"]["ficha"] == "")
@@ -1094,6 +1101,21 @@ chequear("el bot pregunta aunque no tengan sesiones", "más de un paciente" in c
 TABLAS["pacientes"].append({"tenant_id": "t1", "paciente_telefono": "5491177778888", "ficha": "", "notas": "Sin nombre guardado"})
 db.reservar_turno("t1", "v3", "5491177778888", "Bruno")
 chequear("ficha vieja sin nombre tampoco se hereda", {t["id"]: t for t in TABLAS["turnos"]}["v3"]["ficha"] == "bruno")
+
+# --- Nombre distinto al volver: se recupera la ficha vieja ---
+reset()
+TEL4 = "5491188889999"
+TABLAS["turnos"] += [turno("m0", "t1", manana + timedelta(days=5)), turno("m1", "t1", manana + timedelta(days=6))]
+db.reservar_turno("t1", "m0", TEL4, "Mariana")
+db.guardar_paciente("t1", TEL4, {"notas": "Ficha vieja"})
+db.cancelar_turno("t1", "m0")
+db.reservar_turno("t1", "m1", TEL4, "Mari")
+html = client.get("/agenda").data.decode()
+chequear("la ficha vieja se ofrece como destino", f'<option value="{TEL4}">Mariana</option>' in html)
+client.post("/agenda/sesion/m1/ficha", data={"destino": TEL4})
+html = client.get("/agenda").data.decode()
+chequear("pasar la sesión la recupera", html.count("<h4>Mariana</h4>") == 2 and "Ficha vieja" in html)
+chequear("la ficha abierta por error desaparece", "<h4>Mari</h4>" not in html and "Sin sesiones (" not in html)
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

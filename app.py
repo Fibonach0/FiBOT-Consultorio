@@ -272,6 +272,11 @@ def _con_cuenta_regresiva(fechas: list[dict], hoy: date) -> list[dict]:
     return sorted(resultado, key=lambda f: f["_dias"])
 
 
+CAMPOS_ANOTADOS = ("notas", "motivo_consulta", "objetivos", "como_viene", "psiquiatra", "medicacion", "plan_crisis",
+                   "escuela", "grado", "docente", "equipo_orientador", "obra_social", "numero_afiliado",
+                   "fecha_nacimiento", "estado_fecha")
+
+
 def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     """Una ficha por paciente (se identifica por teléfono, como en todo el
     sistema). Frecuencia y valor son los de su próxima sesión, o los de la
@@ -294,16 +299,21 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
         canceladas[db.clave_de(c)] = canceladas.get(db.clave_de(c), 0) + 1
 
     lista = []
-    for clave, sesiones in por_paciente.items():
+    # Quien se quedó sin sesiones sigue teniendo ficha si hay algo anotado. Si
+    # sólo queda el nombre (una ficha abierta por error) no hay nada que mostrar.
+    sin_sesiones = [clave for clave, d in datos.items() if clave not in por_paciente
+                    and (any(d.get(c) for c in CAMPOS_ANOTADOS) or clave in personas or clave in fechas)]
+    for clave in [*por_paciente, *sin_sesiones]:
+        sesiones = por_paciente.get(clave, [])
         telefono = db.partir_clave(clave)[0]
         pasadas = [t for t in sesiones if datetime.fromisoformat(t["inicio"]) <= ahora]
         futuras = sesiones[len(pasadas):]
-        vigente = futuras[0] if futuras else pasadas[-1]
+        vigente = futuras[0] if futuras else pasadas[-1] if pasadas else {}
         sin_pagar = [t for t in pasadas if t.get("pago") == "pendiente"]
         estado = datos.get(clave, {}).get("estado") or "activo"
         faltas_recientes = sum(t.get("asistencia") == "no_vino" and datetime.fromisoformat(t["inicio"]) >= corte for t in pasadas)
         canceladas_recientes = canceladas.get(clave, 0)
-        alerta = alerta_de_seguimiento(sesiones, ahora) if estado == "activo" else None
+        alerta = alerta_de_seguimiento(sesiones, ahora) if estado == "activo" and sesiones else None
         if estado == "activo" and not alerta and faltas_recientes + canceladas_recientes >= AUSENCIAS_PARA_ALERTA:
             alerta = f"{faltas_recientes + canceladas_recientes} faltas o cancelaciones en {DIAS_DE_ASISTENCIA} días"
         nacimiento = datos.get(clave, {}).get("fecha_nacimiento")
@@ -312,7 +322,8 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
             {
                 "clave": clave,
                 "telefono": telefono,
-                "nombre": next((t["paciente_nombre"] for t in reversed(sesiones) if t.get("paciente_nombre")), telefono),
+                "nombre": next((t["paciente_nombre"] for t in reversed(sesiones) if t.get("paciente_nombre")),
+                               datos.get(clave, {}).get("nombre") or telefono),
                 "frecuencia": vigente.get("frecuencia"),
                 "valor": vigente.get("valor"),
                 "fecha_nacimiento": nacimiento,
@@ -333,7 +344,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "numero_afiliado": datos.get(clave, {}).get("numero_afiliado"),
                 "personas": personas.get(clave, []),
                 "fechas": _con_cuenta_regresiva(fechas.get(clave, []), hoy),
-                "desde": datetime.fromisoformat(sesiones[0]["inicio"]).astimezone(tz).strftime("%d/%m/%Y"),
+                "desde": datetime.fromisoformat(sesiones[0]["inicio"]).astimezone(tz).strftime("%d/%m/%Y") if sesiones else None,
                 "proxima": f"{futuras[0]['_dia']} {futuras[0]['_hora']}" if futuras else None,
                 "asistio": sum(t.get("asistencia") == "vino" for t in pasadas),
                 "falto": sum(t.get("asistencia") == "no_vino" for t in pasadas),
@@ -345,11 +356,12 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "estado": estado,
                 "estado_fecha": date.fromisoformat(cerrado).strftime("%d/%m/%Y") if cerrado else None,
                 "estado_motivo": datos.get(clave, {}).get("estado_motivo"),
-                "quedan": sesiones_que_quedan(sesiones, ahora) if estado == "activo" else None,
+                "quedan": sesiones_que_quedan(sesiones, ahora) if estado == "activo" and sesiones else None,
                 "alerta": alerta,
                 "faltas_recientes": faltas_recientes,
                 "canceladas_recientes": canceladas_recientes,
                 "sesiones": sesiones,
+                "sin_sesiones": not sesiones,
                 "recordado_hoy": datos.get(clave, {}).get("ultimo_recordatorio_pago") == hoy.isoformat(),
             }
         )

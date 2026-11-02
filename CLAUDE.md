@@ -222,7 +222,8 @@ agrupar datos de un paciente por teléfono solo.
 nombre, misma ficha; otro nombre, ficha aparte. Un error se corrige con «Es de
 otra persona» en la sesión. `pacientes.nombre` (`migrations/023`) recuerda de quién
 es una ficha sin sesiones: otro nombre no la hereda y esa persona la recupera al
-volver. Esa ficha no se ve en el panel hasta que tenga una sesión. Sin nombre, el bot pide uno si hay más de una ficha.
+volver. Si tiene algo anotado se ve en el desplegable «Sin sesiones», y también
+sirve de destino para pasarle sesiones. Si sólo tiene el nombre, no se muestra. Sin nombre, el bot pide uno si hay más de una ficha.
 
 Cancelar por WhatsApp nunca adivina: con turnos de dos personas en el teléfono,
 o con un nombre que no coincide, el bot los lista y no cancela nada hasta recibir
