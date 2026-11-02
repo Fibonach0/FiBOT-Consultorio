@@ -16,7 +16,7 @@
     {% endfor %}
     {% if pacientes %}<div class="turno"><strong>Total de sesiones</strong><strong>{{ total }}</strong></div>{% endif %}
     {% if sin_marcar %}<p class="no-imprimir aviso">{{ sin_marcar }} sesi{{ 'ones' if sin_marcar > 1 else 'ón' }} sin marcar asistencia quedaron afuera.</p>{% endif %}
-    <p class="firma">Firma y sello</p>
+    {% if tenant.firma_imagen %}{% include "_firma.html" %}{% else %}<p class="firma">Firma y sello</p>{% endif %}
     <button class="btn no-imprimir" type="button" onclick="window.print()">Imprimir o guardar en PDF</button>
   </div>
 </main>

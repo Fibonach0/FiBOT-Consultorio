@@ -854,8 +854,42 @@ def compartir_en_biblioteca(tenant_id: str, autor: str, contenido: dict, con_pre
         {"autor_tenant_id": tenant_id, "autor": autor, "contenido": contenido, "con_preguntas": con_preguntas}).execute()
 
 
+def moderar_biblioteca(entrada_id: str, oculto: bool, por: str | None) -> None:
+    """Sin tenant a propósito: sólo la llama un moderador (lo chequea app.py)."""
+    _client.table("biblioteca_cuestionarios").update({"oculto": oculto, "oculto_por": por}).eq("id", entrada_id).execute()
+
+
 def retirar_de_biblioteca(tenant_id: str, entrada_id: str) -> None:
     _client.table("biblioteca_cuestionarios").delete().eq("autor_tenant_id", tenant_id).eq("id", entrada_id).execute()
+
+
+def entregas(tenant_id: str) -> list[dict]:
+    """Sin el HTML: la lista de la ficha sólo necesita el estado."""
+    res = (_client.table("entregas").select("id,tenant_id,paciente_telefono,ficha,token,vence,abierta_at,created_at")
+           .eq("tenant_id", tenant_id).order("created_at", desc=True).execute())
+    return res.data
+
+
+def crear_entrega(tenant_id: str, clave: str, token: str, vence: str, html: str) -> None:
+    telefono, ficha = partir_clave(clave)
+    _client.table("entregas").insert({"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha,
+                                      "token": token, "vence": vence, "html": html}).execute()
+
+
+def entrega_por_token(token: str) -> dict | None:
+    """Sin tenant: el token ES la credencial del link."""
+    res = _client.table("entregas").select("*").eq("token", token).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def abrir_entrega(entrega_id: str, cuando: str) -> bool:
+    """Sólo la primera vez: dos aperturas simultáneas no pueden ganar las dos."""
+    res = _client.table("entregas").update({"abierta_at": cuando}).eq("id", entrega_id).is_("abierta_at", "null").execute()
+    return bool(res.data)
+
+
+def borrar_entrega(tenant_id: str, entrega_id: str) -> None:
+    _client.table("entregas").delete().eq("tenant_id", tenant_id).eq("id", entrega_id).execute()
 
 
 def borrar_test(tenant_id: str, test_id: str) -> None:

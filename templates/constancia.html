@@ -14,6 +14,7 @@
     {% endfor %}
     {% if sesiones %}<div class="turno"><strong>Total</strong><strong>{{ total|pesos }}</strong></div>{% endif %}
     <p class="tenue">Este documento no es una factura.</p>
+    {% include "_firma.html" %}
     <button class="btn no-imprimir" type="button" onclick="window.print()">Imprimir o guardar en PDF</button>
   </div>
 </main>

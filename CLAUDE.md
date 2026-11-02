@@ -268,6 +268,16 @@ se guarda el JSON tal cual.
 tenants: sólo lo que cada profesional compartió. Por defecto sin texto de ítems
 (`para_biblioteca`); con texto exige declarar que es propio o de uso libre.
 Agregar desde la biblioteca pasa por `importar` y queda como copia del tenant.
+`tenants.moderador` (`migrations/036`, se marca a mano por SQL) habilita ocultar y
+mostrar entradas de la biblioteca: lo oculto sólo lo ven moderadores y la autora.
+
+### Entrega por link (`migrations/036`)
+
+`entregas` guarda el HTML de la ficha completa al generar el link (lo que se
+entrega es lo que se revisó). `GET /entrega/<token>` sólo muestra el aviso: los
+previsualizadores de WhatsApp y del mail hacen GET y no deben consumirlo.
+`POST` lo abre UNA vez (`abrir_entrega` filtra `abierta_at is null`). Respuestas
+con `no-store`, `no-referrer` y `noindex`.
 
 ### Hoja de registro, informe y retest
 

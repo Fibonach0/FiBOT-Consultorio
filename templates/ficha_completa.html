@@ -11,14 +11,28 @@
   .confidencial { font-size:.75rem; color:var(--muted); }
   @media print { header { display:none; } .hoja h3 { break-after:avoid; } }
 </style>
+{% if entrega %}<meta name="robots" content="noindex">{% endif %}
 <header class="no-imprimir">
   <span>Ficha completa · {{ ficha.nombre }}</span>
-  <a href="{{ url_for('agenda') }}">Volver al panel</a>
+  {% if not entrega %}<a href="{{ url_for('agenda') }}">Volver al panel</a>{% endif %}
 </header>
 <main>
   <div class="card no-imprimir">
-    Todo lo que está cargado en la ficha, para entregar al paciente o a otro profesional. Revisalo antes: incluye tus notas.
+    {% if entrega %}
+    Este documento se abre una sola vez: guardalo ahora en PDF.
     <div style="margin-top:8px"><button class="btn" type="button" onclick="window.print()">Imprimir o guardar en PDF</button></div>
+    {% else %}
+    Todo lo que está cargado en la ficha, para entregar al paciente o a otro profesional. Revisalo antes: incluye tus notas.
+    <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn" type="button" onclick="window.print()">Imprimir o guardar en PDF</button>
+      <form method="post" action="{{ url_for('agenda_ficha_link') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="telefono" value="{{ ficha.clave }}">
+        <button class="btn secundario" type="submit">Generar link para entregar</button>
+      </form>
+    </div>
+    <div class="tenue" style="margin-top:6px">El link se abre una sola vez y vence en 7 días. Lleva la ficha tal como está ahora: si después cargás algo, no aparece.</div>
+    {% endif %}
   </div>
   <div class="card hoja constancia">
     <p class="confidencial">Confidencial · contiene datos de salud</p>
