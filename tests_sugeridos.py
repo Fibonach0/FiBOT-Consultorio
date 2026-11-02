@@ -11,9 +11,15 @@ import re
 import unicodedata
 from datetime import date
 
-# Un test tomado hace menos que esto no se vuelve a sugerir: repetirlo antes
-# aprende la prueba en vez de medir.
-DIAS_SIN_REPETIR = 365
+# Un test tomado hace menos de sus `meses` no se vuelve a sugerir: repetirlo
+# antes mide en parte la práctica. No hay plazos oficiales por test, así que
+# son criterios por tipo, que cada profesional cambia en Ajustes:
+#   24  escalas de inteligencia: se usan para comparar a largo plazo.
+#   12  atención, memoria y neuropsicológicos: tienen efecto de práctica
+#       documentado a seis meses (Stroop, Rey).
+#    6  lectura, escritura, cálculo, lenguaje, proyectivos y cuestionarios:
+#       sirven para seguir la evolución de un tratamiento.
+MAX_MESES = 60
 
 AREAS = {
     "Lectura": ("lectu", "lector", "lee", "dislex", "decodific", "silab", "fluidez", "lectoescritura"),
@@ -29,42 +35,42 @@ AREAS = {
     "Emocional": ("emocion", "ansiedad", "autoestima", "angusti", "vincul", "duelo", "separacion", "conducta", "miedo", "tristeza"),
 }
 
-# (nombre, edad desde, edad hasta o None si no tiene tope, áreas)
+# (nombre, edad desde, edad hasta o None si no tiene tope, meses para repetir, áreas)
 CATALOGO = [
-    ("WISC-V", 6, 17, ("Capacidad intelectual",)),
-    ("WISC-IV", 6, 17, ("Capacidad intelectual",)),
-    ("WPPSI-IV", 2.5, 7.6, ("Capacidad intelectual",)),
-    ("BAS-II", 2.5, 18, ("Capacidad intelectual",)),
-    ("Raven (matrices coloreadas)", 4, 12, ("Capacidad intelectual",)),
-    ("Figura Humana de Goodenough-Harris", 3, 15, ("Capacidad intelectual", "Visomotor")),
-    ("Dibujo de la Figura Humana (Koppitz)", 5, 12, ("Visomotor", "Emocional")),
-    ("Bender (B-G II)", 4, None, ("Visomotor",)),
-    ("Figura Compleja de Rey-Osterrieth", 4, None, ("Visomotor", "Memoria", "Funciones ejecutivas")),
-    ("Benton-Luria", 8, None, ("Memoria", "Visomotor")),
-    ("CUMANES", 7, 12, ("Lenguaje", "Memoria", "Visomotor")),
-    ("Luria Inicial", 4, 7, ("Lenguaje", "Funciones ejecutivas")),
-    ("PROLEC-R", 6, 13, ("Lectura",)),
-    ("PROLEC-SE", 12, 19, ("Lectura",)),
-    ("TEDE", 6, 14, ("Lectura",)),
-    ("TALE", 6, 11, ("Lectura", "Escritura")),
-    ("PROESC", 8, 16, ("Escritura",)),
-    ("BEVTA", 7, 13, ("Lenguaje", "Lectura")),
-    ("TOKEN Test", 3, 13, ("Lenguaje",)),
-    ("PLON-R", 3, 7, ("Lenguaje",)),
-    ("Peabody (PPVT)", 2.5, None, ("Lenguaje",)),
-    ("EVAMAT", 6, 18, ("Matemática",)),
-    ("TEMA-3", 3, 9, ("Matemática",)),
-    ("PROCALC", 6, 9, ("Matemática",)),
-    ("D2", 8, None, ("Atención",)),
-    ("CARAS-R", 6, 19, ("Atención",)),
-    ("Stroop", 7, None, ("Atención", "Funciones ejecutivas")),
-    ("ENFEN", 6, 13, ("Atención", "Funciones ejecutivas")),
-    ("NEPSY-II", 3, 17, ("Atención", "Memoria", "Lenguaje", "Funciones ejecutivas")),
-    ("BRIEF-2", 5, 19, ("Funciones ejecutivas",)),
-    ("CHTE", 10, None, ("Hábitos de estudio",)),
-    ("Test Desiderativo", 7, None, ("Emocional",)),
-    ("HTP (Casa-Árbol-Persona)", 5, None, ("Emocional",)),
-    ("Test de la Familia", 5, None, ("Emocional",)),
+    ("WISC-V", 6, 17, 24, ("Capacidad intelectual",)),
+    ("WISC-IV", 6, 17, 24, ("Capacidad intelectual",)),
+    ("WPPSI-IV", 2.5, 7.6, 24, ("Capacidad intelectual",)),
+    ("BAS-II", 2.5, 18, 24, ("Capacidad intelectual",)),
+    ("Raven (matrices coloreadas)", 4, 12, 12, ("Capacidad intelectual",)),
+    ("Figura Humana de Goodenough-Harris", 3, 15, 6, ("Capacidad intelectual", "Visomotor")),
+    ("Dibujo de la Figura Humana (Koppitz)", 5, 12, 6, ("Visomotor", "Emocional")),
+    ("Bender (B-G II)", 4, None, 6, ("Visomotor",)),
+    ("Figura Compleja de Rey-Osterrieth", 4, None, 12, ("Visomotor", "Memoria", "Funciones ejecutivas")),
+    ("Benton-Luria", 8, None, 12, ("Memoria", "Visomotor")),
+    ("CUMANES", 7, 12, 12, ("Lenguaje", "Memoria", "Visomotor")),
+    ("Luria Inicial", 4, 7, 12, ("Lenguaje", "Funciones ejecutivas")),
+    ("PROLEC-R", 6, 13, 6, ("Lectura",)),
+    ("PROLEC-SE", 12, 19, 6, ("Lectura",)),
+    ("TEDE", 6, 14, 6, ("Lectura",)),
+    ("TALE", 6, 11, 6, ("Lectura", "Escritura")),
+    ("PROESC", 8, 16, 6, ("Escritura",)),
+    ("BEVTA", 7, 13, 6, ("Lenguaje", "Lectura")),
+    ("TOKEN Test", 3, 13, 6, ("Lenguaje",)),
+    ("PLON-R", 3, 7, 6, ("Lenguaje",)),
+    ("Peabody (PPVT)", 2.5, None, 6, ("Lenguaje",)),
+    ("EVAMAT", 6, 18, 6, ("Matemática",)),
+    ("TEMA-3", 3, 9, 6, ("Matemática",)),
+    ("PROCALC", 6, 9, 6, ("Matemática",)),
+    ("D2", 8, None, 12, ("Atención",)),
+    ("CARAS-R", 6, 19, 12, ("Atención",)),
+    ("Stroop", 7, None, 12, ("Atención", "Funciones ejecutivas")),
+    ("ENFEN", 6, 13, 12, ("Atención", "Funciones ejecutivas")),
+    ("NEPSY-II", 3, 17, 12, ("Atención", "Memoria", "Lenguaje", "Funciones ejecutivas")),
+    ("BRIEF-2", 5, 19, 6, ("Funciones ejecutivas",)),
+    ("CHTE", 10, None, 6, ("Hábitos de estudio",)),
+    ("Test Desiderativo", 7, None, 6, ("Emocional",)),
+    ("HTP (Casa-Árbol-Persona)", 5, None, 6, ("Emocional",)),
+    ("Test de la Familia", 5, None, 6, ("Emocional",)),
 ]
 
 
@@ -80,12 +86,28 @@ def _rango(desde: float, hasta: float | None) -> str:
     return f"{inicio.replace(' años', '')} a {int(hasta) - 1 if hasta == int(hasta) else int(hasta)} años"
 
 
+def plazos(propios: dict | None) -> dict[str, int]:
+    """Meses de cada test del catálogo: los del profesional pisan los de fábrica."""
+    propios = propios or {}
+    return {nombre: propios.get(nombre, meses) for nombre, _, _, meses, _ in CATALOGO}
+
+
+def _se_puede_repetir(ultima: date, meses: int, hoy: date) -> bool:
+    mes = ultima.month - 1 + meses
+    anio, mes = ultima.year + mes // 12, mes % 12 + 1
+    dia = min(ultima.day, [31, 29 if anio % 4 == 0 and (anio % 100 or anio % 400 == 0) else 28,
+                           31, 30, 31, 30, 31, 31, 30, 31, 30, 31][mes - 1])
+    return hoy >= date(anio, mes, dia)
+
+
 def sugerir(textos: list[str | None], edad: float | None,
-            tomados: list[dict] | None = None, hoy: date | None = None) -> list[dict]:
+            tomados: list[dict] | None = None, hoy: date | None = None,
+            plazos_propios: dict | None = None) -> list[dict]:
     """Una fila por área detectada, con la palabra que la disparó y los tests
     que corresponden a la edad. Sin edad conocida no filtra. Lo tomado en el
-    último año no se sugiere; lo tomado antes vuelve con la fecha anterior."""
+    plazo de cada test no se sugiere; pasado el plazo vuelve con la fecha anterior."""
     hoy = hoy or date.today()
+    meses_de = plazos(plazos_propios)
     ultima: dict[str, date] = {}
     for t in tomados or []:
         fecha = date.fromisoformat(t["fecha"])
@@ -99,9 +121,9 @@ def sugerir(textos: list[str | None], edad: float | None,
             continue
         tests = [
             {"nombre": nombre, "edades": _rango(desde, hasta), "ultima": ultima.get(_normal(nombre))}
-            for nombre, desde, hasta, areas in CATALOGO
+            for nombre, desde, hasta, _, areas in CATALOGO
             if area in areas and (edad is None or (edad >= desde and (hasta is None or edad < hasta)))
-            and (_normal(nombre) not in ultima or (hoy - ultima[_normal(nombre)]).days >= DIAS_SIN_REPETIR)
+            and (_normal(nombre) not in ultima or _se_puede_repetir(ultima[_normal(nombre)], meses_de[nombre], hoy))
         ]
         if tests:
             filas.append({"area": area, "palabra": hallada.group(0), "tests": tests})

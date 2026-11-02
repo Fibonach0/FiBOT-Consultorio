@@ -217,8 +217,10 @@ Sólo en psicopedagogía, en la pestaña Trabajo. Cruza palabras de motivo, obje
 cómo viene, notas y notas de sesión con un catálogo por área y edad. Son reglas
 locales a propósito: esas notas son de menores y no van a ningún servicio externo.
 Muestra la palabra que disparó cada área. Las edades son orientativas.
-`paciente_tests` (`migrations/026`) registra los tomados: no se sugieren por
-`DIAS_SIN_REPETIR`, y después vuelven con la fecha anterior.
+`paciente_tests` (`migrations/026`) registra los tomados: no se sugieren hasta que
+pasan los meses del test en `CATALOGO`, y después vuelven con la fecha anterior.
+`tenants.plazos_tests` (`migrations/027`) guarda sólo los plazos que el profesional
+cambió, así un plazo de fábrica nuevo le llega a quien no lo tocó.
 
 ### Una ficha por persona (`migrations/022`)
 

@@ -380,7 +380,8 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
             nacimiento = f["fecha_nacimiento"]
             edad = (hoy - date.fromisoformat(nacimiento)).days / 365.25 if nacimiento else None
             textos = [f["motivo_consulta"], f["objetivos"], f["como_viene"], f["notas"], *[t.get("nota") for t in f["sesiones"]]]
-            f["tests_sugeridos"] = tests_sugeridos.sugerir(textos, edad, f["tests_tomados"], hoy)
+            f["tests_sugeridos"] = tests_sugeridos.sugerir(textos, edad, f["tests_tomados"], hoy,
+                                                             tenant.get("plazos_tests"))
     lista.sort(key=lambda f: f["nombre"].casefold())
     for i, f in enumerate(lista, start=1):
         f["dom"] = f"ficha-{i}"
@@ -506,6 +507,9 @@ def agenda():
         "por_cobrar": sum(t.get("valor") or 0 for t in pendientes),
         "fichas": fichas,
         "catalogo_tests": [nombre for nombre, *_ in tests_sugeridos.CATALOGO],
+        "plazos_tests": [{"nombre": n, "meses": m, "fabrica": f, "propio": n in (tenant.get("plazos_tests") or {})}
+                         for (n, m), (_, _, _, f, _) in zip(tests_sugeridos.plazos(tenant.get("plazos_tests")).items(),
+                                                            tests_sugeridos.CATALOGO)],
         "hoy_iso": ahora.date().isoformat(),
         "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),
                                   key=lambda r: r["turno"]["inicio"]),
@@ -1174,6 +1178,31 @@ def agenda_test():
         flash("Falta decir qué test se tomó.")
         return _volver_a_agenda()
     db.agregar_test(tenant["id"], telefono, test[:80], fecha.isoformat())
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/plazos-tests")
+@login_required
+def agenda_plazos_tests():
+    """Sólo se guarda lo que difiere del plazo de fábrica: si el de fábrica
+    cambia en una versión nueva, quien no lo tocó recibe el nuevo."""
+    propios = {}
+    for nombre, _, _, fabrica, _ in tests_sugeridos.CATALOGO:
+        valor = (request.form.get(f"meses-{nombre}") or "").strip()
+        if not valor:
+            continue
+        try:
+            meses = int(valor)
+        except ValueError:
+            flash(f"El plazo de {nombre} tiene que ser un número de meses.")
+            return _volver_a_agenda()
+        if not 0 <= meses <= tests_sugeridos.MAX_MESES:
+            flash(f"El plazo de {nombre} tiene que estar entre 0 y {tests_sugeridos.MAX_MESES} meses.")
+            return _volver_a_agenda()
+        if meses != fabrica:
+            propios[nombre] = meses
+    db.guardar_plazos_tests(session["tenant_id"], propios)
+    flash("Se guardaron los plazos para repetir tests.")
     return _volver_a_agenda()
 
 

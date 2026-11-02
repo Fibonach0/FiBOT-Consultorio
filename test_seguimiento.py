@@ -1293,7 +1293,7 @@ s = tests_sugeridos.sugerir(["lectura"], 9, [{"test": "prolec-r", "fecha": "2026
 chequear("tomado este año no se sugiere", "PROLEC-R" not in nombres(fila_area(s, "Lectura")) and "TEDE" in nombres(fila_area(s, "Lectura")))
 s = tests_sugeridos.sugerir(["lectura"], 9, [{"test": "PROLEC-R", "fecha": "2025-06-01"}], hoy_t)
 vuelve = next(x for x in fila_area(s, "Lectura")["tests"] if x["nombre"] == "PROLEC-R")
-chequear("hace más de un año vuelve con la fecha", vuelve["ultima"] == _date(2025, 6, 1))
+chequear("pasado el plazo vuelve con la fecha", vuelve["ultima"] == _date(2025, 6, 1))
 s = tests_sugeridos.sugerir(["lectura"], 9, [{"test": "PROLEC-R", "fecha": "2025-06-01"}, {"test": "PROLEC-R", "fecha": "2026-10-01"}], hoy_t)
 chequear("cuenta la última vez", "PROLEC-R" not in nombres(fila_area(s, "Lectura")))
 reset()
@@ -1325,6 +1325,38 @@ html = client.get("/agenda").data.decode()
 de_nina = next(d for d in html.split('<dialog class="ficha-dialogo"')[1:] if "<h4>Nina</h4>" in d)
 chequear("borrar lo vuelve a sugerir", len(TABLAS["paciente_tests"]) == 1
          and "PROLEC-R" in de_nina[de_nina.index("Tests para considerar"):de_nina.index("<h5>Tests tomados")])
+
+# --- Plazo para repetir cada test ---
+nombres_en = lambda s, area: nombres(fila_area(s, area))
+tomado_hace = lambda test, fecha: [{"test": test, "fecha": fecha}]
+s = tests_sugeridos.sugerir(["lectura"], 9, tomado_hace("PROLEC-R", "2026-04-02"), hoy_t)
+chequear("PROLEC-R vuelve a los 6 meses", "PROLEC-R" in nombres_en(s, "Lectura"))
+s = tests_sugeridos.sugerir(["lectura"], 9, tomado_hace("PROLEC-R", "2026-05-03"), hoy_t)
+chequear("PROLEC-R no vuelve antes", "PROLEC-R" not in nombres_en(s, "Lectura"))
+s = tests_sugeridos.sugerir(["intelig"], 9, tomado_hace("WISC-V", "2025-06-01"), hoy_t)
+chequear("WISC-V sigue fuera al año y medio", "WISC-V" not in nombres_en(s, "Capacidad intelectual") and "WISC-IV" in nombres_en(s, "Capacidad intelectual"))
+s = tests_sugeridos.sugerir(["se distrae"], 9, tomado_hace("D2", "2025-11-02"), hoy_t)
+chequear("D2 vuelve al año justo", "D2" in nombres_en(s, "Atención"))
+s = tests_sugeridos.sugerir(["intelig"], 9, tomado_hace("WISC-V", "2025-06-01"), hoy_t, {"WISC-V": 12})
+chequear("el plazo propio pisa el de fábrica", "WISC-V" in nombres_en(s, "Capacidad intelectual"))
+chequear("fin de mes sin fechas inválidas", tests_sugeridos._se_puede_repetir(_date(2025, 8, 31), 6, _date(2026, 2, 28))
+         and not tests_sugeridos._se_puede_repetir(_date(2025, 8, 31), 6, _date(2026, 2, 27)))
+chequear("todos los tests tienen plazo", all(isinstance(m, int) and 0 < m <= tests_sugeridos.MAX_MESES for _, _, _, m, _ in tests_sugeridos.CATALOGO))
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+html = client.get("/agenda").data.decode()
+chequear("Ajustes muestra los plazos", "Plazo para repetir cada test" in html and 'name="meses-WISC-V"' in html and 'placeholder="24"' in html)
+client.post("/agenda/plazos-tests", data={"meses-WISC-V": "12", "meses-PROLEC-R": "6", "meses-D2": ""})
+chequear("guarda sólo lo que cambió", TABLAS["tenants"][0]["plazos_tests"] == {"WISC-V": 12})
+html = client.post("/agenda/plazos-tests", data={"meses-D2": "99"}, follow_redirects=True).data.decode()
+chequear("rechaza un plazo absurdo", "entre 0 y 60" in html and TABLAS["tenants"][0]["plazos_tests"] == {"WISC-V": 12})
+html = client.post("/agenda/plazos-tests", data={"meses-D2": "doce"}, follow_redirects=True).data.decode()
+chequear("rechaza texto", "número de meses" in html and TABLAS["tenants"][0]["plazos_tests"] == {"WISC-V": 12})
+html = client.get("/agenda").data.decode()
+chequear("muestra el propio y el de fábrica", 'value="12"' in html and "(de fábrica: 24)" in html)
+chequear("otro profesional no se entera", not TABLAS["tenants"][1].get("plazos_tests"))
+TABLAS["tenants"][0]["rubro"] = "psicología"
+chequear("psicología no ve plazos", "Plazo para repetir cada test" not in client.get("/agenda").data.decode())
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
