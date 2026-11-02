@@ -166,3 +166,145 @@ def corregir(clave: str, form) -> tuple[dict | None, str | None]:
     alerta = inst["item_alerta"] is not None and respuestas[inst["item_alerta"]] > 0
     return {"respuestas": respuestas, "puntaje": puntaje, "severidad": severidad(clave, puntaje),
             "alerta": alerta, "dificultad": dificultad}, None
+
+
+# ---------------------------------------------------------------------------
+# Cuestionarios propios: la profesional carga preguntas, opciones y cómo se
+# corrigen. El sistema no trae texto de tests de terceros: cada profesional
+# carga su material bajo su responsabilidad.
+
+MAX_ITEMS = 120
+MAX_OPCIONES = 7
+MAX_SUBESCALAS = 12
+MAX_TEXTO_ITEM = 400
+
+# SCARED (Birmaher et al., 41 ítems, 8 a 18 años): SOLO la clave de corrección,
+# verificada con la hoja de puntuación de UPMC/UH Rainbow («a score of 7+ is
+# positive», total «>= 25»). Las fuentes discrepan entre el ítem 25 y el 35 en
+# separación; va el 25 porque las subescalas suman 41 ítems y el total es su
+# suma: con el 35 el 25 quedaría huérfano y el 35 contaría dos veces.
+# Los ítems van vacíos: los pega la profesional desde su copia.
+MODELO_SCARED = {
+    "nombre": "SCARED",
+    "que_mide": "ansiedad infantil",
+    "consigna": "",
+    "opciones": [{"texto": "Nunca o casi nunca", "valor": 0}, {"texto": "A veces", "valor": 1},
+                 {"texto": "Seguido", "valor": 2}],
+    "items": [""] * 41,
+    "subescalas": [
+        {"nombre": "Pánico o síntomas somáticos", "items": [1, 6, 9, 12, 15, 18, 19, 22, 24, 27, 30, 34, 38], "corte": 7},
+        {"nombre": "Ansiedad generalizada", "items": [5, 7, 14, 21, 23, 28, 33, 35, 37], "corte": 9},
+        {"nombre": "Ansiedad de separación", "items": [4, 8, 13, 16, 20, 25, 29, 31], "corte": 5},
+        {"nombre": "Ansiedad social", "items": [3, 10, 26, 32, 39, 40, 41], "corte": 8},
+        {"nombre": "Evitación escolar", "items": [2, 11, 17, 36], "corte": 3},
+    ],
+    "corte_total": 25,
+    "fuente": "SCARED: Birmaher, Khetarpal, Cully, Brent y McKenzie, Western Psychiatric Institute and Clinic, "
+              "University of Pittsburgh (1995).",
+}
+
+
+def _entero(texto: str) -> int:
+    return int(str(texto).strip())
+
+
+def leer_plantilla(form) -> tuple[dict | None, str | None]:
+    """Formulario de Ajustes → plantilla limpia. Ítems: uno por renglón.
+    Opciones: «texto = valor» por renglón. Subescalas: «nombre: 1, 6, 9 | corte»."""
+    nombre = (form.get("nombre") or "").strip()[:60]
+    if not nombre:
+        return None, "El cuestionario necesita un nombre."
+    items = [x.strip()[:MAX_TEXTO_ITEM] for x in (form.get("items") or "").splitlines()]
+    while items and not items[-1]:
+        items.pop()
+    if not 1 <= len(items) <= MAX_ITEMS:
+        return None, f"Cargá entre 1 y {MAX_ITEMS} preguntas, una por renglón."
+    opciones = []
+    for renglon in (form.get("opciones") or "").splitlines():
+        if not renglon.strip():
+            continue
+        texto, _, valor = renglon.rpartition("=")
+        try:
+            opciones.append({"texto": texto.strip()[:60], "valor": _entero(valor)})
+        except ValueError:
+            return None, f"La opción «{renglon.strip()}» tiene que terminar en «= número»."
+        if not opciones[-1]["texto"]:
+            return None, "Cada opción necesita un texto antes del «=»."
+    if not 2 <= len(opciones) <= MAX_OPCIONES:
+        return None, f"Cargá entre 2 y {MAX_OPCIONES} opciones de respuesta."
+    subescalas = []
+    for renglon in (form.get("subescalas") or "").splitlines():
+        if not renglon.strip():
+            continue
+        try:
+            nom, _, resto = renglon.partition(":")
+            numeros, _, corte = resto.partition("|")
+            lista = [_entero(n) for n in numeros.replace(";", ",").split(",") if n.strip()]
+            sub = {"nombre": nom.strip()[:60], "items": lista, "corte": _entero(corte) if corte.strip() else None}
+        except ValueError:
+            return None, f"No entiendo la subescala «{renglon.strip()}». Usá «Nombre: 1, 6, 9 | 7»."
+        if not sub["nombre"] or not sub["items"]:
+            return None, f"No entiendo la subescala «{renglon.strip()}». Usá «Nombre: 1, 6, 9 | 7»."
+        if any(n < 1 for n in sub["items"]):
+            return None, f"En «{sub['nombre']}» las preguntas se numeran desde 1."
+        if max(sub["items"]) > len(items):
+            return None, (f"Hay {len(items)} preguntas, pero «{sub['nombre']}» usa la {max(sub['items'])}. "
+                          "¿Faltan renglones al pegar las preguntas?")
+        subescalas.append(sub)
+    if len(subescalas) > MAX_SUBESCALAS:
+        return None, f"Hasta {MAX_SUBESCALAS} subescalas."
+    corte_txt = (form.get("corte_total") or "").strip()
+    try:
+        corte_total = _entero(corte_txt) if corte_txt else None
+    except ValueError:
+        return None, "El corte del total tiene que ser un número."
+    return {"nombre": nombre, "que_mide": (form.get("que_mide") or "").strip()[:60],
+            "consigna": (form.get("consigna") or "").strip()[:600], "opciones": opciones, "items": items,
+            "subescalas": subescalas, "corte_total": corte_total,
+            "fuente": (form.get("fuente") or "").strip()[:400]}, None
+
+
+def completa(plantilla: dict) -> bool:
+    return all(x.strip() for x in plantilla["items"])
+
+
+def corregir_propio(plantilla: dict, form) -> tuple[dict | None, str | None]:
+    valores = []
+    for i in range(len(plantilla["items"])):
+        try:
+            idx = int(form.get(f"item-{i}") or "")
+            valores.append(plantilla["opciones"][idx]["valor"])
+        except (ValueError, IndexError):
+            return None, "Falta responder alguna pregunta."
+    total = sum(valores)
+    subescalas = []
+    for s in plantilla["subescalas"]:
+        puntaje = sum(valores[n - 1] for n in s["items"])
+        subescalas.append({"nombre": s["nombre"], "puntaje": puntaje, "corte": s["corte"],
+                           "sobre_corte": s["corte"] is not None and puntaje >= s["corte"]})
+    corte = plantilla.get("corte_total")
+    if corte is not None:
+        severidad = "sobre el corte" if total >= corte else "debajo del corte"
+    else:
+        severidad = ""
+    return {"respuestas": valores, "puntaje": total, "severidad": severidad, "alerta": False,
+            "detalle": subescalas}, None
+
+
+def definicion(fila: dict) -> dict | None:
+    """Lo necesario para mostrar y corregir una fila de `cuestionarios`, sea
+    de fábrica, abierta o propia (la propia viaja como copia en la fila)."""
+    clave = fila["instrumento"]
+    if clave == "propio" and fila.get("plantilla"):
+        p = fila["plantilla"]
+        maximo = max(o["valor"] for o in p["opciones"]) * len(p["items"])
+        return {"tipo": "propio", "nombre": p["nombre"], "que_mide": p.get("que_mide") or "propio",
+                "consigna": p.get("consigna") or "", "items": p["items"],
+                "opciones": [o["texto"] for o in p["opciones"]], "dificultad": None,
+                "fuente": p.get("fuente") or None, "maximo": maximo}
+    if clave in INSTRUMENTOS:
+        i = INSTRUMENTOS[clave]
+        return {**i, "tipo": "puntaje", "opciones": OPCIONES, "fuente": FUENTE, "maximo": 3 * len(i["items"])}
+    if clave in ABIERTOS:
+        return {**ABIERTOS[clave], "tipo": "abierto", "fuente": None}
+    return None

@@ -211,6 +211,7 @@ def reset():
     TABLAS["lecturas"] = []
     TABLAS["cuestionarios"] = []
     TABLAS["informes"] = []
+    TABLAS["plantillas_cuestionario"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -1702,6 +1703,71 @@ chequear("borra una versión", [i["id"] for i in TABLAS["informes"] if i["tenant
 n = len(TABLAS["informes"])
 client.post("/agenda/paciente/informe/guardar", data={"telefono": TELV, "contenido": "{roto"})
 chequear("no guarda un informe roto", len(TABLAS["informes"]) == n)
+
+# --- Cuestionarios propios y SCARED ---
+M = cuestionarios.MODELO_SCARED
+todos_items = sorted(n for x in M["subescalas"] for n in x["items"])
+chequear("SCARED: cada pregunta en una sola subescala", todos_items == list(range(1, 42)))
+chequear("SCARED: cortes publicados", [x["corte"] for x in M["subescalas"]] == [7, 9, 5, 8, 3] and M["corte_total"] == 25)
+chequear("SCARED: sin texto de preguntas", M["items"] == [""] * 41 and not cuestionarios.completa(M))
+form = {"nombre": "Mi escala", "que_mide": "ánimo", "items": "Uno\nDos\nTres\n\n", "opciones": "No = 0\nSí = 2",
+        "subescalas": "A: 1, 2 | 3\nB: 3", "corte_total": "4", "fuente": "Propia"}
+pl, err = cuestionarios.leer_plantilla(form)
+chequear("lee la plantilla", err is None and pl["items"] == ["Uno", "Dos", "Tres"] and pl["opciones"] == [{"texto": "No", "valor": 0}, {"texto": "Sí", "valor": 2}]
+         and pl["subescalas"] == [{"nombre": "A", "items": [1, 2], "corte": 3}, {"nombre": "B", "items": [3], "corte": None}] and pl["corte_total"] == 4)
+chequear("opción sin puntos", "= número" in cuestionarios.leer_plantilla({**form, "opciones": "No\nSí = 1"})[1])
+chequear("subescala fuera de rango", "¿Faltan renglones" in cuestionarios.leer_plantilla({**form, "subescalas": "A: 1, 9"})[1])
+chequear("subescala mal escrita", "No entiendo" in cuestionarios.leer_plantilla({**form, "subescalas": "A: uno | 2"})[1])
+chequear("sin nombre", cuestionarios.leer_plantilla({**form, "nombre": " "})[1] == "El cuestionario necesita un nombre.")
+r, _ = cuestionarios.corregir_propio(pl, {"item-0": "1", "item-1": "1", "item-2": "0"})
+chequear("corrige con subescalas y cortes", r["puntaje"] == 4 and r["severidad"] == "sobre el corte"
+         and r["detalle"] == [{"nombre": "A", "puntaje": 4, "corte": 3, "sobre_corte": True}, {"nombre": "B", "puntaje": 0, "corte": None, "sobre_corte": False}])
+chequear("opción inexistente", cuestionarios.corregir_propio(pl, {"item-0": "5", "item-1": "1", "item-2": "0"})[1] is not None)
+
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TELS = "5491112345678"
+TABLAS["turnos"].append(turno("s1", "t1", manana, estado="reservado", paciente_nombre="Santi Rey", paciente_telefono=TELS))
+html = client.post("/agenda/plantillas", data={"modelo": "scared"}, follow_redirects=True).data.decode()
+chequear("crea el SCARED vacío", len(TABLAS["plantillas_cuestionario"]) == 1 and "faltan 41: todavía no se puede mandar" in html and "Falta pegar las 41 preguntas" in html)
+chequear("no se ofrece incompleto", "SCARED (ansiedad infantil)" not in html)
+pid = TABLAS["plantillas_cuestionario"][0]["id"]
+chequear("el form trae la corrección", "Ansiedad de separación: 4, 8, 13, 16, 20, 25, 29, 31 | 5" in html and "Seguido = 2" in html)
+n = len(TABLAS["cuestionarios"])
+client.post("/agenda/cuestionario", data={"telefono": TELS, "instrumento": f"propio:{pid}"})
+chequear("no manda un cuestionario incompleto", len(TABLAS["cuestionarios"]) == n)
+subes = "\n".join(f"{x['nombre']}: {', '.join(map(str, x['items']))} | {x['corte']}" for x in M["subescalas"])
+editar = {"nombre": "SCARED", "que_mide": "ansiedad infantil", "items": "\n".join(f"Pregunta de prueba {i}" for i in range(1, 42)),
+          "opciones": "Nunca = 0\nA veces = 1\nSeguido = 2", "subescalas": subes, "corte_total": "25", "fuente": "Crédito"}
+html = client.post(f"/agenda/plantillas/{pid}", data={**editar, "items": "solo una"}, follow_redirects=True).data.decode()
+chequear("si faltan renglones avisa y no guarda", "¿Faltan renglones" in html and not cuestionarios.completa(TABLAS["plantillas_cuestionario"][0]["contenido"]))
+client.post(f"/agenda/plantillas/{pid}", data=editar)
+html = client.get("/agenda").data.decode()
+chequear("completo se ofrece en la ficha", f'value="propio:{pid}"' in html and "SCARED (ansiedad infantil)" in html)
+client.post("/agenda/cuestionario", data={"telefono": TELS, "instrumento": f"propio:{pid}"})
+q = TABLAS["cuestionarios"][-1]
+chequear("manda una copia de la plantilla", q["instrumento"] == "propio" and q["plantilla"]["id"] == pid and len(q["plantilla"]["items"]) == 41)
+pub = client.get(f"/cuestionario/{q['token']}").data.decode()
+chequear("el link muestra sus preguntas y opciones", "Pregunta de prueba 41" in pub and "Seguido" in pub and "Crédito" in pub and "Santi" not in pub)
+respuestas = {f"item-{i}": "2" for i in range(41)}
+respuestas.update({f"item-{n - 1}": "0" for n in M["subescalas"][4]["items"]})
+client.post(f"/cuestionario/{q['token']}", data=respuestas)
+q = TABLAS["cuestionarios"][-1]
+chequear("corrige el SCARED", q["puntaje"] == 74 and q["severidad"] == "sobre el corte"
+         and [d["sobre_corte"] for d in q["detalle"]] == [True, True, True, True, False])
+TABLAS["plantillas_cuestionario"][0]["contenido"]["items"][0] = "Cambiada después"
+html = client.get("/agenda").data.decode()
+chequear("la ficha muestra subescalas", "Evitación escolar: 0/3" in html and "Ansiedad social: 14/8" in html and "74</strong> sobre el corte" in html)
+chequear("editar la plantilla no toca lo mandado", q["plantilla"]["items"][0] == "Pregunta de prueba 1")
+TABLAS["plantillas_cuestionario"].append({"id": "ajena", "tenant_id": "t2", "contenido": dict(editar, items=["a"], opciones=[{"texto": "x", "valor": 0}, {"texto": "y", "valor": 1}], subescalas=[], corte_total=None)})
+n = len(TABLAS["cuestionarios"])
+client.post("/agenda/cuestionario", data={"telefono": TELS, "instrumento": "propio:ajena"})
+chequear("no usa plantillas de otro", len(TABLAS["cuestionarios"]) == n)
+client.post("/agenda/plantillas/ajena", data=editar)
+client.post("/agenda/plantillas/ajena/borrar", data={})
+chequear("ni las edita ni las borra", any(p["id"] == "ajena" and p["contenido"]["items"] == ["a"] for p in TABLAS["plantillas_cuestionario"]))
+TABLAS["tenants"][0]["rubro"] = "psicología"
+chequear("psicología también tiene propios", "Cuestionarios propios" in client.get("/agenda").data.decode())
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

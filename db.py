@@ -762,11 +762,13 @@ def borrar_lectura(tenant_id: str, lectura_id: str) -> None:
 
 
 def crear_cuestionario(tenant_id: str, clave: str, instrumento: str, token: str, vence: str,
-                       para: str | None = None) -> None:
+                       para: str | None = None, plantilla: dict | None = None) -> None:
+    """plantilla: copia del cuestionario propio al momento de mandarlo, así
+    editarlo después no cambia lo que ya se respondió."""
     telefono, ficha = partir_clave(clave)
     _client.table("cuestionarios").insert(
         {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha,
-         "instrumento": instrumento, "token": token, "vence": vence, "para": para}
+         "instrumento": instrumento, "token": token, "vence": vence, "para": para, "plantilla": plantilla}
     ).execute()
 
 
@@ -809,6 +811,23 @@ def agregar_informe(tenant_id: str, clave: str, contenido: dict) -> None:
 
 def borrar_informe(tenant_id: str, informe_id: str) -> None:
     _client.table("informes").delete().eq("tenant_id", tenant_id).eq("id", informe_id).execute()
+
+
+def plantillas_cuestionario(tenant_id: str) -> list[dict]:
+    res = _client.table("plantillas_cuestionario").select("*").eq("tenant_id", tenant_id).order("created_at").execute()
+    return res.data
+
+
+def agregar_plantilla(tenant_id: str, contenido: dict) -> None:
+    _client.table("plantillas_cuestionario").insert({"tenant_id": tenant_id, "contenido": contenido}).execute()
+
+
+def guardar_plantilla(tenant_id: str, plantilla_id: str, contenido: dict) -> None:
+    _client.table("plantillas_cuestionario").update({"contenido": contenido}).eq("tenant_id", tenant_id).eq("id", plantilla_id).execute()
+
+
+def borrar_plantilla(tenant_id: str, plantilla_id: str) -> None:
+    _client.table("plantillas_cuestionario").delete().eq("tenant_id", tenant_id).eq("id", plantilla_id).execute()
 
 
 def borrar_test(tenant_id: str, test_id: str) -> None:
