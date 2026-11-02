@@ -6,6 +6,7 @@ le escribieron, y eso es lo que resuelve a qué tenant pertenece (ver
 db.get_tenant_by_phone_number_id). Nada de esto tiene nada de un cliente en
 particular — lo particular vive en la tabla `tenants` y se carga con
 scripts/crear_tenant.py, nunca hardcodeado acá."""
+import copy
 import functools
 import hmac
 import io
@@ -507,28 +508,31 @@ def _cuestionarios_de_ficha(filas: list[dict], tz: ZoneInfo, ahora: datetime) ->
     la evolución del puntaje. filas viene de la más nueva a la más vieja."""
     pendientes, por_inst, abiertos = [], {}, []
     for c in filas:
-        c["nombre"] = cuestionarios.nombre_de(c["instrumento"])
-        if not c["nombre"]:
+        d = cuestionarios.definicion(c)
+        if not d:
             continue
+        c["nombre"] = d["nombre"]
         if c.get("respondido_at"):
             c["_fecha"] = datetime.fromisoformat(c["respondido_at"]).astimezone(tz).strftime("%d/%m/%Y")
-            if cuestionarios.es_abierto(c["instrumento"]):
-                preguntas = cuestionarios.ABIERTOS[c["instrumento"]]["preguntas"]
-                c["pares"] = [(p, r) for p, r in zip(preguntas, c.get("respuestas") or []) if r]
+            if d["tipo"] == "abierto":
+                c["pares"] = [(p, r) for p, r in zip(d["preguntas"], c.get("respuestas") or []) if r]
                 abiertos.append(c)
             else:
-                por_inst.setdefault(c["instrumento"], []).append(c)
+                # Los propios se agrupan por plantilla: dos plantillas distintas no se comparan.
+                grupo = c["instrumento"] if d["tipo"] != "propio" else f"propio:{c['plantilla'].get('id')}"
+                por_inst.setdefault(grupo, []).append((c, d))
         elif datetime.fromisoformat(c["vence"]) > ahora:
             c["_vence"] = datetime.fromisoformat(c["vence"]).astimezone(tz).strftime("%d/%m")
             c["link"] = url_for("cuestionario_publico", token=c["token"], _external=True)
             pendientes.append(c)
     grupos = []
-    for clave, rs in por_inst.items():
-        inst = cuestionarios.INSTRUMENTOS[clave]
+    for pares in por_inst.values():
+        rs = [c for c, _ in pares]
+        inst = pares[0][1]
         for nueva, vieja in zip(rs, rs[1:]):
             nueva["cambio"] = nueva["puntaje"] - vieja["puntaje"]
         grupos.append({"nombre": inst["nombre"], "que_mide": inst["que_mide"], "respuestas": rs,
-                       "maximo": 3 * len(inst["items"]),
+                       "maximo": inst["maximo"],
                        "grafico": fluidez.grafico([r["puntaje"] for r in reversed(rs)])})
     return {"pendientes": pendientes, "grupos": grupos, "abiertos": abiertos,
             "alerta": any(r.get("alerta") and not r.get("visto") for g in grupos for r in g["respuestas"])}
@@ -563,6 +567,14 @@ def agenda():
     fichas = _fichas(tenant, tz, ahora)
     bloqueos = _bloqueos(tenant, fichas, tz, ahora)
     bloqueado = lambda dia: next((b for b in bloqueos if b["_desde"] <= dia <= b["_hasta"]), None)
+    plantillas = db.plantillas_cuestionario(tenant["id"])
+    for p in plantillas:
+        c = p["contenido"]
+        p["faltan"] = sum(not x.strip() for x in c["items"])
+        p["form"] = {"opciones": "\n".join(f"{o['texto']} = {o['valor']}" for o in c["opciones"]),
+                     "items": "\n".join(c["items"]),
+                     "subescalas": "\n".join(f"{x['nombre']}: {', '.join(map(str, x['items']))}"
+                                             + (f" | {x['corte']}" if x["corte"] is not None else "") for x in c["subescalas"])}
     comunes = {
         "tenant": tenant,
         "pendientes": pendientes,
@@ -583,7 +595,10 @@ def agenda():
                                         if not r.get("visto")),
                                        key=lambda x: (not x["c"].get("alerta"), x["c"]["respondido_at"])),
         "instrumentos": [(k, cuestionarios.INSTRUMENTOS.get(k) or cuestionarios.ABIERTOS[k])
-                         for k in rubros.de(tenant)["cuestionarios"]],
+                         for k in rubros.de(tenant)["cuestionarios"]]
+                        + [(f"propio:{p['id']}", {"nombre": p["contenido"]["nombre"], "que_mide": p["contenido"].get("que_mide") or "propio"})
+                           for p in plantillas if cuestionarios.completa(p["contenido"])],
+        "plantillas": plantillas,
         "tests_para_repetir": [{"ficha": f, **t} for f in fichas for t in f.get("para_repetir") or []],
         "ventana_aviso": tests_sugeridos.VENTANA_AVISO,
         "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),
@@ -1375,13 +1390,21 @@ def agenda_cuestionario():
     tenant = db.get_tenant_by_id(session["tenant_id"])
     clave = request.form.get("telefono") or ""
     instrumento = request.form.get("instrumento") or ""
-    if not clave or instrumento not in rubros.de(tenant)["cuestionarios"]:
+    plantilla = None
+    if instrumento.startswith("propio:"):
+        fila = next((p for p in db.plantillas_cuestionario(tenant["id"]) if p["id"] == instrumento[7:]), None)
+        if fila and cuestionarios.completa(fila["contenido"]):
+            plantilla = {**copy.deepcopy(fila["contenido"]), "id": fila["id"]}
+        instrumento = "propio"
+    if not clave or (instrumento != "propio" and instrumento not in rubros.de(tenant)["cuestionarios"]) \
+            or (instrumento == "propio" and not plantilla):
         flash("Ese cuestionario no está disponible.")
         return _volver_a_agenda()
     vence = datetime.now(ZoneInfo("UTC")) + timedelta(days=cuestionarios.DIAS_VIGENCIA)
     para = (request.form.get("para") or "").strip()[:cuestionarios.MAX_PARA] or None
-    db.crear_cuestionario(tenant["id"], clave, instrumento, cuestionarios.nuevo_token(), vence.isoformat(), para)
-    flash(f"Listo el link de «{cuestionarios.nombre_de(instrumento)}»: copialo desde la ficha y mandalo.")
+    db.crear_cuestionario(tenant["id"], clave, instrumento, cuestionarios.nuevo_token(), vence.isoformat(), para, plantilla)
+    nombre = plantilla["nombre"] if plantilla else cuestionarios.nombre_de(instrumento)
+    flash(f"Listo el link de «{nombre}»: copialo desde la ficha y mandalo.")
     return _volver_a_agenda()
 
 
@@ -1401,7 +1424,7 @@ def agenda_cuestionario_borrar(cuestionario_id):
 
 def _cuestionario_vigente(token: str):
     c = db.cuestionario_por_token(token)
-    if not c or not cuestionarios.nombre_de(c["instrumento"]):
+    if not c or not cuestionarios.definicion(c):
         return None, None, "Este link no existe."
     tenant = db.get_tenant_by_id(c["tenant_id"])
     if c.get("respondido_at"):
@@ -1420,10 +1443,10 @@ def cuestionario_publico(token):
 
 
 def _pantalla_cuestionario(c: dict, tenant: dict, error: str | None, previas):
-    abierto = cuestionarios.es_abierto(c["instrumento"])
-    inst = (cuestionarios.ABIERTOS if abierto else cuestionarios.INSTRUMENTOS)[c["instrumento"]]
+    inst = cuestionarios.definicion(c)
+    abierto = inst["tipo"] == "abierto"
     return render_template("cuestionario.html", tenant=tenant, inst=inst, abierto=abierto, para=c.get("para"),
-                           opciones=cuestionarios.OPCIONES, fuente=None if abierto else cuestionarios.FUENTE,
+                           opciones=inst.get("opciones") or [], fuente=inst["fuente"],
                            error=error, previas=previas, max_respuesta=cuestionarios.MAX_RESPUESTA)
 
 
@@ -1434,6 +1457,8 @@ def cuestionario_responder(token):
         return render_template("cuestionario_aviso.html", tenant=tenant, aviso=aviso), (404 if not c else 200)
     if cuestionarios.es_abierto(c["instrumento"]):
         datos, error = cuestionarios.leer_abierto(c["instrumento"], request.form)
+    elif c["instrumento"] == "propio":
+        datos, error = cuestionarios.corregir_propio(c["plantilla"], request.form)
     else:
         datos, error = cuestionarios.corregir(c["instrumento"], request.form)
     if error:
@@ -1443,6 +1468,42 @@ def cuestionario_responder(token):
         return render_template("cuestionario_aviso.html", tenant=tenant, aviso="Este cuestionario ya se respondió. ¡Gracias!")
     return render_template("cuestionario_aviso.html", tenant=tenant, alerta=datos.get("alerta"),
                            aviso=f"Listo, tus respuestas le llegaron a {tenant['nombre']}. ¡Gracias!")
+
+
+@app.post("/agenda/plantillas")
+@login_required
+def agenda_plantilla_nueva():
+    if request.form.get("modelo") == "scared":
+        contenido = copy.deepcopy(cuestionarios.MODELO_SCARED)
+        flash("Se creó el SCARED con su corrección. Falta pegar las 41 preguntas, una por renglón, en orden.")
+    else:
+        contenido, error = cuestionarios.leer_plantilla(request.form)
+        if error:
+            flash(error)
+            return _volver_a_agenda()
+        flash(f"Se creó «{contenido['nombre']}».")
+    db.agregar_plantilla(session["tenant_id"], contenido)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/plantillas/<plantilla_id>")
+@login_required
+def agenda_plantilla_editar(plantilla_id):
+    contenido, error = cuestionarios.leer_plantilla(request.form)
+    if error:
+        flash(error)
+        return _volver_a_agenda()
+    db.guardar_plantilla(session["tenant_id"], plantilla_id, contenido)
+    faltan = sum(not x.strip() for x in contenido["items"])
+    flash(f"Se guardó «{contenido['nombre']}»." + (f" Faltan {faltan} preguntas para poder mandarlo." if faltan else ""))
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/plantillas/<plantilla_id>/borrar")
+@login_required
+def agenda_plantilla_borrar(plantilla_id):
+    db.borrar_plantilla(session["tenant_id"], plantilla_id)
+    return _volver_a_agenda()
 
 
 @app.post("/agenda/registro")

@@ -531,6 +531,60 @@
       </form>
     </details>
     {% endif %}
+    <details>
+      <summary class="tenue">Cuestionarios propios ({{ plantillas|length }}) ▾</summary>
+      <div class="tenue" style="margin:6px 0">Cargás las preguntas y cómo se corrigen; se mandan por link igual que los demás y se corrigen solos. El material que cargues es tu responsabilidad.</div>
+      {% for p in plantillas %}
+      {% set c = p.contenido %}
+      <details class="test-grupo">
+        <summary><strong>{{ c.nombre }}</strong> <span class="tenue">{{ c["items"]|length }} preguntas{% if p.faltan %} · faltan {{ p.faltan }}: todavía no se puede mandar{% endif %}</span></summary>
+        <form method="post" action="{{ url_for('agenda_plantilla_editar', plantilla_id=p.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <div class="fila">
+            <div><label>Nombre</label><input type="text" name="nombre" value="{{ c.nombre }}" maxlength="60" required></div>
+            <div><label>Qué mide</label><input type="text" name="que_mide" value="{{ c.que_mide or '' }}" maxlength="60"></div>
+          </div>
+          <label>Consigna</label><textarea name="consigna" rows="2" maxlength="600">{{ c.consigna or '' }}</textarea>
+          <label>Preguntas, una por renglón y en orden</label><textarea name="items" rows="10">{{ p.form["items"] }}</textarea>
+          <label>Opciones de respuesta, «texto = puntos» por renglón</label><textarea name="opciones" rows="3">{{ p.form.opciones }}</textarea>
+          <label>Subescalas, «Nombre: preguntas | corte» por renglón (el corte es opcional)</label><textarea name="subescalas" rows="4">{{ p.form.subescalas }}</textarea>
+          <div class="fila">
+            <div><label>Corte del total (opcional)</label><input type="number" name="corte_total" value="{{ c.corte_total if c.corte_total is not none else '' }}"></div>
+          </div>
+          <label>Fuente o crédito (se muestra al pie)</label><input type="text" name="fuente" value="{{ c.fuente or '' }}" maxlength="400">
+          <button class="btn chico" type="submit" style="margin-top:8px">Guardar</button>
+        </form>
+        <form method="post" action="{{ url_for('agenda_plantilla_borrar', plantilla_id=p.id) }}" style="margin-top:6px">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="quitar" type="submit" onclick="return confirm('¿Borrar este cuestionario? Las respuestas ya recibidas quedan.')">Borrar cuestionario</button>
+        </form>
+      </details>
+      {% endfor %}
+      <form method="post" action="{{ url_for('agenda_plantilla_nueva') }}" style="margin:8px 0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <input type="hidden" name="modelo" value="scared">
+        <button class="btn chico secundario" type="submit">Crear SCARED (corrección lista, faltan las preguntas)</button>
+      </form>
+      <details>
+        <summary class="tenue">Crear uno desde cero ▾</summary>
+        <form method="post" action="{{ url_for('agenda_plantilla_nueva') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <label>Nombre</label><input type="text" name="nombre" maxlength="60" required>
+          <label>Qué mide</label><input type="text" name="que_mide" maxlength="60">
+          <label>Consigna</label><textarea name="consigna" rows="2" maxlength="600"></textarea>
+          <label>Preguntas, una por renglón</label><textarea name="items" rows="6" required></textarea>
+          <label>Opciones, «texto = puntos» por renglón</label><textarea name="opciones" rows="3" placeholder="Nunca = 0&#10;A veces = 1&#10;Siempre = 2" required></textarea>
+          <label>Subescalas (opcional), «Nombre: 1, 4, 7 | corte»</label><textarea name="subescalas" rows="3"></textarea>
+          <label>Corte del total (opcional)</label><input type="number" name="corte_total">
+          <label>Fuente o crédito</label><input type="text" name="fuente" maxlength="400">
+          <button class="btn chico" type="submit" style="margin-top:8px">Crear</button>
+        </form>
+      </details>
+    </details>
   </div>
   </div>
 
@@ -776,6 +830,7 @@
         <div class="ficha-item">
           <span><strong>{{ r.puntaje }}</strong> {{ r.severidad }} <span class="tenue">· {{ r._fecha }}{% if r.dificultad %} · {{ r.dificultad|lower }}{% endif %}</span>
             {% if r.cambio is defined %}<span class="cambio-{{ 'baja' if r.cambio > 0 else 'sube' if r.cambio < 0 else 'igual' }}">{{ '↑' if r.cambio > 0 else '↓' if r.cambio < 0 else '=' }} {{ r.cambio|abs }}</span>{% endif %}
+            {% for d in r.detalle or [] %}<br><span class="tenue">{{ d.nombre }}: {{ d.puntaje }}{% if d.corte is not none %}/{{ d.corte }}{% endif %}</span>{% if d.sobre_corte %} <span class="chip chip-alerta">sobre el corte</span>{% endif %}{% endfor %}
             {% if r.alerta %}<span class="chip chip-alerta">pregunta 9: {{ ['', 'varios días', 'más de la mitad de los días', 'casi todos los días'][r.respuestas[8]] }}</span>{% endif %}
           </span>
           <form method="post" action="{{ url_for('agenda_cuestionario_borrar', cuestionario_id=r.id) }}">

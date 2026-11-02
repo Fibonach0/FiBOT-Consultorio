@@ -252,6 +252,13 @@ confirmar licencia Y traducción castellana (SNAP-IV y SCARED siguen en duda).
 mismo link pero son preguntas abiertas de redacción propia: no se corrigen.
 `cuestionarios.para` (`migrations/031`) es la referencia que ve quien responde.
 
+Cuestionarios propios (`migrations/033`): `plantillas_cuestionario` por tenant;
+al mandar el link se copia la plantilla a `cuestionarios.plantilla` (instrumento
+`propio`), así editarla no cambia lo respondido. `cuestionarios.definicion(fila)`
+unifica fábrica, abiertos y propios. `MODELO_SCARED` trae SÓLO la clave de
+corrección verificada (UPMC): los ítems van vacíos y los pega la profesional.
+NUNCA cargar texto de ítems de tests de terceros sin licencia explícita.
+
 ### Hoja de registro, informe y retest
 
 `templates/registro.html` cuenta aciertos/errores y tiempo por subprueba y guarda
