@@ -213,6 +213,7 @@ def reset():
     TABLAS["informes"] = []
     TABLAS["plantillas_cuestionario"] = []
     TABLAS["plantillas_informe"] = []
+    TABLAS["biblioteca_cuestionarios"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -1878,6 +1879,83 @@ html = client.post("/agenda/firma", data={"firma": (io.BytesIO(PNG + b"0" * 300_
 chequear("rechaza imágenes pesadas", "muy pesada" in html)
 client.post("/agenda/firma/borrar", data={})
 chequear("quita la firma", TABLAS["tenants"][0]["firma_imagen"] is None and not TABLAS["tenants"][1].get("firma_imagen"))
+
+# --- Todas las versiones en un paso, toma anterior y biblioteca ---
+reset()
+TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
+TELW = "5491114445556"
+TABLAS["turnos"].append(turno("w1", "t1", manana, estado="reservado", paciente_nombre="Juana Rey", paciente_telefono=TELW))
+for v in ("Chico/a", "Padres"):
+    client.post("/agenda/plantillas", data=completo(v))
+client.post("/agenda/plantillas", data={"modelo": "scared_padres"})  # una tercera, incompleta: no cuenta
+html = client.get("/agenda").data.decode()
+chequear("ofrece todas las versiones juntas", 'value="todas:scared"' in html and "SCARED · todas las versiones (Chico/a, Padres)" in html)
+html = client.post("/agenda/cuestionario", data={"telefono": TELW, "instrumento": "todas:scared", "para": "J. R."}, follow_redirects=True).data.decode()
+mandados = [c for c in TABLAS["cuestionarios"] if c["instrumento"] == "propio"]
+chequear("crea un link por versión completa", sorted(c["plantilla"]["version"] for c in mandados) == ["Chico/a", "Padres"]
+         and all(c["para"] == "J. R." for c in mandados) and "Listos 2 links" in html)
+chequear("cada link dice de qué versión es", "SCARED · Chico/a" in html and "SCARED · Padres" in html and html.count("sin responder") >= 2)
+n = len(TABLAS["cuestionarios"])
+client.post("/agenda/cuestionario", data={"telefono": TELW, "instrumento": "todas:inventado"})
+chequear("una familia que no existe no crea nada", len(TABLAS["cuestionarios"]) == n)
+chequear("familias necesita dos versiones completas", cuestionarios.familias([{"contenido": {"nombre": "X", "items": ["a"]}}]) == {})
+
+def responder_link(c, valores):
+    client.post(f"/cuestionario/{c['token']}", data={f"item-{i}": str(v) for i, v in enumerate(valores)})
+
+chico_m = next(c for c in mandados if c["plantilla"]["version"] == "Chico/a")
+padres_m = next(c for c in mandados if c["plantilla"]["version"] == "Padres")
+responder_link(chico_m, [0] * 41)
+responder_link(padres_m, [0] * 41)
+client.post("/agenda/cuestionario", data={"telefono": TELW, "instrumento": "todas:scared"})
+nuevos = [c for c in TABLAS["cuestionarios"] if c["instrumento"] == "propio" and not c.get("respondido_at")]
+alto = [0] * 41
+for n_ in M["subescalas"][3]["items"]:
+    alto[n_ - 1] = 2
+for c in nuevos:
+    responder_link(c, alto if c["plantilla"]["version"] == "Chico/a" else [0] * 41)
+html = client.get("/agenda").data.decode()
+tabla = html.split("SCARED: versiones lado a lado")[1].split("</table>")[0]
+social = tabla.split("Ansiedad social")[1].split("</tr>")[0]
+chequear("muestra la toma anterior de cada versión", "antes 0 (↑ 14)" in social and "antes 0" in social and "· antes" in tabla)
+chequear("sin cambio no pone flecha", "antes 0</span>" in social)
+c_ = cuestionarios.comparar_versiones([
+    {"base": "X", "version": "A", "respuestas": [{"_fecha": "b", "puntaje": 3, "detalle": [{"nombre": "S", "puntaje": 3, "corte": 2, "sobre_corte": True}]}]},
+    {"base": "X", "version": "B", "respuestas": [{"_fecha": "b", "puntaje": 1, "detalle": [{"nombre": "S", "puntaje": 1, "corte": 2, "sobre_corte": False}]}]}])[0]
+chequear("sin toma anterior no inventa", all("antes" not in c for c in c_["filas"][0]["celdas"]) and c_["fechas_antes"] == [None, None])
+
+pid_chico = next(p["id"] for p in TABLAS["plantillas_cuestionario"] if p["contenido"].get("version") == "Chico/a")
+html = client.post(f"/agenda/plantillas/{pid_chico}/compartir", data={}, follow_redirects=True).data.decode()
+b0 = TABLAS["biblioteca_cuestionarios"][0]
+chequear("comparte sin preguntas por defecto", "sin el texto de las preguntas" in html and b0["con_preguntas"] is False
+         and b0["contenido"]["items"] == [""] * 41 and b0["contenido"]["subescalas"] and b0["autor"] == "Lic. Marcos")
+client.post(f"/agenda/plantillas/{pid_chico}/compartir", data={"con_preguntas": "1"})
+chequear("con preguntas pide declarar", len(TABLAS["biblioteca_cuestionarios"]) == 1)
+client.post(f"/agenda/plantillas/{pid_chico}/compartir", data={"con_preguntas": "1", "declaro": "1"})
+chequear("con declaración comparte el texto", TABLAS["biblioteca_cuestionarios"][1]["contenido"]["items"][0] == "Pregunta 1")
+incompleta = next(p["id"] for p in TABLAS["plantillas_cuestionario"] if not cuestionarios.completa(p["contenido"]))
+client.post(f"/agenda/plantillas/{incompleta}/compartir", data={"con_preguntas": "1", "declaro": "1"})
+chequear("no comparte preguntas incompletas", len(TABLAS["biblioteca_cuestionarios"]) == 2)
+client.post("/agenda/plantillas/nada/compartir", data={})
+chequear("no comparte lo que no existe", len(TABLAS["biblioteca_cuestionarios"]) == 2)
+# otra profesional la ve y la agrega
+with client.session_transaction() as ses:
+    ses["tenant_id"] = "t2"
+html = client.get("/agenda").data.decode()
+chequear("la otra profesional ve la biblioteca", "Biblioteca compartida (2)" in html and "compartido por Lic. Marcos" in html and ">Retirar<" not in html)
+entrada = TABLAS["biblioteca_cuestionarios"][0]["id"]
+antes_t2 = sum(p["tenant_id"] == "t2" for p in TABLAS["plantillas_cuestionario"])
+html = client.post(f"/agenda/biblioteca/{entrada}/agregar", data={}, follow_redirects=True).data.decode()
+suyas = [p for p in TABLAS["plantillas_cuestionario"] if p["tenant_id"] == "t2"]
+chequear("la agrega como copia propia", len(suyas) == antes_t2 + 1 and suyas[-1]["contenido"]["items"] == [""] * 41 and "Falta pegar 41" in html)
+client.post(f"/agenda/biblioteca/{entrada}/retirar", data={})
+chequear("no puede retirar lo ajeno", any(e["id"] == entrada for e in TABLAS["biblioteca_cuestionarios"]))
+with client.session_transaction() as ses:
+    ses["tenant_id"] = "t1"
+client.post(f"/agenda/biblioteca/{entrada}/retirar", data={})
+chequear("la autora retira y la copia queda", not any(e["id"] == entrada for e in TABLAS["biblioteca_cuestionarios"]) and len([p for p in TABLAS["plantillas_cuestionario"] if p["tenant_id"] == "t2"]) == antes_t2 + 1)
+html = client.post(f"/agenda/biblioteca/{entrada}/agregar", data={}, follow_redirects=True).data.decode()
+chequear("lo retirado ya no se agrega", "ya no está en la biblioteca" in html)
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
