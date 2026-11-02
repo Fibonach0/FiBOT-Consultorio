@@ -1,0 +1,162 @@
+{% extends "base.html" %}
+{% block titulo %}Fluidez lectora — {{ ficha.nombre }}{% endblock %}
+{% block cuerpo %}
+<style>
+  .lectura { font-size:1.6rem; line-height:2.2; padding:18px 20px; }
+  .palabra { font:inherit; background:none; border:none; padding:0 2px; margin:0; color:inherit; cursor:pointer; border-radius:4px; }
+  .palabra:focus-visible { outline:2px solid var(--green); }
+  .palabra.error { color:#c1652f; text-decoration:underline wavy; text-underline-offset:6px; }
+  .palabra.ultima { background:var(--green-bg); box-shadow:inset 0 -3px 0 var(--green); }
+  .palabra.no-leida { opacity:.35; }
+  .controles { position:sticky; top:0; z-index:2; display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+  .reloj { font-size:1.8rem; font-variant-numeric:tabular-nums; min-width:5ch; }
+  .resumen { display:grid; grid-template-columns:repeat(auto-fit, minmax(120px, 1fr)); gap:8px; margin:10px 0; }
+  .resumen div { background:var(--cream); border-radius:8px; padding:8px 10px; }
+  .resumen strong { display:block; font-size:1.3rem; }
+  .modo { display:flex; gap:14px; flex-wrap:wrap; }
+  .modo label { display:flex; gap:6px; align-items:center; margin:0; font-size:.9rem; color:var(--ink); }
+  @media (max-width: 480px) { .lectura { font-size:1.3rem; padding:12px; } }
+</style>
+<header>
+  <span>Fluidez lectora · {{ ficha.nombre }}</span>
+  <a href="{{ url_for('agenda') }}">Volver al panel</a>
+</header>
+<main>
+  <div class="card controles">
+    <span class="reloj" id="reloj" aria-live="off">0:00</span>
+    <button class="btn" type="button" id="empezar">Empezar</button>
+    <button class="btn" type="button" id="terminar" hidden>Terminó de leer</button>
+    <button class="btn secundario" type="button" id="recomenzar" hidden>Recomenzar</button>
+    <label class="tenue" style="margin:0"><input type="checkbox" id="al-minuto" checked> Cortar al minuto</label>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:4px">{{ texto.titulo }}</h3>
+    <div class="tenue" id="ayuda">Tocá «Empezar» cuando empiece a leer. Mientras lee, tocá cada palabra que lea mal.</div>
+    <div class="lectura" id="texto">{% for p in palabras %}<button type="button" class="palabra" data-i="{{ loop.index0 }}">{{ p }}</button> {% endfor %}</div>
+  </div>
+
+  <div class="card" id="fin" hidden>
+    <div class="modo" role="radiogroup" aria-label="Qué hace tocar una palabra">
+      <label><input type="radio" name="modo" value="error" checked> Tocar marca un error</label>
+      <label><input type="radio" name="modo" value="ultima"> Tocar marca la última palabra leída</label>
+    </div>
+    <div class="resumen">
+      <div><span class="tenue">Correctas por minuto</span><strong id="r-pcpm">—</strong></div>
+      <div><span class="tenue">Palabras por minuto</span><strong id="r-ppm">—</strong></div>
+      <div><span class="tenue">Precisión</span><strong id="r-precision">—</strong></div>
+      <div><span class="tenue">Leídas · errores</span><strong id="r-leidas">—</strong></div>
+    </div>
+    <form method="post" action="{{ url_for('agenda_fluidez_guardar') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="telefono" value="{{ ficha.clave }}">
+      {% if semana %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+      <input type="hidden" name="texto_id" value="{{ texto.id }}">
+      <input type="hidden" name="leidas" id="f-leidas">
+      <input type="hidden" name="errores" id="f-errores">
+      <input type="hidden" name="segundos" id="f-segundos">
+      <button class="btn" type="submit" id="guardar" disabled>Guardar en la ficha</button>
+    </form>
+  </div>
+</main>
+<script>
+(() => {
+  const palabras = [...document.querySelectorAll('.palabra')];
+  const $ = id => document.getElementById(id);
+  let estado = 'listo', inicio = 0, segundos = 0, ultima = null, tic = null;
+  const errores = new Set();
+
+  const reloj = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+  function pintar() {
+    palabras.forEach((p, i) => {
+      p.classList.toggle('error', errores.has(i));
+      p.classList.toggle('ultima', i === ultima);
+      p.classList.toggle('no-leida', ultima !== null && i > ultima);
+    });
+    if (estado !== 'fin') return;
+    const leidas = ultima === null ? 0 : ultima + 1;
+    const errs = [...errores].filter(i => i < leidas).sort((a, b) => a - b);
+    const ok = leidas > 0 && segundos >= 1;
+    $('r-pcpm').textContent = ok ? Math.round((leidas - errs.length) * 60 / segundos) : '—';
+    $('r-ppm').textContent = ok ? Math.round(leidas * 60 / segundos) : '—';
+    $('r-precision').textContent = ok ? Math.round(100 * (leidas - errs.length) / leidas) + '%' : '—';
+    $('r-leidas').textContent = ok ? `${leidas} · ${errs.length}` : '—';
+    $('f-leidas').value = leidas;
+    $('f-errores').value = errs.join(',');
+    $('f-segundos').value = segundos.toFixed(1);
+    $('guardar').disabled = !ok;
+  }
+
+  function terminar(enSegundos, porMinuto) {
+    clearInterval(tic);
+    segundos = enSegundos;
+    estado = 'fin';
+    $('reloj').textContent = reloj(segundos);
+    $('terminar').hidden = true;
+    $('fin').hidden = false;
+    if (porMinuto) {
+      ultima = null;
+      document.querySelector('input[name=modo][value=ultima]').checked = true;
+      $('ayuda').textContent = 'Pasó el minuto. Tocá la última palabra que llegó a leer.';
+    } else {
+      ultima = palabras.length - 1;
+      $('ayuda').textContent = 'Si no llegó al final, elegí «Tocar marca la última palabra leída» y tocala.';
+    }
+    pintar();
+  }
+
+  $('empezar').addEventListener('click', () => {
+    estado = 'leyendo';
+    inicio = performance.now();
+    $('empezar').hidden = true;
+    $('terminar').hidden = false;
+    $('recomenzar').hidden = false;
+    $('ayuda').textContent = 'Tocá cada palabra que lea mal. Tocala de nuevo para desmarcarla.';
+    tic = setInterval(() => {
+      const s = (performance.now() - inicio) / 1000;
+      $('reloj').textContent = reloj(s);
+      if ($('al-minuto').checked && s >= 60) terminar(60, true);
+    }, 200);
+  });
+
+  $('terminar').addEventListener('click', () => terminar((performance.now() - inicio) / 1000, false));
+
+  $('recomenzar').addEventListener('click', () => {
+    clearInterval(tic);
+    estado = 'listo'; segundos = 0; ultima = null; errores.clear();
+    $('reloj').textContent = '0:00';
+    $('empezar').hidden = false; $('terminar').hidden = true; $('recomenzar').hidden = true; $('fin').hidden = true;
+    document.querySelector('input[name=modo][value=error]').checked = true;
+    $('ayuda').textContent = 'Tocá «Empezar» cuando empiece a leer. Mientras lee, tocá cada palabra que lea mal.';
+    pintar();
+  });
+
+  document.querySelectorAll('input[name=modo]').forEach(r => r.addEventListener('change', () => {
+    if (r.checked && r.value === 'ultima') $('ayuda').textContent = 'Tocá la última palabra que llegó a leer.';
+  }));
+
+  $('texto').addEventListener('click', e => {
+    const p = e.target.closest('.palabra');
+    if (!p || estado === 'listo') return;
+    const i = Number(p.dataset.i);
+    const modo = document.querySelector('input[name=modo]:checked').value;
+    if (estado === 'fin' && modo === 'ultima') {
+      ultima = i;
+      document.querySelector('input[name=modo][value=error]').checked = true;
+      $('ayuda').textContent = 'Listo. Podés seguir corrigiendo errores o guardar.';
+    } else if (errores.has(i)) {
+      errores.delete(i);
+    } else {
+      errores.add(i);
+    }
+    pintar();
+  });
+
+  window.addEventListener('beforeunload', e => {
+    if (estado !== 'listo' && !window.__guardando) e.preventDefault();
+  });
+  document.querySelector('#fin form').addEventListener('submit', () => { window.__guardando = true; });
+})();
+</script>
+{% endblock %}

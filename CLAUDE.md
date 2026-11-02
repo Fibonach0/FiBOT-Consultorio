@@ -229,6 +229,15 @@ licencia. `evolucion()` compara la misma escala y tipo entre tomas del mismo tes
 bajo el umbral de `TIPOS` (~1/3 de desvío) es «se mantuvo». Es descriptiva a
 propósito («subió/bajó», nunca «mejoró»): en cuestionarios de síntomas subir es peor.
 
+### Fluidez lectora (`fluidez.py`, `migrations/029`)
+
+`textos_lectura` son los textos de cada profesional (nunca incluir textos de tests:
+son de las editoriales). `templates/fluidez.html` cronometra y marca errores en el
+navegador; al guardar manda palabras leídas, índices de error y segundos, y el
+servidor recalcula todo desde el texto (`fluidez.validar`). `lecturas` guarda el
+título y las palabras erradas, no el id del texto: borrar un texto no borra lecturas.
+Mide palabras correctas por minuto; sin normas por grado a propósito.
+
 ### Una ficha por persona (`migrations/022`)
 
 Una ficha es teléfono + `ficha`, no sólo teléfono: dos hermanos pueden usar el
