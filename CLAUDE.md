@@ -222,7 +222,10 @@ agrupar datos de un paciente por teléfono solo.
 misma ficha; otro nombre, ficha aparte. `db.mismo_nombre` pide que el nombre corto
 esté entero en el largo: «Nina» es «Nina Acosta», «Juan Pablo» no es «Juan Ignacio».
 Dos nombres idénticos no se pueden deducir: en el panel se tilda «Es otra persona»
-y la serie y la renovación pasan la ficha explícita; el bot pregunta y nunca elige. Un error se corrige con «Es de
+y la serie y la renovación pasan la ficha explícita; el bot pregunta y nunca elige.
+La página pública no puede preguntar sin mostrar nombres de pacientes: reserva en la
+ficha más reciente con `turnos.revisar_ficha` (`migrations/024`), y el profesional
+la confirma o la mueve desde «Para mirar». Un error se corrige con «Es de
 otra persona» en la sesión. `pacientes.nombre` (`migrations/023`) recuerda de quién
 es una ficha sin sesiones: otro nombre no la hereda y esa persona la recupera al
 volver. Si tiene algo anotado se ve en el desplegable «Sin sesiones», y también

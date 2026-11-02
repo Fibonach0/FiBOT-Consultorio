@@ -316,6 +316,9 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
         alerta = alerta_de_seguimiento(sesiones, ahora) if estado == "activo" and sesiones else None
         if estado == "activo" and not alerta and faltas_recientes + canceladas_recientes >= AUSENCIAS_PARA_ALERTA:
             alerta = f"{faltas_recientes + canceladas_recientes} faltas o cancelaciones en {DIAS_DE_ASISTENCIA} días"
+        por_revisar = [t for t in sesiones if t.get("revisar_ficha")]
+        if por_revisar:
+            alerta = f"Revisar de quién es: {len(por_revisar)} sesión{'es' if len(por_revisar) > 1 else ''}"
         nacimiento = datos.get(clave, {}).get("fecha_nacimiento")
         cerrado = datos.get(clave, {}).get("estado_fecha")
         lista.append(
@@ -352,6 +355,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "adeudado": sum(t.get("valor") or 0 for t in sin_pagar),
                 "historial": pasadas[:-11:-1],
                 "proximas": futuras,
+                "por_revisar": por_revisar,
                 "ultima_nota": next((t for t in reversed(pasadas) if t.get("nota")), None),
                 "estado": estado,
                 "estado_fecha": date.fromisoformat(cerrado).strftime("%d/%m/%Y") if cerrado else None,
@@ -889,6 +893,13 @@ def agenda_mover(turno_id):
     destino = next((f for f in _fichas(tenant, tz, datetime.now(tz)) if f["clave"] == clave), None)
     if not destino or not db.mover_sesion(tenant["id"], turno_id, clave, destino["nombre"]):
         flash("No se pudo pasar la sesión a esa ficha.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/sesion/<turno_id>/ficha/confirmar")
+@login_required
+def agenda_confirmar_ficha(turno_id):
+    db.confirmar_ficha(session["tenant_id"], turno_id)
     return _volver_a_agenda()
 
 

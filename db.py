@@ -260,7 +260,7 @@ def mover_sesion(tenant_id: str, turno_id: str, clave: str, nombre: str) -> bool
     telefono, ficha = partir_clave(clave)
     res = (
         _client.table("turnos")
-        .update({"ficha": ficha, "paciente_nombre": nombre})
+        .update({"ficha": ficha, "paciente_nombre": nombre, "revisar_ficha": False})
         .eq("tenant_id", tenant_id)
         .eq("id", turno_id)
         .eq("estado", "reservado")
@@ -268,6 +268,10 @@ def mover_sesion(tenant_id: str, turno_id: str, clave: str, nombre: str) -> bool
         .execute()
     )
     return len(res.data) > 0
+
+
+def confirmar_ficha(tenant_id: str, turno_id: str) -> None:
+    _client.table("turnos").update({"revisar_ficha": False}).eq("tenant_id", tenant_id).eq("id", turno_id).execute()
 
 
 def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | None,
@@ -282,11 +286,17 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
         return False
     if _esta_bloqueado(tenant_id, turno["inicio"], turno["fin"]):
         return False
+    # Sin ficha explícita nadie pudo aclarar de quién es (página pública): se
+    # reserva igual y lo revisa el profesional. Preguntarle a quien reserva
+    # mostraría nombres de pacientes a cualquiera que escriba ese teléfono.
+    revisar = False
     if ficha is None:
         ficha = ficha_para(tenant_id, telefono, nombre)[0]
+        revisar = bool(nombre) and nombre_ambiguo(tenant_id, telefono, nombre)
     res = (
         _client.table("turnos")
         .update({"estado": "reservado", "paciente_telefono": telefono, "paciente_nombre": nombre, "ficha": ficha,
+                 "revisar_ficha": revisar,
                  "valor": valor, "frecuencia": frecuencia, "modalidad": modalidad})
         .eq("tenant_id", tenant_id)
         .eq("id", turno_id)
@@ -329,6 +339,7 @@ _LIBERADO = {
     "paciente_telefono": None,
     "paciente_nombre": None,
     "ficha": "",
+    "revisar_ficha": False,
     "recordatorio_enviado": False,
     "asistencia": None,
     "pago": "pendiente",
@@ -464,6 +475,7 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
                 "paciente_telefono": original["paciente_telefono"],
                 "paciente_nombre": original["paciente_nombre"],
                 "ficha": original.get("ficha") or "",
+                "revisar_ficha": bool(original.get("revisar_ficha")),
                 "pago": original.get("pago") or "pendiente",
                 "valor": original.get("valor"),
                 "frecuencia": original.get("frecuencia"),

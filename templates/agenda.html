@@ -558,6 +558,21 @@
         <dt>Asistió</dt><dd>{{ f.asistio }}{% if f.falto %} · faltó {{ f.falto }}{% endif %}</dd>
         <dt>Últimos 90 días</dt><dd>{{ f.faltas_recientes }} falta{{ 's' if f.faltas_recientes != 1 }} · {{ f.canceladas_recientes }} cancelaci{{ 'ones' if f.canceladas_recientes != 1 else 'ón' }}</dd>
       </dl>
+      {% if f.por_revisar %}
+      <h5>Revisar de quién es</h5>
+      <div class="tenue">Se reservaron por la página pública con un nombre que coincide con más de una ficha.</div>
+      {% for h in f.por_revisar %}
+      <div class="ficha-sesion">{{ h._dia }} {{ h._hora }}
+        <form method="post" action="{{ url_for('agenda_confirmar_ficha', turno_id=h.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="btn chico secundario" type="submit">Es de esta ficha</button>
+        </form>
+        {{ mover(f, h) }}
+      </div>
+      {% endfor %}
+      {% endif %}
+
       <h5>Últimas sesiones</h5>
       {% for h in f.historial %}
       <div class="ficha-sesion">{{ h._dia }} {{ h._hora }}
