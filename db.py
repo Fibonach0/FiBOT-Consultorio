@@ -713,6 +713,22 @@ def agregar_fecha(tenant_id: str, clave: str, titulo: str, dia: int, mes: int,
     ).execute()
 
 
+def tests_tomados(tenant_id: str) -> list[dict]:
+    res = _client.table("paciente_tests").select("*").eq("tenant_id", tenant_id).order("fecha", desc=True).execute()
+    return res.data
+
+
+def agregar_test(tenant_id: str, clave: str, test: str, fecha: str) -> None:
+    telefono, ficha = partir_clave(clave)
+    _client.table("paciente_tests").insert(
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha, "test": test, "fecha": fecha}
+    ).execute()
+
+
+def borrar_test(tenant_id: str, test_id: str) -> None:
+    _client.table("paciente_tests").delete().eq("tenant_id", tenant_id).eq("id", test_id).execute()
+
+
 def borrar_fecha(tenant_id: str, fecha_id: str) -> None:
     _client.table("paciente_fechas").delete().eq("tenant_id", tenant_id).eq("id", fecha_id).execute()
 
