@@ -887,7 +887,7 @@ chequear("cubre el día completo en hora local", _norm(b["desde"]).astimezone(zo
          and _norm(b["hasta"]) - _norm(b["desde"]) == timedelta(days=1))
 chequear("no se ofrece el horario libre", "libre-manana" not in [t["id"] for t in db.turnos_libres("t1", ahora)])
 chequear("reservarlo igual se rechaza", db.reservar_turno("t1", "libre-manana", "5491100000003", "Eva") is False)
-chequear("reprogramar ahí se rechaza", db.reprogramar_turno("t1", "pasado", manana + timedelta(hours=3), 50) == "Ese día está bloqueado.")
+chequear("reprogramar ahí se rechaza", db.reprogramar_turno("t1", "pasado", manana + timedelta(hours=2), 50) == "Ese día está bloqueado.")
 chequear("el otro tenant no se bloquea", db._esta_bloqueado("t2", fila("libre-manana")["inicio"], fila("libre-manana")["fin"]) is False)
 chequear("las sesiones ya reservadas siguen", fila("futuro")["estado"] == "reservado") if _norm(fila("futuro")["inicio"]).astimezone(zona).date() == dia_libre else None
 html = client.get("/agenda").data.decode()
@@ -1071,6 +1071,29 @@ r = conversation.responder(dict(TENANT), TEL2, "cancelar")
 chequear("con una sola persona cancela directo", "Cancelado" in r and reservados() == [], r)
 r = conversation.responder(dict(TENANT), TEL2, "cancelación?")
 chequear("otra palabra no cancela ni rompe", "Cancelado" not in r)
+
+# --- Una ficha que se quedó sin sesiones ---
+reset()
+TEL3 = "5491166667777"
+TABLAS["turnos"] += [turno(f"v{i}", "t1", manana + timedelta(days=i + 1)) for i in range(4)]
+db.reservar_turno("t1", "v0", TEL3, "Nina Acosta")
+db.guardar_paciente("t1", TEL3, {"notas": "De Nina"})
+db.cancelar_turno("t1", "v0")
+db.reservar_turno("t1", "v1", TEL3, "Lola Acosta")
+fila = {t["id"]: t for t in TABLAS["turnos"]}
+chequear("el hermano no hereda la ficha vacía", fila["v1"]["ficha"] == "lola")
+chequear("los datos siguen siendo de Nina", db.datos_de_pacientes("t1")[TEL3]["notas"] == "De Nina" and not db.datos_de_pacientes("t1")[f"{TEL3}~lola"].get("notas"))
+html = client.get("/agenda").data.decode()
+chequear("el panel no le muestra a Lola las notas de Nina", "De Nina" not in html)
+db.reservar_turno("t1", "v2", TEL3, "Nina")
+fila = {t["id"]: t for t in TABLAS["turnos"]}
+chequear("si vuelve, recupera su ficha", fila["v2"]["ficha"] == "")
+db.cancelar_turno("t1", "v2")
+db.cancelar_turno("t1", "v1")
+chequear("el bot pregunta aunque no tengan sesiones", "más de un paciente" in conversation.responder(dict(TENANT), TEL3, "1"))
+TABLAS["pacientes"].append({"tenant_id": "t1", "paciente_telefono": "5491177778888", "ficha": "", "notas": "Sin nombre guardado"})
+db.reservar_turno("t1", "v3", "5491177778888", "Bruno")
+chequear("ficha vieja sin nombre tampoco se hereda", {t["id"]: t for t in TABLAS["turnos"]}["v3"]["ficha"] == "bruno")
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

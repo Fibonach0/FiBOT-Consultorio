@@ -162,7 +162,9 @@ def _primer_nombre(nombre: str | None) -> str:
 
 
 def fichas_del_telefono(tenant_id: str, telefono: str) -> list[dict]:
-    """Una fila por persona que usa este teléfono, la más reciente primero."""
+    """Una fila por persona que usa este teléfono: primero las que tienen
+    sesiones, la más reciente antes. Después, las que se quedaron sin ninguna:
+    siguen siendo de alguien, aunque ya no aparezcan en la agenda."""
     res = (
         _client.table("turnos")
         .select("*")
@@ -174,14 +176,25 @@ def fichas_del_telefono(tenant_id: str, telefono: str) -> list[dict]:
     )
     vistas: dict[str, dict] = {}
     for t in res.data:
-        vistas.setdefault(t.get("ficha") or "", t)
+        vistas.setdefault(t.get("ficha") or "", {**t, "con_sesiones": True})
+    guardadas = (
+        _client.table("pacientes")
+        .select("*")
+        .eq("tenant_id", tenant_id)
+        .eq("paciente_telefono", telefono)
+        .execute()
+    )
+    for p in guardadas.data:
+        vistas.setdefault(p.get("ficha") or "", {"ficha": p.get("ficha") or "", "paciente_nombre": p.get("nombre"),
+                                                 "con_sesiones": False})
     return list(vistas.values())
 
 
 def ficha_para(tenant_id: str, telefono: str, nombre: str | None) -> tuple[str, bool]:
     """A qué ficha va una reserva nueva, y si es una ficha nueva junto a otra.
     Mismo primer nombre, misma ficha: «Nina» y «Nina Acosta» son la misma
-    persona. Si el nombre es otro, ficha aparte; un error de tipeo se corrige
+    persona. Si el nombre es otro, ficha aparte, aunque la otra persona ya no
+    tenga sesiones: nadie hereda los datos de otro. Un error de tipeo se corrige
     moviendo la sesión desde la ficha."""
     filas = fichas_del_telefono(tenant_id, telefono)
     if not filas:
@@ -190,7 +203,8 @@ def ficha_para(tenant_id: str, telefono: str, nombre: str | None) -> tuple[str, 
         return filas[0].get("ficha") or "", False
     buscado = _primer_nombre(nombre)
     for f in filas:
-        if not f.get("paciente_nombre") or _primer_nombre(f["paciente_nombre"]) == buscado:
+        sin_nombre = f["con_sesiones"] and not f.get("paciente_nombre")
+        if sin_nombre or _primer_nombre(f.get("paciente_nombre")) == buscado:
             return f.get("ficha") or "", False
     return buscado or "otra", True
 
@@ -232,7 +246,11 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
         .eq("estado", "libre")
         .execute()
     )
-    return len(res.data) > 0
+    if not res.data:
+        return False
+    if nombre:
+        guardar_paciente(tenant_id, f"{telefono}~{ficha}" if ficha else telefono, {"nombre": nombre})
+    return True
 
 
 def proximos_turnos_de(tenant_id: str, telefono: str) -> list[dict]:
