@@ -214,6 +214,7 @@ def reset():
     TABLAS["plantillas_cuestionario"] = []
     TABLAS["plantillas_informe"] = []
     TABLAS["biblioteca_cuestionarios"] = []
+    TABLAS["entregas"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -1956,6 +1957,77 @@ client.post(f"/agenda/biblioteca/{entrada}/retirar", data={})
 chequear("la autora retira y la copia queda", not any(e["id"] == entrada for e in TABLAS["biblioteca_cuestionarios"]) and len([p for p in TABLAS["plantillas_cuestionario"] if p["tenant_id"] == "t2"]) == antes_t2 + 1)
 html = client.post(f"/agenda/biblioteca/{entrada}/agregar", data={}, follow_redirects=True).data.decode()
 chequear("lo retirado ya no se agrega", "ya no está en la biblioteca" in html)
+
+# --- Entrega por link, firma en constancias y moderación ---
+reset()
+TELN = "5491116667778"
+TABLAS["turnos"].append(turno("n1", "t1", ahora - timedelta(days=3), estado="reservado", paciente_nombre="Nico Sur", paciente_telefono=TELN,
+                              asistencia="vino", nota="Nota de la sesión.", pago="pagado", valor=1000))
+html = client.post("/agenda/paciente/ficha-completa/link", data={"telefono": TELN}, follow_redirects=True).data.decode()
+ent = TABLAS["entregas"][0] if TABLAS["entregas"] else {}
+chequear("crea el link con la ficha guardada", "Listo el link para entregar" in html and "Nota de la sesión." in ent.get("html", "")
+         and "Volver al panel" not in ent.get("html", "") and "Generar link" not in ent.get("html", ""))
+chequear("la ficha lo lista con su link", f"/entrega/{ent['token']}" in html and "sin abrir" in html)
+TABLAS["turnos"][-1]["nota"] = "Cambiada después."
+landing = client.get(f"/entrega/{ent['token']}")
+chequear("abrir con GET no lo consume", landing.status_code == 200 and "Abrir el documento" in landing.data.decode()
+         and "Nota de la sesión." not in landing.data.decode() and not TABLAS["entregas"][0].get("abierta_at")
+         and landing.headers.get("Cache-Control") == "no-store")
+doc = client.post(f"/entrega/{ent['token']}")
+chequear("con POST muestra la copia guardada", "Nota de la sesión." in doc.data.decode() and "Cambiada después." not in doc.data.decode()
+         and TABLAS["entregas"][0].get("abierta_at") and doc.headers.get("X-Robots-Tag") == "noindex")
+chequear("una sola vez", "ya se abrió" in client.post(f"/entrega/{ent['token']}").data.decode()
+         and "ya se abrió" in client.get(f"/entrega/{ent['token']}").data.decode())
+html = client.get("/agenda").data.decode()
+chequear("la ficha dice que se abrió", "abierto el" in html)
+chequear("link inventado", client.get("/entrega/nada").status_code == 404 and client.post("/entrega/nada").status_code == 404)
+TABLAS["entregas"].append({"id": "venc", "tenant_id": "t1", "paciente_telefono": TELN, "ficha": "", "token": "tv2", "html": "secreto",
+                           "vence": "2026-01-01T00:00:00+00:00", "created_at": "x"})
+chequear("vencido no abre", "venció" in client.post("/entrega/tv2").data.decode() and "secreto" not in client.post("/entrega/tv2").data.decode())
+TABLAS["entregas"].append({"id": "ajena", "tenant_id": "t2", "paciente_telefono": TELN, "ficha": "", "token": "ta", "html": "x",
+                           "vence": "2099-01-01T00:00:00+00:00", "created_at": "y"})
+client.post("/agenda/entrega/ajena/borrar", data={})
+chequear("no anula links de otro", any(e["id"] == "ajena" for e in TABLAS["entregas"]))
+chequear("ni los muestra", "/entrega/ta\"" not in client.get("/agenda").data.decode())
+client.post("/agenda/entrega/venc/borrar", data={})
+chequear("anula los propios", not any(e["id"] == "venc" for e in TABLAS["entregas"]))
+chequear("ficha ajena no genera link", "No se encontró la ficha" in client.post("/agenda/paciente/ficha-completa/link", data={"telefono": "nada"}, follow_redirects=True).data.decode())
+
+TABLAS["tenants"][0]["firma_imagen"] = "data:image/png;base64,AAAA"
+mes = ahora.strftime("%Y-%m")
+const = client.post("/agenda/paciente/constancia", data={"telefono": TELN, "mes": mes}).data.decode()
+chequear("la constancia lleva la firma", 'alt="Firma"' in const)
+TABLAS["tenants"][0]["firma_imagen"] = None
+chequear("sin firma queda la línea", 'alt="Firma"' not in client.post("/agenda/paciente/constancia", data={"telefono": TELN, "mes": mes}).data.decode())
+
+TABLAS["biblioteca_cuestionarios"] += [
+    {"id": "b1", "autor_tenant_id": "t2", "autor": "Dra. Otra", "contenido": {**cuestionarios.para_biblioteca({**M, "items": ["x"] * 41}, False)},
+     "con_preguntas": False, "oculto": False, "created_at": "1"}]
+r = client.post("/agenda/biblioteca/b1/moderar/ocultar", data={})
+chequear("sin ser moderador no oculta", r.status_code == 403 and not TABLAS["biblioteca_cuestionarios"][0]["oculto"])
+TABLAS["tenants"][0]["moderador"] = True
+html = client.get("/agenda").data.decode()
+chequear("el moderador ve el botón", ">Ocultar</button>" in html)
+client.post("/agenda/biblioteca/b1/moderar/ocultar", data={})
+chequear("oculta y guarda quién", TABLAS["biblioteca_cuestionarios"][0]["oculto"] and TABLAS["biblioteca_cuestionarios"][0]["oculto_por"] == "Lic. Marcos")
+html = client.get("/agenda").data.decode()
+chequear("el moderador lo sigue viendo marcado", "oculto por moderación (Lic. Marcos)" in html and ">Mostrar</button>" in html)
+TABLAS["tenants"][0]["moderador"] = False
+html = client.get("/agenda").data.decode()
+chequear("los demás no lo ven", "Biblioteca compartida (0)" in html)
+html = client.post("/agenda/biblioteca/b1/agregar", data={}, follow_redirects=True).data.decode()
+chequear("ni lo pueden agregar", "ya no está en la biblioteca" in html)
+with client.session_transaction() as ses:
+    ses["tenant_id"] = "t2"
+html = client.get("/agenda").data.decode()
+chequear("la autora lo ve marcado", "oculto por moderación" in html and "(Lic. Marcos)" not in html)
+with client.session_transaction() as ses:
+    ses["tenant_id"] = "t1"
+TABLAS["tenants"][0]["moderador"] = True
+client.post("/agenda/biblioteca/b1/moderar/mostrar", data={})
+chequear("mostrar lo devuelve", not TABLAS["biblioteca_cuestionarios"][0]["oculto"] and TABLAS["biblioteca_cuestionarios"][0]["oculto_por"] is None)
+chequear("acción inventada", client.post("/agenda/biblioteca/b1/moderar/borrar", data={}).status_code == 403)
+TABLAS["tenants"][0]["moderador"] = False
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

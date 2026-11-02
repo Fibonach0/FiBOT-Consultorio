@@ -409,11 +409,20 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
             por_clave.setdefault(db.clave_de(c), []).append(c)
         for f in lista:
             f["cuestionarios"] = _cuestionarios_de_ficha(por_clave.get(f["clave"], []), tz, ahora)
+    por_clave_ent: dict[str, list[dict]] = {}
+    ahora_utc = datetime.now(ZoneInfo("UTC"))
+    for e in db.entregas(tenant["id"]):
+        e["_creada"] = datetime.fromisoformat(e["created_at"]).astimezone(tz).strftime("%d/%m %H:%M") if "T" in e["created_at"] else e["created_at"]
+        e["_abierta"] = datetime.fromisoformat(e["abierta_at"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if e.get("abierta_at") else None
+        e["_vencida"] = not e.get("abierta_at") and datetime.fromisoformat(e["vence"]) <= ahora_utc
+        e["link"] = url_for("entrega_publica", token=e["token"], _external=True)
+        por_clave_ent.setdefault(db.clave_de(e), []).append(e)
     por_clave_inf: dict[str, list[dict]] = {}
     for x in db.informes(tenant["id"]):
         x["fecha"] = datetime.fromisoformat(x["created_at"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if "T" in x["created_at"] else x["created_at"]
         por_clave_inf.setdefault(db.clave_de(x), []).append(x)
     for f in lista:
+        f["entregas"] = por_clave_ent.get(f["clave"], [])
         f["informes"] = por_clave_inf.get(f["clave"], [])
         for n, x in enumerate(reversed(f["informes"]), start=1):
             x["version"] = n
@@ -608,7 +617,8 @@ def agenda():
         "plantillas_informe": db.plantillas_informe(tenant["id"]),
         "biblioteca": [dict(e, propia=e["autor_tenant_id"] == tenant["id"],
                             titulo=e["contenido"]["nombre"] + (f" · {e['contenido']['version']}" if e["contenido"].get("version") else ""))
-                       for e in db.biblioteca()],
+                       for e in _biblioteca_visible(tenant)],
+        "moderador": bool(tenant.get("moderador")),
         "tests_para_repetir": [{"ficha": f, **t} for f in fichas for t in f.get("para_repetir") or []],
         "ventana_aviso": tests_sugeridos.VENTANA_AVISO,
         "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),
@@ -1583,10 +1593,28 @@ def agenda_plantilla_compartir(plantilla_id):
     return _volver_a_agenda()
 
 
+def _biblioteca_visible(tenant: dict) -> list[dict]:
+    """Lo oculto por moderación sólo lo ven los moderadores y la autora."""
+    return [e for e in db.biblioteca()
+            if not e.get("oculto") or tenant.get("moderador") or e["autor_tenant_id"] == tenant["id"]]
+
+
+@app.post("/agenda/biblioteca/<entrada_id>/moderar/<accion>")
+@login_required
+def agenda_biblioteca_moderar(entrada_id, accion):
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    if accion not in ("ocultar", "mostrar") or not tenant.get("moderador"):
+        return "No autorizado.", 403
+    db.moderar_biblioteca(entrada_id, accion == "ocultar", tenant["nombre"] if accion == "ocultar" else None)
+    flash("Se ocultó de la biblioteca." if accion == "ocultar" else "Volvió a la biblioteca.")
+    return _volver_a_agenda()
+
+
 @app.post("/agenda/biblioteca/<entrada_id>/agregar")
 @login_required
 def agenda_biblioteca_agregar(entrada_id):
-    entrada = next((e for e in db.biblioteca() if e["id"] == entrada_id), None)
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    entrada = next((e for e in _biblioteca_visible(tenant) if e["id"] == entrada_id), None)
     if not entrada:
         flash("Ese cuestionario ya no está en la biblioteca.")
         return _volver_a_agenda()
@@ -1709,13 +1737,86 @@ def agenda_ficha_completa():
     """Toda la ficha imprimible, para un cambio de profesional o si el
     paciente pide su historia. Por POST para que el teléfono no quede en la URL."""
     tenant = db.get_tenant_by_id(session["tenant_id"])
+    contexto = _contexto_ficha_completa(tenant, request.form.get("telefono") or "")
+    if not contexto:
+        return "No encontrado.", 404
+    return render_template("ficha_completa.html", **contexto, entrega=False)
+
+
+DIAS_ENTREGA = 7
+
+
+@app.post("/agenda/paciente/ficha-completa/link")
+@login_required
+def agenda_ficha_link():
+    """Copia fija de la ficha completa tal como está ahora, para abrir UNA vez
+    desde un link. Se guarda el HTML: lo que se entrega es lo que se revisó."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    clave = request.form.get("telefono") or ""
+    contexto = _contexto_ficha_completa(tenant, clave)
+    if not contexto:
+        flash("No se encontró la ficha.")
+        return _volver_a_agenda()
+    html = render_template("ficha_completa.html", **contexto, entrega=True)
+    vence = datetime.now(ZoneInfo("UTC")) + timedelta(days=DIAS_ENTREGA)
+    db.crear_entrega(tenant["id"], clave, cuestionarios.nuevo_token(), vence.isoformat(), html)
+    flash("Listo el link para entregar la ficha: copialo desde la pestaña Sesiones. Se abre una sola vez y vence en 7 días.")
+    return redirect(url_for("agenda"))
+
+
+@app.post("/agenda/entrega/<entrega_id>/borrar")
+@login_required
+def agenda_entrega_borrar(entrega_id):
+    db.borrar_entrega(session["tenant_id"], entrega_id)
+    flash("Se anuló el link.")
+    return _volver_a_agenda()
+
+
+def _sin_cache(respuesta):
+    respuesta.headers["Cache-Control"] = "no-store"
+    respuesta.headers["Referrer-Policy"] = "no-referrer"
+    respuesta.headers["X-Robots-Tag"] = "noindex"
+    return respuesta
+
+
+@app.get("/entrega/<token>")
+def entrega_publica(token):
+    """Sólo muestra el aviso: abrir consume el link y los previsualizadores
+    de WhatsApp o del mail hacen GET, así que abrir es un POST."""
+    e = db.entrega_por_token(token)
+    estado = _estado_entrega(e)
+    tenant = db.get_tenant_by_id(e["tenant_id"]) if e else None
+    return _sin_cache(app.make_response((render_template("entrega.html", tenant=tenant, estado=estado), 404 if not e else 200)))
+
+
+@app.post("/entrega/<token>")
+def entrega_abrir(token):
+    e = db.entrega_por_token(token)
+    estado = _estado_entrega(e)
+    tenant = db.get_tenant_by_id(e["tenant_id"]) if e else None
+    if estado != "lista" or not db.abrir_entrega(e["id"], datetime.now(ZoneInfo("UTC")).isoformat()):
+        return _sin_cache(app.make_response((render_template("entrega.html", tenant=tenant, estado=estado if estado != "lista" else "abierta"),
+                                             404 if not e else 200)))
+    return _sin_cache(app.make_response(e["html"]))
+
+
+def _estado_entrega(e: dict | None) -> str:
+    if not e:
+        return "no_existe"
+    if e.get("abierta_at"):
+        return "abierta"
+    if datetime.fromisoformat(e["vence"]) <= datetime.now(ZoneInfo("UTC")):
+        return "vencida"
+    return "lista"
+
+
+def _contexto_ficha_completa(tenant: dict, clave: str) -> dict | None:
     tz = _tz_de(tenant)
     ahora = datetime.now(tz)
     rubro = rubros.de(tenant)
-    clave = request.form.get("telefono") or ""
     ficha = next((f for f in _fichas(tenant, tz, ahora) if f["clave"] == clave), None)
     if not ficha:
-        return "No encontrado.", 404
+        return None
     datos = [("Nombre", ficha["nombre"]), ("Teléfono", ficha["telefono"]),
              ("Fecha de nacimiento", date.fromisoformat(ficha["fecha_nacimiento"]).strftime("%d/%m/%Y") if ficha.get("fecha_nacimiento") else None),
              ("Obra social", " · N° ".join(x for x in (ficha.get("obra_social"), ficha.get("numero_afiliado")) if x) or None),
@@ -1733,9 +1834,9 @@ def agenda_ficha_completa():
     sesiones = [{"fecha": datetime.fromisoformat(t["inicio"]).astimezone(tz).strftime("%d/%m/%Y %H:%M"),
                  "asistencia": asistencia.get(t.get("asistencia"), "—" if datetime.fromisoformat(t["inicio"]) <= ahora else "próxima"),
                  "nota": t.get("nota") or ""} for t in ficha["sesiones"]]
-    return render_template("ficha_completa.html", tenant=tenant, ficha=ficha, rubro=rubro, hoy=ahora.strftime("%d/%m/%Y"),
-                           datos=[(k, v) for k, v in datos if v], textos=[(k, v) for k, v in textos if v], sesiones=sesiones,
-                           inf=informe.armar(ficha, rubro, ahora.date()))
+    return dict(tenant=tenant, ficha=ficha, rubro=rubro, hoy=ahora.strftime("%d/%m/%Y"),
+                datos=[(k, v) for k, v in datos if v], textos=[(k, v) for k, v in textos if v], sesiones=sesiones,
+                inf=informe.armar(ficha, rubro, ahora.date()))
 
 
 @app.post("/agenda/paciente/informe/guardar")

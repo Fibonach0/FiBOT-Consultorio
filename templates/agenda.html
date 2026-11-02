@@ -615,13 +615,21 @@
         <div class="tenue" style="margin:6px 0">Cuestionarios que otras profesionales eligieron compartir. Los que dicen «sin preguntas» traen sólo la corrección: pegás el texto desde tu copia.</div>
         {% for e in biblioteca %}
         <div class="ficha-item">
-          <span><strong>{{ e.titulo }}</strong> <span class="tenue">{{ e.contenido["items"]|length }} preguntas · {{ 'con preguntas' if e.con_preguntas else 'sin preguntas' }} · compartido por {{ 'vos' if e.propia else e.autor }}</span></span>
+          <span><strong>{{ e.titulo }}</strong> <span class="tenue">{{ e.contenido["items"]|length }} preguntas · {{ 'con preguntas' if e.con_preguntas else 'sin preguntas' }} · compartido por {{ 'vos' if e.propia else e.autor }}</span>
+            {% if e.oculto %}<span class="chip chip-alerta">oculto por moderación{% if moderador %} ({{ e.oculto_por }}){% endif %}</span>{% endif %}</span>
           <span style="display:flex;gap:6px">
             <form method="post" action="{{ url_for('agenda_biblioteca_agregar', entrada_id=e.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
               {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
               <button class="btn chico secundario" type="submit">Agregar</button>
             </form>
+            {% if moderador %}
+            <form method="post" action="{{ url_for('agenda_biblioteca_moderar', entrada_id=e.id, accion='mostrar' if e.oculto else 'ocultar') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+              <button class="btn chico secundario" type="submit">{{ 'Mostrar' if e.oculto else 'Ocultar' }}</button>
+            </form>
+            {% endif %}
             {% if e.propia %}
             <form method="post" action="{{ url_for('agenda_biblioteca_retirar', entrada_id=e.id) }}">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -1036,6 +1044,20 @@
         <button class="btn chico secundario" type="submit">Ficha completa en PDF</button>
         <span class="tenue">Todo lo cargado, para un cambio de profesional o si el paciente pide su historia.</span>
       </form>
+      {% for e in f.entregas %}
+      <div class="ficha-item">
+        <span>Link de entrega <span class="tenue">· creado el {{ e._creada }} ·
+          {% if e._abierta %}abierto el {{ e._abierta }}{% elif e._vencida %}venció sin abrirse{% else %}sin abrir{% endif %}</span>
+          {% if not e._abierta and not e._vencida %}<br>
+          <input type="text" readonly value="{{ e.link }}" aria-label="Link de entrega" onclick="this.select()" style="font-size:.75rem;padding:4px 6px">
+          <button class="btn chico secundario" type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(() => this.textContent = 'Copiado')">Copiar link</button>{% endif %}
+        </span>
+        <form method="post" action="{{ url_for('agenda_entrega_borrar', entrega_id=e.id) }}">
+          {{ ocultos(f.clave) }}
+          <button class="quitar" type="submit" aria-label="Anular link" onclick="return confirm('¿Anular este link?')">×</button>
+        </form>
+      </div>
+      {% endfor %}
       {% for x in f.informes %}
       <div class="ficha-item">
         <span>Versión {{ x.version }} · {{ x.contenido.titulo }} <span class="tenue">{{ x.fecha }}</span></span>
