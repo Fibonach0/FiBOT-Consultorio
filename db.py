@@ -796,6 +796,21 @@ def borrar_cuestionario(tenant_id: str, cuestionario_id: str) -> None:
     _client.table("cuestionarios").delete().eq("tenant_id", tenant_id).eq("id", cuestionario_id).execute()
 
 
+def informes(tenant_id: str) -> list[dict]:
+    res = _client.table("informes").select("*").eq("tenant_id", tenant_id).order("created_at", desc=True).execute()
+    return res.data
+
+
+def agregar_informe(tenant_id: str, clave: str, contenido: dict) -> None:
+    telefono, ficha = partir_clave(clave)
+    _client.table("informes").insert(
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha, "contenido": contenido}).execute()
+
+
+def borrar_informe(tenant_id: str, informe_id: str) -> None:
+    _client.table("informes").delete().eq("tenant_id", tenant_id).eq("id", informe_id).execute()
+
+
 def borrar_test(tenant_id: str, test_id: str) -> None:
     _client.table("paciente_tests").delete().eq("tenant_id", tenant_id).eq("id", test_id).execute()
 

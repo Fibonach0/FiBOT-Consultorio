@@ -257,7 +257,9 @@ mismo link pero son preguntas abiertas de redacción propia: no se corrigen.
 `templates/registro.html` cuenta aciertos/errores y tiempo por subprueba y guarda
 por la misma ruta que «Cargar resultados» (como `bruto`), sumando lo que ya había.
 `informe.py` arma el borrador con reglas locales (nada sale a servicios externos)
-y `templates/informe.html` se edita en pantalla y NO se guarda. `tests_sugeridos.
+y `templates/informe.html` se edita en pantalla. «Guardar en la ficha» manda el
+contenido como JSON (`informe.leer_guardado` lo limpia) a `informes`
+(`migrations/032`): cada guardado es una versión nueva, nunca se pisa. `tests_sugeridos.
 para_repetir` avisa durante `VENTANA_AVISO` días desde que vence el plazo; el
 resumen de WhatsApp cuenta sólo los que vencen hoy (sale una vez por día).
 

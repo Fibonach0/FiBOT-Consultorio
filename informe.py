@@ -68,12 +68,49 @@ def armar(ficha: dict, rubro: dict, hoy: date) -> dict:
     if rubro.get("escuela"):
         datos += [("Escuela", ficha.get("escuela")), ("Grado", ficha.get("grado"))]
     datos.append(("En tratamiento desde", ficha.get("desde")))
+    tests = frases_tests(ficha.get("tests_por_test") or [])
+    lectura = frases_fluidez(ficha.get("fluidez") or {})
+    cuestionarios = frases_cuestionarios(ficha.get("cuestionarios") or {})
+    secciones = [{"titulo": "Motivo de consulta", "texto": ficha.get("motivo_consulta") or "", "vacio": "Por qué consultan y quién deriva."}]
+    if tests:
+        secciones.append({"titulo": "Evaluación", "texto": "\n".join(tests), "vacio": ""})
+    if lectura:
+        secciones.append({"titulo": "Lectura", "texto": "\n".join(lectura), "vacio": ""})
+    if cuestionarios:
+        secciones.append({"titulo": "Cuestionarios", "texto": "\n".join(cuestionarios), "vacio": ""})
+    secciones += [
+        {"titulo": "Objetivos de trabajo", "texto": ficha.get("objetivos") or "", "vacio": "Qué se está trabajando."},
+        {"titulo": "Conclusiones", "texto": "", "vacio": "Escribí acá tus conclusiones."},
+        {"titulo": "Sugerencias", "texto": "", "vacio": "Para la familia, la escuela u otros profesionales."},
+    ]
     return {
         "titulo": "Informe psicopedagógico" if rubro.get("tests") else "Informe psicológico",
         "datos": [(k, v) for k, v in datos if v],
-        "motivo": ficha.get("motivo_consulta") or "",
-        "tests": frases_tests(ficha.get("tests_por_test") or []),
-        "fluidez": frases_fluidez(ficha.get("fluidez") or {}),
-        "cuestionarios": frases_cuestionarios(ficha.get("cuestionarios") or {}),
-        "objetivos": ficha.get("objetivos") or "",
+        "tests": tests,
+        "fluidez": lectura,
+        "cuestionarios": cuestionarios,
+        "secciones": secciones,
     }
+
+
+MAX_SECCIONES = 30
+MAX_TITULO = 120
+MAX_TEXTO = 20000
+
+
+def leer_guardado(crudo: str) -> tuple[dict | None, str | None]:
+    """Lo que manda la pantalla al guardar (JSON) → contenido limpio o error."""
+    import json
+    try:
+        datos = json.loads(crudo or "")
+        titulo = str(datos["titulo"]).strip()[:MAX_TITULO]
+        secciones = [{"titulo": str(x["titulo"]).strip()[:MAX_TITULO], "texto": str(x["texto"]).strip()[:MAX_TEXTO]}
+                     for x in datos["secciones"]]
+        filas = [[str(k)[:60], str(v)[:200]] for k, v in datos.get("datos") or []]
+    except (ValueError, KeyError, TypeError):
+        return None, "El informe llegó incompleto. Probá de nuevo."
+    if not titulo or len(secciones) > MAX_SECCIONES:
+        return None, "El informe llegó incompleto. Probá de nuevo."
+    if not any(x["texto"] for x in secciones):
+        return None, "El informe está vacío."
+    return {"titulo": titulo, "datos": filas, "secciones": secciones}, None
