@@ -495,6 +495,7 @@
       <div><label>Tu WhatsApp para avisos</label><input type="text" name="telefono" placeholder="54 9 11 2345 6789" value="{{ tenant.aviso_telefono or '' }}"></div>
       <div><label>Link de videollamada</label><input type="text" name="link_videollamada" placeholder="https://meet.google.com/..." value="{{ tenant.link_videollamada or '' }}"></div>
       <div><label>Matrícula</label><input type="text" name="matricula" value="{{ tenant.matricula or '' }}"></div>
+      <div><label>Tu mail (para recuperar la clave)</label><input type="email" name="email" autocomplete="email" value="{{ tenant.email or '' }}"></div>
       <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
     </form>
     <details>
@@ -518,6 +519,33 @@
       </form>
       {% endif %}
       <div class="tenue">Si ves una que no reconocés, cerrala y cambiá la clave.</div>
+    </details>
+    <details>
+      <summary class="tenue">Llaves de acceso ({{ mis_llaves|length }}) ▾</summary>
+      <p class="tenue">Entrás con la huella, la cara o el PIN del celular o la compu, sin escribir la clave. Agregá una en cada dispositivo que uses.</p>
+      {% for x in mis_llaves %}
+      <div class="ficha-item">
+        <span><strong>{{ x.nombre or 'Llave' }}</strong> <span class="tenue">· creada el {{ x._creada }} · último uso {{ x._ultima }}</span></span>
+        <form method="post" action="{{ url_for('agenda_llave_borrar', llave_id=x.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="quitar" type="submit" aria-label="Borrar llave" onclick="return confirm('¿Borrar esta llave?')">×</button>
+        </form>
+      </div>
+      {% endfor %}
+      <button class="btn chico secundario" type="button" id="llave-agregar">Agregar llave en este dispositivo</button>
+      <div class="tenue" id="llave-estado" style="margin-top:6px"></div>
+      {% include "_llaves_js.html" %}
+      <script>
+      (() => {
+        const b = document.getElementById('llave-agregar');
+        if (!fibotLlaves.disponible()) { b.disabled = true; document.getElementById('llave-estado').textContent = 'Este navegador no admite llaves de acceso.'; return; }
+        b.addEventListener('click', async () => {
+          const r = await fibotLlaves.registrar('{{ csrf_token() }}');
+          if (r.ok) location.reload(); else document.getElementById('llave-estado').textContent = r.error || 'No se pudo.';
+        });
+      })();
+      </script>
     </details>
     <details>
       <summary class="tenue">Doble factor{% if tenant.totp_secreto %} (activado){% endif %} ▾</summary>

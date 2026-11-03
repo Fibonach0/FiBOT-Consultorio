@@ -65,3 +65,9 @@ RECORDATORIO_PAGO_TEMPLATE = os.environ.get("RECORDATORIO_PAGO_TEMPLATE", "")
 #   {{1}} nombre del profesional      {{2}} cuándo es      {{3}} link para reservar
 # Vacía = texto libre, con la misma limitación de las 24 h.
 LISTA_ESPERA_TEMPLATE = os.environ.get("LISTA_ESPERA_TEMPLATE", "")
+
+# Mails (recuperar la clave). Proveedor: Resend (API HTTP). Sin las dos
+# variables, el sistema no manda mails y la recuperación sigue siendo por
+# el link que genera administración.
+RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
+MAIL_REMITENTE = os.environ.get("MAIL_REMITENTE", "")  # ej. "FiBOT Consultorio <avisos@tudominio.com>"

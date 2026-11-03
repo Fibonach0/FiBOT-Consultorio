@@ -34,6 +34,11 @@ import rubros
 import cuestionarios
 import fluidez
 import informe
+import mail
+import webauthn
+from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
+from webauthn.helpers.structs import (AuthenticatorSelectionCriteria, PublicKeyCredentialDescriptor,
+                                      ResidentKeyRequirement, UserVerificationRequirement)
 import resultados_tests
 import tests_sugeridos
 from fechas import alerta_de_seguimiento, proxima_vez, sesiones_que_quedan
@@ -182,9 +187,33 @@ def login():
     return render_template("login.html", error=None)
 
 
-@app.get("/olvide-la-clave")
+VIGENCIA_LINK_MAIL = timedelta(hours=1)
+
+
+@app.route("/olvide-la-clave", methods=["GET", "POST"])
 def olvide_clave():
-    return render_template("olvide.html")
+    """Con mail configurado, manda un link de una hora. La respuesta es
+    siempre la misma: no dice si el usuario o el mail existen."""
+    if request.method == "GET" or not mail.disponible():
+        return render_template("olvide.html", por_mail=mail.disponible(), enviado=False, error=None)
+    dato = (request.form.get("dato") or "").strip()
+    claves = _claves_de_intento(f"olvido:{dato.casefold()}")
+    bloqueo = _bloqueo_login(claves)
+    if bloqueo:
+        return render_template("olvide.html", por_mail=True, enviado=False, error=bloqueo), 429
+    _registrar_fallo(claves)  # cada pedido cuenta: limita los mails por usuario y por IP
+    tenant = db.tenant_por_email(dato) if "@" in dato else db.get_tenant_by_panel_user(dato)
+    if dato and tenant and tenant.get("email"):
+        token = seguridad.nuevo_token()
+        db.crear_enlace_clave(seguridad.hash_token(token), tenant["id"],
+                              (datetime.now(ZoneInfo("UTC")) + VIGENCIA_LINK_MAIL).isoformat())
+        link = url_for("clave_nueva", token=token, _external=True)
+        mail.enviar(tenant["email"], "Clave nueva para FiBOT Consultorio",
+                    f"Hola. Pediste poner una clave nueva para tu panel de FiBOT Consultorio.\n\n"
+                    f"Entrá a este link (sirve una sola vez y vence en una hora):\n{link}\n\n"
+                    "Si no lo pediste vos, ignorá este mail: tu clave sigue igual.")
+        db.registrar_actividad(tenant["nombre"], "pidió recuperar la clave por mail", tenant["id"])
+    return render_template("olvide.html", por_mail=True, enviado=True, error=None)
 
 
 @app.route("/clave-nueva/<token>", methods=["GET", "POST"])
@@ -312,6 +341,104 @@ def login_codigo():
     siguiente = _siguiente_seguro(session.get("siguiente"))
     _abrir_sesion(tenant, "clave y código")
     return redirect(siguiente or url_for("agenda"))
+
+
+# --- Llaves de acceso (passkeys / WebAuthn) ---
+# La llave queda en el celular o la compu (huella, cara o PIN del dispositivo);
+# acá sólo se guarda la clave pública. Exigimos verificación del usuario, así
+# que la llave vale por clave + segundo factor.
+
+def _rp() -> tuple[str, str]:
+    """(rp_id, origen) del sitio tal como lo ve el navegador."""
+    return request.host.split(":")[0], f"{request.scheme}://{request.host}"
+
+
+@app.post("/agenda/llaves/opciones")
+@login_required
+def agenda_llave_opciones():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    rp_id, _ = _rp()
+    opciones = webauthn.generate_registration_options(
+        rp_id=rp_id, rp_name="FiBOT Consultorio", user_name=tenant["panel_user"], user_display_name=tenant["nombre"],
+        user_id=tenant["id"].encode(),
+        authenticator_selection=AuthenticatorSelectionCriteria(resident_key=ResidentKeyRequirement.REQUIRED,
+                                                               user_verification=UserVerificationRequirement.REQUIRED),
+        exclude_credentials=[PublicKeyCredentialDescriptor(id=base64url_to_bytes(x["id"])) for x in db.llaves_de(tenant["id"])])
+    session["llave_reto"] = bytes_to_base64url(opciones.challenge)
+    return app.response_class(webauthn.options_to_json(opciones), mimetype="application/json")
+
+
+@app.post("/agenda/llaves/registrar")
+@login_required
+def agenda_llave_registrar():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    reto = session.pop("llave_reto", None)
+    rp_id, origen = _rp()
+    try:
+        if not reto:
+            raise ValueError("sin reto pendiente")
+        v = webauthn.verify_registration_response(credential=request.form.get("credencial") or "",
+                                                  expected_challenge=base64url_to_bytes(reto or ""),
+                                                  expected_rp_id=rp_id, expected_origin=origen,
+                                                  require_user_verification=True)
+    except Exception:
+        logger.info("Registro de llave rechazado", exc_info=True)
+        return jsonify(ok=False, error="No se pudo guardar la llave. Probá de nuevo."), 400
+    nombre = seguridad.dispositivo(request.headers.get("User-Agent"))
+    db.agregar_llave({"id": bytes_to_base64url(v.credential_id), "tenant_id": tenant["id"],
+                      "clave_publica": bytes_to_base64url(v.credential_public_key), "contador": v.sign_count,
+                      "nombre": nombre})
+    db.registrar_actividad(tenant["nombre"], f"agregó una llave de acceso ({nombre})", tenant["id"])
+    return jsonify(ok=True)
+
+
+@app.post("/agenda/llaves/<path:llave_id>/borrar")
+@login_required
+def agenda_llave_borrar(llave_id):
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    db.borrar_llave(tenant["id"], llave_id)
+    db.registrar_actividad(tenant["nombre"], "borró una llave de acceso", tenant["id"])
+    flash("Se borró la llave. Borrala también del celular o la compu si ya no la usás.")
+    return _volver_a_agenda()
+
+
+@app.post("/login/llave/opciones")
+def login_llave_opciones():
+    rp_id, _ = _rp()
+    opciones = webauthn.generate_authentication_options(rp_id=rp_id, user_verification=UserVerificationRequirement.REQUIRED)
+    session["llave_reto_login"] = bytes_to_base64url(opciones.challenge)
+    return app.response_class(webauthn.options_to_json(opciones), mimetype="application/json")
+
+
+@app.post("/login/llave")
+def login_llave():
+    claves = [f"ip:{request.remote_addr or 'desconocida'}"]
+    bloqueo = _bloqueo_login(claves)
+    if bloqueo:
+        return jsonify(ok=False, error=bloqueo), 429
+    reto = session.pop("llave_reto_login", None)
+    crudo = request.form.get("credencial") or ""
+    try:
+        llave_id = json.loads(crudo)["id"]
+    except (ValueError, KeyError, TypeError):
+        llave_id = ""
+    fila = db.llave(llave_id) if llave_id else None
+    tenant = db.get_tenant_by_id(fila["tenant_id"]) if fila else None
+    rp_id, origen = _rp()
+    try:
+        if not (fila and tenant and tenant.get("activo") is not False and reto):
+            raise ValueError("llave desconocida")
+        v = webauthn.verify_authentication_response(credential=crudo, expected_challenge=base64url_to_bytes(reto),
+                                                    expected_rp_id=rp_id, expected_origin=origen,
+                                                    credential_public_key=base64url_to_bytes(fila["clave_publica"]),
+                                                    credential_current_sign_count=fila["contador"] or 0,
+                                                    require_user_verification=True)
+    except Exception:
+        _registrar_fallo(claves)
+        return jsonify(ok=False, error="No se reconoció la llave. Probá de nuevo o entrá con tu clave."), 400
+    db.usar_llave(fila["id"], v.new_sign_count, datetime.now(ZoneInfo("UTC")).isoformat())
+    _abrir_sesion(tenant, "llave de acceso")
+    return jsonify(ok=True, destino=url_for("agenda"))
 
 
 # --- Entrar leyendo un QR con el celular ---
@@ -536,7 +663,8 @@ def admin_alta():
     if error:
         flash(error)
         return redirect(url_for("admin_panel"))
-    db.crear_tenant({"nombre": nombre, "rubro": rubro, "slug": slug, "panel_user": panel_user,
+    email = (f.get("email") or "").strip() or None
+    db.crear_tenant({"nombre": nombre, "rubro": rubro, "slug": slug, "panel_user": panel_user, "email": email,
                      "panel_pass_hash": bcrypt.hashpw(clave.encode(), bcrypt.gensalt()).decode(),
                      "timezone": "America/Argentina/Buenos_Aires", "duracion_turno_minutos": 50,
                      "recordatorio_horas_antes": 24})
@@ -1177,6 +1305,9 @@ def agenda():
                        for e in _biblioteca_visible(tenant)],
         "moderador": bool(tenant.get("moderador")),
         "bloqueo_reciente": _bloqueo_reciente(tenant, tz),
+        "mis_llaves": [dict(x, _creada=datetime.fromisoformat(x["creada"]).astimezone(tz).strftime("%d/%m/%Y"),
+                            _ultima=datetime.fromisoformat(x["ultima"]).astimezone(tz).strftime("%d/%m %H:%M") if x.get("ultima") else "nunca")
+                       for x in db.llaves_de(tenant["id"])],
         "mis_sesiones": [dict(x, actual=x["id"] == session.get("sesion_id"),
                               _desde=datetime.fromisoformat(x["creada"]).astimezone(tz).strftime("%d/%m %H:%M"),
                               _ultima=datetime.fromisoformat(x["ultima"]).astimezone(tz).strftime("%d/%m %H:%M"))
@@ -1540,6 +1671,12 @@ def agenda_avisos():
         campos["aviso_telefono"] = "".join(ch for ch in request.form["telefono"] if ch.isdigit()) or None
     if "matricula" in request.form:
         campos["matricula"] = request.form["matricula"].strip() or None
+    if "email" in request.form:
+        email = request.form["email"].strip()
+        if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            flash("Ese mail no parece válido.")
+            return _volver_a_agenda()
+        campos["email"] = email or None
     if "link_videollamada" in request.form:
         link = request.form["link_videollamada"].strip()
         if link and not link.startswith("https://"):

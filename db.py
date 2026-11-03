@@ -1070,6 +1070,47 @@ def usar_qr_login(token_hash: str, cuando: str) -> bool:
     return bool(res.data)
 
 
+def tenant_por_email(email: str) -> dict | None:
+    res = _client.table("tenants").select("*").ilike("email", email).eq("activo", True).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def llaves_de(tenant_id: str) -> list[dict]:
+    res = _client.table("llaves_acceso").select("*").eq("tenant_id", tenant_id).order("creada").execute()
+    return res.data
+
+
+def llave(llave_id: str) -> dict | None:
+    res = _client.table("llaves_acceso").select("*").eq("id", llave_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def agregar_llave(datos: dict) -> None:
+    from datetime import datetime, timezone
+    _client.table("llaves_acceso").insert({"creada": datetime.now(timezone.utc).isoformat(), **datos}).execute()
+
+
+def usar_llave(llave_id: str, contador: int, cuando: str) -> None:
+    _client.table("llaves_acceso").update({"contador": contador, "ultima": cuando}).eq("id", llave_id).execute()
+
+
+def borrar_llave(tenant_id: str, llave_id: str) -> None:
+    _client.table("llaves_acceso").delete().eq("tenant_id", tenant_id).eq("id", llave_id).execute()
+
+
+def limpiar_vencidos(ahora: str, hace_un_dia: str, hace_una_semana: str, hace_un_mes: str, hace_tres_meses: str,
+                     hace_un_anio: str) -> None:
+    """Limpieza diaria: lo que ya no sirve para nada. Nunca toca datos de pacientes."""
+    _client.table("qr_logins").delete().lt("vence", hace_un_dia).execute()
+    _client.table("enlaces_clave").delete().lt("vence", hace_una_semana).execute()
+    _client.table("sesiones").delete().lt("ultima", hace_un_mes).execute()
+    _client.table("login_intentos").delete().lt("ultimo", hace_un_dia).execute()
+    # Entregas viejas: queda la fila (para la ficha) pero se borra la copia de la ficha.
+    _client.table("entregas").update({"html": ""}).lt("vence", hace_tres_meses).neq("html", "").execute()
+    _client.table("cuestionarios").delete().is_("respondido_at", "null").lt("vence", hace_tres_meses).execute()
+    _client.table("actividad").delete().lt("cuando", hace_un_anio).execute()
+
+
 def guardar_totp_tenant(tenant_id: str, campos: dict) -> None:
     _client.table("tenants").update(campos).eq("id", tenant_id).execute()
 
