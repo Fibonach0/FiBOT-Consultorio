@@ -72,6 +72,10 @@ Hay que tener esos campos suscriptos en el webhook de la app en Meta.
 el teléfono ficticio `app.SIMULADO` y no manda nada por WhatsApp, pero lo que
 hace el bot es real; «Deshacer» libera sus turnos futuros sin registrarlos como
 cancelación. La charla vive en la sesión del admin.
+«Como si fuera otro día» (`scheduler.vista_previa`) arma el resumen diario y la
+lista de recordatorios de una cuenta para una fecha y hora dadas, sin mandar ni
+marcar nada (`db.turnos_para_recordar` acepta `ahora`). Sin nombres de
+pacientes: sólo los últimos 4 dígitos.
 
 **Celulares argentinos y el 131030**: se manda con el 9 (549…), que es lo
 normal. Si Meta contesta 131030 («no está en la lista de autorizados»),
@@ -93,7 +97,10 @@ Dos consecuencias que hay que tener presentes al vender esto:
   (`RESPUESTA_SIN_DESTINO`, sin nombrar a ningún profesional) y queda en
   `mensajes_sin_destino` (`migrations/046`: últimos 4 dígitos + hash, nunca el
   número ni el texto; se borra a los 30 días), que administración ve en
-  «Escribieron sin turno». Por eso el camino de
+  «Escribieron sin turno». El texto se edita ahí (`ajustes_plataforma`,
+  clave `respuesta_sin_destino`; vacío = el de fábrica) y `{link}` se cambia
+  por la página pública sólo si hay UN profesional activo sin número propio y
+  con slug (`app._link_sin_destino`). Por eso el camino de
   entrada de un tenant sin número propio es la **página pública `/<slug>`**,
   no el WhatsApp — primero reserva, después puede escribir.
 - Como el número no es del profesional, todo lo que sale por ahí **lo nombra**:
