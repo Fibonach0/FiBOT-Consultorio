@@ -2801,7 +2801,8 @@ _cfg.RECORDATORIO_TEMPLATE, _cfg.REPROGRAMADO_TEMPLATE, _cfg.WHATSAPP_SOLO_A = "
 html = celu_adm.get("/admin/whatsapp").data.decode()
 chequear("pasos: número", "+1 555 000" in html and "calidad alta" in html)
 chequear("pasos: sin suscripción y cómo arreglarlo", "«FiBOT - Consultorio» NO está suscripta" in html and "WABA1/subscribed_apps" in html)
-chequear("pasos: plantillas", "Recordatorio (recordatorio_turno): aprobada" in html and "Reprogramado (turno_reprogramado): en revisión" in html)
+chequear("pasos: plantillas", "Recordatorio (recordatorio_turno): aprobada" in html and "Reprogramado (turno_reprogramado): en revisión" in html
+         and "Sólo falta que Meta las apruebe" in html)
 chequear("pasos: freno", "terminados en …3333" in html)
 chequear("la página nunca muestra el token", "token-real-de-prueba" not in html)
 chequear("la prueba pide CSRF", celu_adm.post("/admin/whatsapp/prueba", data={"telefono": "5491122223333"}).status_code in (400, 403))

@@ -219,8 +219,16 @@ def diagnostico(ultimo_webhook: str | None = None, ultimo_mensaje: str | None = 
                 estado = estados.get(t["status"], t["status"].lower()) if t else "no existe en Meta"
                 todas = todas and bool(t) and t["status"] == "APPROVED"
                 partes.append(f"{uso} ({nombre}): {estado}")
-            pasos.append(paso("Plantillas", todas, " · ".join(partes) + ".",
-                              "" if todas else "WhatsApp Manager → Plantillas: creálas con los mismos nombres, en es_AR, categoría Utilidad."))
+            faltan = [n for n in configuradas.values() if n not in en_meta]
+            rechazadas = [n for n in configuradas.values() if n in en_meta and en_meta[n]["status"] in ("REJECTED", "PAUSED", "DISABLED")]
+            if todas:
+                como = ""
+            elif faltan or rechazadas:
+                como = ("WhatsApp Manager → Plantillas: " + (f"creá {', '.join(faltan)} con el mismo nombre, en es_AR, categoría Utilidad. " if faltan else "")
+                        + (f"Revisá por qué Meta frenó {', '.join(rechazadas)} y corregila." if rechazadas else ""))
+            else:
+                como = "Sólo falta que Meta las apruebe: suele tardar de minutos a un día. Recargá más tarde."
+            pasos.append(paso("Plantillas", todas, " · ".join(partes) + ".", como.strip()))
         else:
             pasos.append(paso("Plantillas", False, f"No se pudo revisar: {d}"))
 
