@@ -235,6 +235,9 @@ def reset():
     TABLAS["biblioteca_cuestionarios"] = []
     TABLAS["entregas"] = []
     TABLAS["admins"] = []
+    TABLAS["eventos_plataforma"] = []
+    TABLAS["ajustes_plataforma"] = []
+    TABLAS["plantillas_meta"] = []
     TABLAS["login_intentos"] = []
     TABLAS.setdefault("sesiones", [])  # sobreviven a reset(): los clientes de prueba siguen logueados
     TABLAS["actividad"] = []
@@ -2800,7 +2803,7 @@ _cfg.META_ACCESS_TOKEN, _cfg.PLATAFORMA_PHONE_NUMBER_ID, _cfg.META_WABA_ID = "to
 _cfg.RECORDATORIO_TEMPLATE, _cfg.REPROGRAMADO_TEMPLATE, _cfg.WHATSAPP_SOLO_A = "recordatorio_turno", "turno_reprogramado", ["5491122223333"]
 html = celu_adm.get("/admin/whatsapp").data.decode()
 chequear("pasos: número", "+1 555 000" in html and "calidad alta" in html)
-chequear("pasos: sin suscripción y cómo arreglarlo", "«FiBOT - Consultorio» NO está suscripta" in html and "WABA1/subscribed_apps" in html)
+chequear("pasos: sin suscripción y cómo arreglarlo", "«FiBOT - Consultorio» NO está suscripta" in html and "Tocá «Suscribir la app»" in html)
 chequear("pasos: plantillas", "Recordatorio (recordatorio_turno): aprobada" in html and "Reprogramado (turno_reprogramado): en revisión" in html
          and "Sólo falta que Meta las apruebe" in html)
 chequear("pasos: freno", "terminados en …3333" in html)
@@ -2808,7 +2811,7 @@ chequear("la página nunca muestra el token", "token-real-de-prueba" not in html
 chequear("la prueba pide CSRF", celu_adm.post("/admin/whatsapp/prueba", data={"telefono": "5491122223333"}).status_code in (400, 403))
 celu_adm.post("/admin/whatsapp/prueba", data={"csrf_token": "tok", "telefono": "+54 9 11 9999-0000"})
 html = celu_adm.get("/admin/whatsapp").data.decode()
-chequear("prueba frenada", "no está en WHATSAPP_SOLO_A" in html and not enviados)
+chequear("prueba frenada", "no está en el freno de envíos" in html and not enviados)
 celu_adm.post("/admin/whatsapp/prueba", data={"csrf_token": "tok", "telefono": "5491122223333"})
 html = celu_adm.get("/admin/whatsapp").data.decode()
 chequear("prueba aceptada", "Meta aceptó «hello_world»" in html and enviados[-1]["template"] == {"name": "hello_world", "language": {"code": "en_US"}})
@@ -2819,6 +2822,78 @@ celu_adm.post("/admin/whatsapp/prueba", data={"csrf_token": "tok", "telefono": "
 html = celu_adm.get("/admin/whatsapp").data.decode()
 chequear("rechazo de Meta con detalle", "Meta lo rechazó: No autorizado (código 131030)" in html)
 chequear("la prueba queda en la actividad", any("WhatsApp de prueba" in a["accion"] for a in TABLAS["actividad"]))
+# suscribir la app
+import hashlib  # noqa: E402
+import hmac  # noqa: E402
+
+suscripciones = []
+_wa.requests.post = lambda url, headers=None, json=None, timeout=None: suscripciones.append(url) or _R(200, {"success": True})
+chequear("suscribir pide CSRF", celu_adm.post("/admin/whatsapp/suscribir").status_code in (400, 403) and not suscripciones)
+celu_adm.post("/admin/whatsapp/suscribir", data={"csrf_token": "tok"})
+chequear("suscribe a la cuenta", suscripciones == [f"https://graph.facebook.com/{_cfg.META_GRAPH_VERSION}/WABA1/subscribed_apps"]
+         and "Meta confirmó la suscripción" in celu_adm.get("/admin/whatsapp").data.decode())
+_wa.requests.post = lambda url, headers=None, json=None, timeout=None: _R(400, {"error": {"message": "x", "code": 100}})
+celu_adm.post("/admin/whatsapp/suscribir", data={"csrf_token": "tok"})
+chequear("si Meta rechaza, lo dice", "Meta no la suscribió: x (código 100)" in celu_adm.get("/admin/whatsapp").data.decode())
+
+# ajustes desde administración
+TABLAS["ajustes_plataforma"] = []
+_wa._DE_RAILWAY.update({"phone_number_id": "PN_RAILWAY", "waba_id": "", "solo_a": "", "aviso_admin": ""})
+celu_adm.post("/admin/whatsapp/ajustes", data={"csrf_token": "tok", "phone_number_id": "PN 777", "waba_id": "888",
+                                               "solo_a": "+54 9 11 2222-3333, 5491144445555", "aviso_admin": "5491122223333"})
+chequear("ajustes: se aplican sin deploy", _cfg.PLATAFORMA_PHONE_NUMBER_ID == "777" and _cfg.META_WABA_ID == "888"
+         and _cfg.WHATSAPP_SOLO_A == ["5491122223333", "5491144445555"] and _wa.aviso_admin == "5491122223333")
+chequear("ajustes: quedan guardados", {f["clave"]: f["valor"] for f in TABLAS["ajustes_plataforma"]}["phone_number_id"] == "777")
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("ajustes: dice de dónde viene cada uno", "hoy viene de administración" in html)
+_cfg.PLATAFORMA_PHONE_NUMBER_ID = "otro"
+_wa.cargar_ajustes()
+chequear("ajustes: se cargan al arrancar", _cfg.PLATAFORMA_PHONE_NUMBER_ID == "777")
+celu_adm.post("/admin/whatsapp/ajustes", data={"csrf_token": "tok", "solo_a": "123"})
+chequear("ajustes: teléfono incompleto no se guarda", "Los teléfonos van completos" in celu_adm.get("/admin/whatsapp").data.decode()
+         and _cfg.PLATAFORMA_PHONE_NUMBER_ID == "777")
+celu_adm.post("/admin/whatsapp/ajustes", data={"csrf_token": "tok"})
+chequear("ajustes: vacío vuelve a Railway", _cfg.PLATAFORMA_PHONE_NUMBER_ID == "PN_RAILWAY" and _cfg.WHATSAPP_SOLO_A == []
+         and _wa.origen("phone_number_id") == "Railway" and _wa.origen("waba_id") == "")
+chequear("ajustes: quedan en la actividad", any("cambió los ajustes de WhatsApp" in a["accion"] for a in TABLAS["actividad"]))
+
+# aviso de Meta: plantilla aprobada o rechazada
+TABLAS["plantillas_meta"] = []
+avisos_wa = []
+_wa.aplicar_ajustes({"phone_number_id": "PN1", "aviso_admin": "5491122223333"})
+_wa.requests.post = lambda url, headers=None, json=None, timeout=None: avisos_wa.append(json) or _R(200, {})
+# enviar_texto está parcheado más arriba en este archivo: acá se captura igual.
+_wa.enviar_texto = lambda n, to, texto: avisos_wa.append({"to": to, "texto": texto}) or True
+
+
+def _webhook(cuerpo):
+    datos = json.dumps(cuerpo).encode()
+    firma = "sha256=" + hmac.new(_cfg.META_APP_SECRET.encode(), datos, hashlib.sha256).hexdigest()
+    return app.app.test_client().post("/webhook", data=datos, content_type="application/json",
+                                      headers={"X-Hub-Signature-256": firma})
+
+
+r = _webhook({"object": "whatsapp_business_account", "entry": [{"id": "WABA1", "changes": [
+    {"field": "message_template_status_update", "value": {"event": "REJECTED", "message_template_name": "recordatorio_turno",
+                                                          "message_template_language": "es_AR", "reason": "INCORRECT_CATEGORY"}}]}]})
+chequear("aviso de plantilla: 200", r.status_code == 200)
+chequear("aviso de plantilla: se guarda", TABLAS["plantillas_meta"][0]["estado"] == "rechazada"
+         and TABLAS["plantillas_meta"][0]["motivo"] == "incorrect category")
+chequear("aviso de plantilla: le llega a administración", avisos_wa and avisos_wa[-1]["to"] == "5491122223333"
+         and "recordatorio_turno" in json.dumps(avisos_wa[-1], ensure_ascii=False) and "rechazada" in json.dumps(avisos_wa[-1], ensure_ascii=False))
+_webhook({"object": "whatsapp_business_account", "entry": [{"id": "WABA1", "changes": [
+    {"field": "message_template_status_update", "value": {"event": "APPROVED", "message_template_name": "recordatorio_turno",
+                                                          "message_template_language": "es_AR", "reason": "NONE"}}]}]})
+chequear("aviso de plantilla: un registro por plantilla", len(TABLAS["plantillas_meta"]) == 1 and TABLAS["plantillas_meta"][0]["estado"] == "aprobada"
+         and TABLAS["plantillas_meta"][0]["motivo"] is None)
+_webhook({"object": "whatsapp_business_account", "entry": [{"id": "WABA1", "changes": [
+    {"field": "template_category_update", "value": {"message_template_name": "resumen_consultorio", "message_template_language": "es_AR",
+                                                    "previous_category": "UTILITY", "new_category": "MARKETING"}}]}]})
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("aviso de categoría: en la página", "resumen_consultorio" in html and "pasó a marketing" in html and "antes era utility" in html)
+chequear("avisos: quedan en la actividad", any(a["actor"] == "Meta" and "aprobada" in a["accion"] for a in TABLAS["actividad"]))
+_wa.aplicar_ajustes({})
+
 (_cfg.META_ACCESS_TOKEN, _cfg.PLATAFORMA_PHONE_NUMBER_ID, _cfg.META_WABA_ID, _cfg.RECORDATORIO_TEMPLATE,
  _cfg.REPROGRAMADO_TEMPLATE, _cfg.WHATSAPP_SOLO_A) = viejos
 

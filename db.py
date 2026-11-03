@@ -1227,3 +1227,24 @@ def marcar_evento(clave: str, detalle: str | None = None) -> None:
 
 def eventos_plataforma() -> dict[str, dict]:
     return {f["clave"]: f for f in _client.table("eventos_plataforma").select("*").execute().data}
+
+
+def ajustes_plataforma() -> dict[str, str]:
+    return {f["clave"]: f["valor"] for f in _client.table("ajustes_plataforma").select("*").execute().data}
+
+
+def guardar_ajustes_plataforma(valores: dict[str, str]) -> None:
+    from datetime import datetime, timezone
+    ahora = datetime.now(timezone.utc).isoformat()
+    _client.table("ajustes_plataforma").upsert(
+        [{"clave": k, "valor": v, "cuando": ahora} for k, v in valores.items()], on_conflict="clave").execute()
+
+
+def guardar_aviso_plantilla(aviso: dict) -> None:
+    from datetime import datetime, timezone
+    _client.table("plantillas_meta").upsert(
+        {**aviso, "cuando": datetime.now(timezone.utc).isoformat()}, on_conflict="nombre,idioma").execute()
+
+
+def avisos_plantillas() -> list[dict]:
+    return _client.table("plantillas_meta").select("*").order("cuando", desc=True).limit(50).execute().data

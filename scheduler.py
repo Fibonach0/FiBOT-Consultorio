@@ -204,6 +204,9 @@ def _loop() -> None:
 
 
 def iniciar() -> None:
+    # Los ajustes de WhatsApp guardados en administración, antes del primer
+    # envío. Va acá y no al importar app: los tests apagan iniciar().
+    whatsapp.cargar_ajustes()
     hilo = threading.Thread(target=_loop, daemon=True, name="recordatorios")
     hilo.start()
     logger.info("Scheduler de recordatorios arrancado (cada %s min)", config.RECORDATORIO_INTERVALO_MIN)
