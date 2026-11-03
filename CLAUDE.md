@@ -41,6 +41,13 @@ paso donde se cae la mayoría de los pilotos. Por eso `whatsapp_phone_number_id`
 es **opcional** (`migrations/003`): si el tenant no tiene número propio, usa el
 de la plataforma (`PLATAFORMA_PHONE_NUMBER_ID`) y arranca el mismo día.
 
+**Freno de envíos (`WHATSAPP_SOLO_A`)**: lista de teléfonos separados por coma.
+Si está cargada, `whatsapp.enviar_texto`/`enviar_plantilla` sólo mandan a esos
+números (se comparan los últimos 10 dígitos) y al resto lo saltean devolviendo
+`True`, para que el scheduler no reintente. Se carga mientras se prueba con un
+número real y datos de demo: los teléfonos inventados pueden ser de gente
+real. Vacía = producción, le manda a todos.
+
 El costo de eso: cuando varios tenants comparten un número, el
 `phone_number_id` del webhook **ya no identifica a nadie**. El tenant se
 resuelve por el paciente — `db.tenant_por_paciente(telefono)` busca el turno

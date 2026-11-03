@@ -14,7 +14,26 @@ import config
 logger = logging.getLogger("whatsapp")
 
 
+def _ultimos10(numero: str) -> str:
+    # Los últimos 10 dígitos: así 5491128524957, +54 9 11 2852-4957 y
+    # 1128524957 son el mismo teléfono (el 9 y el 15 argentinos varían).
+    return "".join(ch for ch in numero or "" if ch.isdigit())[-10:]
+
+
+def permitido(to: str) -> bool:
+    """Con WHATSAPP_SOLO_A cargada, sólo esos números reciben mensajes."""
+    if not config.WHATSAPP_SOLO_A:
+        return True
+    destino = _ultimos10(to)
+    return bool(destino) and any(_ultimos10(n) == destino for n in config.WHATSAPP_SOLO_A)
+
+
 def enviar_texto(phone_number_id: str, to: str, texto: str) -> bool:
+    if not permitido(to):
+        # True a propósito: el envío quedó «resuelto» (frenado) y el scheduler
+        # no lo reintenta cada 10 minutos.
+        logger.info("Envío frenado por WHATSAPP_SOLO_A (destino ...%s)", _ultimos10(to)[-4:])
+        return True
     url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{phone_number_id}/messages"
     headers = {
         "Authorization": f"Bearer {config.META_ACCESS_TOKEN}",
@@ -60,6 +79,9 @@ def enviar_plantilla(phone_number_id: str, to: str, plantilla: str,
 
     Los `params` van en el mismo orden que los {{1}}, {{2}}… de la plantilla.
     """
+    if not permitido(to):
+        logger.info("Plantilla '%s' frenada por WHATSAPP_SOLO_A (destino ...%s)", plantilla, _ultimos10(to)[-4:])
+        return True
     url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{phone_number_id}/messages"
     headers = {
         "Authorization": f"Bearer {config.META_ACCESS_TOKEN}",
