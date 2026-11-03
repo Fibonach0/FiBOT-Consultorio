@@ -20,6 +20,20 @@ def _ultimos10(numero: str) -> str:
     return "".join(ch for ch in numero or "" if ch.isdigit())[-10:]
 
 
+def destino(to: str) -> str:
+    """El número tal como lo acepta la API de Meta para mandar.
+
+    Los celulares argentinos llegan con el 9 (5491122223333: así es el wa_id
+    del webhook y así lo cargan los pacientes), pero la API los quiere SIN el 9
+    (541122223333). Con el 9, el número de prueba de Meta contesta 131030 («no
+    está en la lista de autorizados») aunque esté autorizado. Sin el 9, Meta lo
+    entrega igual al mismo WhatsApp."""
+    digitos = "".join(ch for ch in to or "" if ch.isdigit())
+    if digitos.startswith("549") and len(digitos) == 13:
+        return "54" + digitos[3:]
+    return digitos or to
+
+
 def permitido(to: str) -> bool:
     """Con WHATSAPP_SOLO_A cargada, sólo esos números reciben mensajes."""
     if not config.WHATSAPP_SOLO_A:
@@ -41,7 +55,7 @@ def enviar_texto(phone_number_id: str, to: str, texto: str) -> bool:
     }
     payload = {
         "messaging_product": "whatsapp",
-        "to": to,
+        "to": destino(to),
         "type": "text",
         "text": {"body": texto},
     }
@@ -103,7 +117,7 @@ def enviar_plantilla_detalle(phone_number_id: str, to: str, plantilla: str,
             "type": "body",
             "parameters": [{"type": "text", "text": p} for p in params],
         }]
-    payload = {"messaging_product": "whatsapp", "to": to, "type": "template", "template": template}
+    payload = {"messaging_product": "whatsapp", "to": destino(to), "type": "template", "template": template}
     try:
         r = requests.post(url, headers=headers, json=payload, timeout=15)
         if r.status_code >= 300:

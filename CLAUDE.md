@@ -58,6 +58,10 @@ necesitan `META_WABA_ID`). Es la lista a seguir al cambiar de número. La prueba
 de envío manda `hello_world` o el recordatorio con datos de ejemplo, respeta el
 freno y queda en la actividad. Nunca se muestra el token.
 
+**Celulares argentinos sin el 9 al mandar**: `whatsapp.destino` pasa
+5491122223333 a 541122223333 sólo en el `to` del envío. Lo guardado, el freno y
+el webhook siguen con el 9. Con el 9, el número de prueba de Meta responde 131030.
+
 El costo de eso: cuando varios tenants comparten un número, el
 `phone_number_id` del webhook **ya no identifica a nadie**. El tenant se
 resuelve por el paciente — `db.tenant_por_paciente(telefono)` busca el turno
