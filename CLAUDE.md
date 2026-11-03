@@ -294,6 +294,11 @@ El doble factor (TOTP, `seguridad.py`, sin dependencias) es OBLIGATORIO para adm
 sin `totp_secreto` sólo se puede entrar a `/admin/doble-factor`. Tras la clave, la
 sesión queda en `admin_pendiente` hasta el código; `totp_ultimo_paso` impide reusarlo.
 `/admin/uso.csv?mes=AAAA-MM` baja el uso del mes (con BOM y «;» para Excel).
+`sesion_version` (`migrations/039`, tenants y admins): subirla cierra todas las
+sesiones de la cuenta; cambiar la clave la sube y deja viva la sesión actual.
+`tenants.ultimo_bloqueo` se marca cuando el límite bloquea al usuario: aviso en el
+panel (7 días) y en el resumen (24 horas). En la máquina de Nacho no hay `python`:
+los scripts van con `railway run .venv/bin/python scripts/...`.
 
 ### Límite de intentos de login (`migrations/038`)
 

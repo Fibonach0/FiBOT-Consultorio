@@ -967,6 +967,19 @@ def tenant_por_slug_o_usuario(slug: str | None, panel_user: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+def cambiar_clave(tabla: str, fila_id: str, campo_hash: str, nuevo_hash: str, version: int) -> None:
+    """Clave nueva y versión de sesión nueva: las demás sesiones se cierran."""
+    _client.table(tabla).update({campo_hash: nuevo_hash, "sesion_version": version}).eq("id", fila_id).execute()
+
+
+def subir_version_sesion(tabla: str, fila_id: str, version: int) -> None:
+    _client.table(tabla).update({"sesion_version": version}).eq("id", fila_id).execute()
+
+
+def marcar_bloqueo(tenant_id: str, cuando: str) -> None:
+    _client.table("tenants").update({"ultimo_bloqueo": cuando}).eq("id", tenant_id).execute()
+
+
 def activar_tenant(tenant_id: str, activo: bool) -> None:
     _client.table("tenants").update({"activo": activo}).eq("id", tenant_id).execute()
 

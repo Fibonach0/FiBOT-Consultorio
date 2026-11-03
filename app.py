@@ -161,7 +161,8 @@ def login_required(vista):
             return redirect(url_for("login"))
         # Una cuenta desactivada desde /admin pierde también la sesión abierta.
         tenant = db.get_tenant_by_id(session["tenant_id"])
-        if not tenant or tenant.get("activo") is False:
+        if not tenant or tenant.get("activo") is False \
+                or (tenant.get("sesion_version") or 0) != session.get("sesion_version", 0):
             session.clear()
             return redirect(url_for("login"))
         return vista(*args, **kwargs)
@@ -172,6 +173,10 @@ def login_required(vista):
 @app.get("/login")
 def login():
     return render_template("login.html", error=None)
+
+
+def usuario_de_clave(clave: str) -> str:
+    return clave.split(":", 1)[1]
 
 
 def _claves_de_intento(clave_usuario: str) -> list[str]:
@@ -191,7 +196,13 @@ def _registrar_fallo(claves: list[str]) -> None:
     filas = {f["clave"]: f for f in db.intentos_login(claves)}
     for clave in claves:
         maximo = seguridad.MAX_FALLOS_IP if clave.startswith("ip:") else seguridad.MAX_FALLOS
-        db.guardar_intento_login(clave, seguridad.tras_fallo(filas.get(clave), ahora, maximo))
+        nuevo = seguridad.tras_fallo(filas.get(clave), ahora, maximo)
+        db.guardar_intento_login(clave, nuevo)
+        if nuevo["bloqueado_hasta"] and clave.startswith("panel:"):
+            # Que la profesional se entere (panel y resumen), sin decir desde dónde.
+            tenant = db.get_tenant_by_panel_user(usuario_de_clave(clave))
+            if tenant:
+                db.marcar_bloqueo(tenant["id"], ahora.isoformat())
 
 
 @app.post("/login")
@@ -209,6 +220,7 @@ def login_post():
     db.borrar_intentos_login(claves[0])
     session.clear()
     session["tenant_id"] = tenant["id"]
+    session["sesion_version"] = tenant.get("sesion_version") or 0
     db.marcar_ingreso("tenants", tenant["id"], datetime.now(ZoneInfo("UTC")).isoformat())
     return redirect(url_for("agenda"))
 
@@ -220,6 +232,9 @@ def admin_requerido(vista):
     def envoltorio(*args, **kwargs):
         admin = db.admin_completo(session["admin_id"]) if session.get("admin_id") else None
         if not admin:
+            return redirect(url_for("admin_login"))
+        if (admin.get("sesion_version") or 0) != session.get("admin_version", 0):
+            session.clear()
             return redirect(url_for("admin_login"))
         if not admin.get("totp_secreto"):
             return redirect(url_for("admin_doble_factor"))
@@ -251,6 +266,7 @@ def admin_login_post():
         session["admin_pendiente"] = admin["id"]
         return redirect(url_for("admin_codigo"))
     session["admin_id"] = admin["id"]
+    session["admin_version"] = admin.get("sesion_version") or 0
     db.marcar_ingreso("admins", admin["id"], datetime.now(ZoneInfo("UTC")).isoformat())
     return redirect(url_for("admin_doble_factor"))
 
@@ -274,6 +290,7 @@ def admin_codigo():
     db.guardar_totp(admin["id"], {"totp_ultimo_paso": paso})
     session.clear()
     session["admin_id"] = admin["id"]
+    session["admin_version"] = admin.get("sesion_version") or 0
     db.marcar_ingreso("admins", admin["id"], datetime.now(ZoneInfo("UTC")).isoformat())
     return redirect(url_for("admin_panel"))
 
@@ -283,7 +300,8 @@ def admin_doble_factor():
     """Configuración obligatoria del doble factor. El secreto vive en la
     sesión hasta que un código lo confirma: recién ahí se guarda."""
     admin = db.admin_completo(session["admin_id"]) if session.get("admin_id") else None
-    if not admin:
+    if not admin or (admin.get("sesion_version") or 0) != session.get("admin_version", 0):
+        session.clear()
         return redirect(url_for("admin_login"))
     if admin.get("totp_secreto"):
         return redirect(url_for("admin_panel"))
@@ -395,6 +413,75 @@ def admin_moderar(entrada_id, accion):
     admin = db.admin_por_id(session["admin_id"])
     db.moderar_biblioteca(entrada_id, accion == "ocultar", f"administración ({admin['usuario']})" if accion == "ocultar" else None)
     flash("Se ocultó de la biblioteca." if accion == "ocultar" else "Volvió a la biblioteca.")
+    return redirect(url_for("admin_panel"))
+
+
+MIN_CLAVE = 10
+
+
+def _validar_cambio_de_clave(hash_actual: str, clave_usuario: str) -> str | None:
+    """Mismo límite de intentos que el login: la clave actual no se puede
+    adivinar por acá."""
+    f = request.form
+    claves = _claves_de_intento(clave_usuario)
+    bloqueo = _bloqueo_login(claves)
+    if bloqueo:
+        return bloqueo
+    if not bcrypt.checkpw((f.get("actual") or "").encode(), hash_actual.encode()):
+        _registrar_fallo(claves)
+        return "La clave actual no es correcta."
+    nueva = f.get("nueva") or ""
+    if len(nueva) < MIN_CLAVE:
+        return f"La clave nueva tiene que tener al menos {MIN_CLAVE} caracteres."
+    if nueva != (f.get("repetir") or ""):
+        return "Las dos claves nuevas no coinciden."
+    if bcrypt.checkpw(nueva.encode(), hash_actual.encode()):
+        return "La clave nueva tiene que ser distinta de la actual."
+    return None
+
+
+@app.post("/agenda/clave")
+@login_required
+def agenda_clave():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    error = _validar_cambio_de_clave(tenant["panel_pass_hash"], f"panel:{tenant['panel_user'].casefold()}")
+    if error:
+        flash(error)
+        return _volver_a_agenda()
+    version = (tenant.get("sesion_version") or 0) + 1
+    db.cambiar_clave("tenants", tenant["id"], "panel_pass_hash",
+                     bcrypt.hashpw(request.form["nueva"].encode(), bcrypt.gensalt()).decode(), version)
+    session["sesion_version"] = version  # esta sigue; las demás se cierran
+    flash("Listo, cambiaste la clave. Se cerraron las sesiones abiertas en otros dispositivos.")
+    return _volver_a_agenda()
+
+
+@app.post("/admin/clave")
+@admin_requerido
+def admin_clave():
+    admin = db.admin_completo(session["admin_id"])
+    error = _validar_cambio_de_clave(admin["pass_hash"], f"admin:{admin['usuario'].casefold()}")
+    if not error and len(request.form.get("nueva") or "") < 12:
+        error = "La clave de administración tiene que tener al menos 12 caracteres."
+    if error:
+        flash(error)
+        return redirect(url_for("admin_panel"))
+    version = (admin.get("sesion_version") or 0) + 1
+    db.cambiar_clave("admins", admin["id"], "pass_hash",
+                     bcrypt.hashpw(request.form["nueva"].encode(), bcrypt.gensalt()).decode(), version)
+    session["admin_version"] = version
+    flash("Listo, cambiaste la clave. Se cerraron tus otras sesiones.")
+    return redirect(url_for("admin_panel"))
+
+
+@app.post("/admin/profesionales/<tenant_id>/cerrar-sesiones")
+@admin_requerido
+def admin_cerrar_sesiones(tenant_id):
+    tenant = db.get_tenant_by_id(tenant_id)
+    if not tenant:
+        return "No encontrado.", 404
+    db.subir_version_sesion("tenants", tenant_id, (tenant.get("sesion_version") or 0) + 1)
+    flash(f"Se cerraron todas las sesiones de {tenant['nombre']}: tiene que volver a entrar con su clave.")
     return redirect(url_for("admin_panel"))
 
 
@@ -842,6 +929,7 @@ def agenda():
                             titulo=e["contenido"]["nombre"] + (f" · {e['contenido']['version']}" if e["contenido"].get("version") else ""))
                        for e in _biblioteca_visible(tenant)],
         "moderador": bool(tenant.get("moderador")),
+        "bloqueo_reciente": _bloqueo_reciente(tenant, tz),
         "tests_para_repetir": [{"ficha": f, **t} for f in fichas for t in f.get("para_repetir") or []],
         "ventana_aviso": tests_sugeridos.VENTANA_AVISO,
         "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),
@@ -1814,6 +1902,16 @@ def agenda_plantilla_compartir(plantilla_id):
     db.compartir_en_biblioteca(tenant["id"], tenant["nombre"], cuestionarios.para_biblioteca(fila["contenido"], con_preguntas), con_preguntas)
     flash(f"«{fila['contenido']['nombre']}» quedó en la biblioteca" + (" con sus preguntas." if con_preguntas else ", sin el texto de las preguntas."))
     return _volver_a_agenda()
+
+
+def _bloqueo_reciente(tenant: dict, tz: ZoneInfo) -> str | None:
+    """Fecha del último bloqueo por claves equivocadas, si fue en la última semana."""
+    if not tenant.get("ultimo_bloqueo"):
+        return None
+    cuando = datetime.fromisoformat(tenant["ultimo_bloqueo"])
+    if datetime.now(ZoneInfo("UTC")) - cuando > timedelta(days=7):
+        return None
+    return cuando.astimezone(tz).strftime("%d/%m a las %H:%M")
 
 
 def _biblioteca_visible(tenant: dict) -> list[dict]:
