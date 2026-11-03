@@ -865,15 +865,15 @@ def retirar_de_biblioteca(tenant_id: str, entrada_id: str) -> None:
 
 def entregas(tenant_id: str) -> list[dict]:
     """Sin el HTML: la lista de la ficha sólo necesita el estado."""
-    res = (_client.table("entregas").select("id,tenant_id,paciente_telefono,ficha,token,vence,abierta_at,created_at")
+    res = (_client.table("entregas").select("id,tenant_id,paciente_telefono,ficha,token,vence,abierta_at,created_at,dni_hash,intentos")
            .eq("tenant_id", tenant_id).order("created_at", desc=True).execute())
     return res.data
 
 
-def crear_entrega(tenant_id: str, clave: str, token: str, vence: str, html: str) -> None:
+def crear_entrega(tenant_id: str, clave: str, token: str, vence: str, html: str, dni_hash: str | None = None) -> None:
     telefono, ficha = partir_clave(clave)
     _client.table("entregas").insert({"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha,
-                                      "token": token, "vence": vence, "html": html}).execute()
+                                      "token": token, "vence": vence, "html": html, "dni_hash": dni_hash}).execute()
 
 
 def entrega_por_token(token: str) -> dict | None:
@@ -890,6 +890,66 @@ def abrir_entrega(entrega_id: str, cuando: str) -> bool:
 
 def borrar_entrega(tenant_id: str, entrega_id: str) -> None:
     _client.table("entregas").delete().eq("tenant_id", tenant_id).eq("id", entrega_id).execute()
+
+
+# --- Administración de la plataforma ---
+
+def admin_por_usuario(usuario: str) -> dict | None:
+    res = _client.table("admins").select("*").eq("usuario", usuario).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def admin_por_id(admin_id: str) -> dict | None:
+    res = _client.table("admins").select("id,usuario").eq("id", admin_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def marcar_ingreso(tabla: str, fila_id: str, cuando: str) -> None:
+    _client.table(tabla).update({"ultimo_ingreso": cuando}).eq("id", fila_id).execute()
+
+
+def todos_los_tenants() -> list[dict]:
+    res = (_client.table("tenants").select("id,nombre,rubro,slug,panel_user,activo,moderador,ultimo_ingreso,created_at")
+           .order("nombre").execute())
+    return res.data
+
+
+def uso_de_tenants(desde: str) -> dict[str, dict]:
+    """Sólo cuentas, nunca datos de pacientes: sesiones reservadas desde
+    `desde`, pacientes distintos en ellas, cuestionarios y entregas."""
+    uso: dict[str, dict] = {}
+    vacio = lambda: {"sesiones": 0, "pacientes": set(), "cuestionarios": 0, "entregas": 0}
+    turnos = (_client.table("turnos").select("tenant_id,paciente_telefono,ficha").eq("estado", "reservado")
+              .gte("inicio", desde).execute().data)
+    for t in turnos:
+        u = uso.setdefault(t["tenant_id"], vacio())
+        u["sesiones"] += 1
+        u["pacientes"].add((t["paciente_telefono"], t.get("ficha") or ""))
+    for tabla, campo in (("cuestionarios", "cuestionarios"), ("entregas", "entregas")):
+        for x in _client.table(tabla).select("tenant_id").gte("created_at", desde).execute().data:
+            uso.setdefault(x["tenant_id"], vacio())[campo] += 1
+    return {k: {**v, "pacientes": len(v["pacientes"])} for k, v in uso.items()}
+
+
+def crear_tenant(datos: dict) -> None:
+    _client.table("tenants").insert(datos).execute()
+
+
+def tenant_por_slug_o_usuario(slug: str | None, panel_user: str) -> dict | None:
+    if slug:
+        res = _client.table("tenants").select("id").eq("slug", slug).limit(1).execute()
+        if res.data:
+            return res.data[0]
+    res = _client.table("tenants").select("id").eq("panel_user", panel_user).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def activar_tenant(tenant_id: str, activo: bool) -> None:
+    _client.table("tenants").update({"activo": activo}).eq("id", tenant_id).execute()
+
+
+def registrar_intento_entrega(entrega_id: str, intentos: int) -> None:
+    _client.table("entregas").update({"intentos": intentos}).eq("id", entrega_id).execute()
 
 
 def borrar_test(tenant_id: str, test_id: str) -> None:

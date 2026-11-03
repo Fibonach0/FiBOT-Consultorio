@@ -1,0 +1,16 @@
+{% extends "base.html" %}
+{% block titulo %}Administración — FiBOT Consultorio{% endblock %}
+{% block cuerpo %}
+<header><span>FiBOT Consultorio · Administración</span></header>
+<main>
+  <div class="card" style="max-width:380px;margin:40px auto">
+    <h2>Administración</h2>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post">
+      <label>Usuario</label><input type="text" name="usuario" autocomplete="username" required>
+      <label>Clave</label><input type="password" name="clave" autocomplete="current-password" required>
+      <button class="btn" type="submit" style="margin-top:12px">Entrar</button>
+    </form>
+  </div>
+</main>
+{% endblock %}

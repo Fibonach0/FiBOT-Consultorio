@@ -8,10 +8,17 @@
     {% if estado == 'lista' %}
     <h2>{{ tenant.nombre }} te compartió un documento confidencial</h2>
     <p>Se puede abrir <strong>una sola vez</strong>. Cuando lo abras, guardalo en PDF con el botón «Imprimir o guardar en PDF»: si cerrás la página, no se puede volver a abrir.</p>
-    <form method="post"><button class="btn" type="submit">Abrir el documento</button></form>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post">
+      {% if pide_dni %}<label>Tu DNI, sin puntos</label><input type="text" name="dni" inputmode="numeric" autocomplete="off" required style="max-width:220px">{% endif %}
+      <button class="btn" type="submit" style="margin-top:10px">Abrir el documento</button>
+    </form>
     {% elif estado == 'abierta' %}
     <h2>Este documento ya se abrió</h2>
     <p>Por seguridad, el link sirve una sola vez. Si lo necesitás de nuevo, pedile otro link a {{ tenant.nombre if tenant else 'tu profesional' }}.</p>
+    {% elif estado == 'bloqueada' %}
+    <h2>Este link se bloqueó</h2>
+    <p>Se ingresó un DNI equivocado demasiadas veces. Pedile otro link a {{ tenant.nombre if tenant else 'tu profesional' }}.</p>
     {% elif estado == 'vencida' %}
     <h2>Este link venció</h2>
     <p>Pedile uno nuevo a {{ tenant.nombre if tenant else 'tu profesional' }}.</p>

@@ -28,10 +28,11 @@
       <form method="post" action="{{ url_for('agenda_ficha_link') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="telefono" value="{{ ficha.clave }}">
+        <input type="text" name="dni" inputmode="numeric" placeholder="DNI de quien lo recibe (opcional)" aria-label="DNI de quien lo recibe" style="width:auto">
         <button class="btn secundario" type="submit">Generar link para entregar</button>
       </form>
     </div>
-    <div class="tenue" style="margin-top:6px">El link se abre una sola vez y vence en 7 días. Lleva la ficha tal como está ahora: si después cargás algo, no aparece.</div>
+    <div class="tenue" style="margin-top:6px">Con DNI, para abrirlo hay que escribirlo (5 intentos). El link se abre una sola vez y vence en 7 días. Lleva la ficha tal como está ahora: si después cargás algo, no aparece.</div>
     {% endif %}
   </div>
   <div class="card hoja constancia">

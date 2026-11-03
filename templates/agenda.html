@@ -1047,8 +1047,8 @@
       {% for e in f.entregas %}
       <div class="ficha-item">
         <span>Link de entrega <span class="tenue">· creado el {{ e._creada }} ·
-          {% if e._abierta %}abierto el {{ e._abierta }}{% elif e._vencida %}venció sin abrirse{% else %}sin abrir{% endif %}</span>
-          {% if not e._abierta and not e._vencida %}<br>
+          {% if e._abierta %}abierto el {{ e._abierta }}{% elif (e.intentos or 0) >= 5 %}bloqueado por DNI equivocado{% elif e._vencida %}venció sin abrirse{% else %}sin abrir{% endif %}{% if e.dni_hash %} · pide DNI{% endif %}</span>
+          {% if not e._abierta and not e._vencida and (e.intentos or 0) < 5 %}<br>
           <input type="text" readonly value="{{ e.link }}" aria-label="Link de entrega" onclick="this.select()" style="font-size:.75rem;padding:4px 6px">
           <button class="btn chico secundario" type="button" onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(() => this.textContent = 'Copiado')">Copiar link</button>{% endif %}
         </span>

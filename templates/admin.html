@@ -1,0 +1,72 @@
+{% extends "base.html" %}
+{% block titulo %}Administración — FiBOT Consultorio{% endblock %}
+{% block cuerpo %}
+<style>
+  .tabla { width:100%; border-collapse:collapse; font-size:.85rem; }
+  .tabla th, .tabla td { text-align:left; padding:6px 8px 6px 0; border-bottom:1px dotted var(--rule); vertical-align:top; }
+  .tabla th { color:var(--muted); font-weight:600; font-size:.75rem; }
+  .envoltura { overflow-x:auto; }
+</style>
+<header>
+  <span>FiBOT Consultorio · Administración · {{ admin.usuario }}</span>
+  <a href="{{ url_for('logout') }}">Salir</a>
+</header>
+<main class="panel">
+  {% with mensajes = get_flashed_messages() %}{% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}{% endwith %}
+
+  <div class="card">
+    <h3>Profesionales <span class="contador">{{ tenants|length }}</span></h3>
+    <div class="tenue" style="margin-bottom:8px">Uso de los últimos 30 días. Desde acá no se ve ningún dato de pacientes: sólo cuentas.</div>
+    <div class="envoltura">
+    <table class="tabla">
+      <tr><th>Profesional</th><th>Usuario</th><th>Último ingreso</th><th>Sesiones</th><th>Pacientes</th><th>Cuestionarios</th><th>Entregas</th><th></th></tr>
+      {% for t in tenants %}
+      <tr>
+        <td><strong>{{ t.nombre }}</strong><br><span class="tenue">{{ t.rubro or 'sin rubro' }}{% if t.slug %} · /{{ t.slug }}{% endif %}{% if t.moderador %} · modera{% endif %}</span>
+          {% if t.activo is sameas false %}<br><span class="chip chip-alerta">desactivada</span>{% endif %}</td>
+        <td>{{ t.panel_user }}</td>
+        <td>{{ t._ingreso }}</td>
+        <td>{{ t.uso.sesiones }}</td><td>{{ t.uso.pacientes }}</td><td>{{ t.uso.cuestionarios }}</td><td>{{ t.uso.entregas }}</td>
+        <td>
+          <form method="post" action="{{ url_for('admin_activar', tenant_id=t.id, accion='activar' if t.activo is sameas false else 'desactivar') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn chico secundario" type="submit"{% if t.activo is not sameas false %} onclick="return confirm('¿Desactivar la cuenta de {{ t.nombre }}? No va a poder entrar al panel.')"{% endif %}>{{ 'Activar' if t.activo is sameas false else 'Desactivar' }}</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3>Alta de profesional</h3>
+    <form method="post" action="{{ url_for('admin_alta') }}" class="fila">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label>Nombre para mostrar</label><input type="text" name="nombre" placeholder="Lic. Ana Pérez" required></div>
+      <div><label>Rubro</label><select name="rubro">{% for r in rubros %}<option>{{ r }}</option>{% endfor %}</select></div>
+      <div><label>Página pública (opcional)</label><input type="text" name="slug" placeholder="anaperez" pattern="[a-z0-9][a-z0-9-]*"></div>
+      <div><label>Usuario</label><input type="text" name="panel_user" autocomplete="off" required></div>
+      <div><label>Clave inicial (mínimo 10)</label><input type="password" name="clave" autocomplete="new-password" minlength="10" required></div>
+      <div class="al-pie"><button class="btn" type="submit">Crear cuenta</button></div>
+    </form>
+    <div class="tenue" style="margin-top:6px">Sale por el número de WhatsApp compartido de la plataforma, con turnos de 50 minutos y recordatorio 24 horas antes; la profesional ajusta el resto desde su panel.</div>
+  </div>
+
+  <div class="card">
+    <h3>Biblioteca compartida <span class="contador">{{ biblioteca|length }}</span></h3>
+    {% for e in biblioteca %}
+    <div class="ficha-item">
+      <span><strong>{{ e.titulo }}</strong> <span class="tenue">{{ e.contenido["items"]|length }} preguntas · {{ 'con preguntas' if e.con_preguntas else 'sin preguntas' }} · de {{ e.autor }}</span>
+        {% if e.oculto %}<span class="chip chip-alerta">oculto por {{ e.oculto_por }}</span>{% endif %}</span>
+      <form method="post" action="{{ url_for('admin_moderar', entrada_id=e.id, accion='mostrar' if e.oculto else 'ocultar') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn chico secundario" type="submit">{{ 'Mostrar' if e.oculto else 'Ocultar' }}</button>
+      </form>
+    </div>
+    {% else %}
+    <div class="tenue">Nadie compartió nada todavía.</div>
+    {% endfor %}
+  </div>
+</main>
+{% endblock %}

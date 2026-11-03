@@ -278,6 +278,18 @@ entrega es lo que se revisó). `GET /entrega/<token>` sólo muestra el aviso: lo
 previsualizadores de WhatsApp y del mail hacen GET y no deben consumirlo.
 `POST` lo abre UNA vez (`abrir_entrega` filtra `abierta_at is null`). Respuestas
 con `no-store`, `no-referrer` y `noindex`.
+`entregas.dni_hash` (`migrations/037`) es sha256(token:dni), nunca el DNI; a los
+`MAX_INTENTOS_DNI` fallidos queda bloqueada. El resumen diario cuenta las abiertas
+en las últimas 24 horas.
+
+### Administración (`/admin`, `migrations/037`)
+
+Cuenta aparte de los profesionales (`admins`, se crea con `scripts/crear_admin.py`:
+la clave la escribe quien lo corre). `session["admin_id"]` nunca convive con
+`tenant_id`. Ve cuentas, uso de 30 días (sólo cuentas: nunca datos de pacientes),
+da de alta profesionales, los activa/desactiva y modera la biblioteca. Una cuenta
+desactivada pierde también la sesión abierta (`login_required` lo chequea).
+`SLUGS_RESERVADOS` está en app.py y en `scripts/crear_tenant.py`: mantenerlos iguales.
 
 ### Hoja de registro, informe y retest
 
