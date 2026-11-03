@@ -1,0 +1,42 @@
+{# url_crear_qr: a dónde pedir el QR; texto_qr: la explicación. #}
+  <div class="card" id="qr-card">
+    <h3 style="margin-bottom:6px">Entrar con el celular</h3>
+    <p class="tenue" style="margin-top:0">{{ texto_qr }}</p>
+    <button class="btn secundario" type="button" id="qr-pedir">Mostrar código</button>
+    <div id="qr-zona" hidden style="text-align:center;margin-top:10px">
+      <div id="qr-imagen" aria-label="Código QR para entrar"></div>
+      <p class="tenue" id="qr-texto">Esperando que lo apruebes en el celular…</p>
+    </div>
+  </div>
+  <script>
+  (() => {
+    const pedir = document.getElementById('qr-pedir');
+    let reloj = null;
+    pedir.addEventListener('click', async () => {
+      clearInterval(reloj);
+      const r = await fetch('{{ url_crear_qr }}', {method: 'POST', credentials: 'same-origin'});
+      if (!r.ok) return;
+      const d = await r.json();
+      document.getElementById('qr-imagen').innerHTML = d.svg;
+      document.getElementById('qr-zona').hidden = false;
+      document.getElementById('qr-texto').textContent = 'Esperando que lo apruebes en el celular…';
+      pedir.textContent = 'Otro código';
+      const hasta = Date.now() + d.segundos * 1000;
+      reloj = setInterval(async () => {
+        if (Date.now() > hasta) {
+          clearInterval(reloj);
+          document.getElementById('qr-imagen').innerHTML = '';
+          document.getElementById('qr-texto').textContent = 'El código venció. Pedí otro.';
+          return;
+        }
+        const e = await fetch(d.estado, {credentials: 'same-origin'}).then(x => x.json()).catch(() => ({}));
+        if (e.estado === 'listo') { clearInterval(reloj); location.href = e.destino; }
+        if (e.estado === 'vencido' || e.estado === 'invalido') {
+          clearInterval(reloj);
+          document.getElementById('qr-imagen').innerHTML = '';
+          document.getElementById('qr-texto').textContent = 'El código ya no sirve. Pedí otro.';
+        }
+      }, 2000);
+    });
+  })();
+  </script>

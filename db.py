@@ -1048,9 +1048,9 @@ def usar_enlace_clave(token_hash: str, cuando: str) -> bool:
     return bool(res.data)
 
 
-def crear_qr_login(token_hash: str, nonce_hash: str, dispositivo: str, vence: str) -> None:
+def crear_qr_login(token_hash: str, nonce_hash: str, dispositivo: str, vence: str, tipo: str = "panel") -> None:
     _client.table("qr_logins").insert({"token_hash": token_hash, "nonce_hash": nonce_hash,
-                                       "dispositivo": dispositivo, "vence": vence}).execute()
+                                       "dispositivo": dispositivo, "vence": vence, "tipo": tipo}).execute()
 
 
 def qr_login(token_hash: str) -> dict | None:
@@ -1061,6 +1061,12 @@ def qr_login(token_hash: str) -> dict | None:
 def aprobar_qr_login(token_hash: str, tenant_id: str, cuando: str) -> bool:
     res = (_client.table("qr_logins").update({"tenant_id": tenant_id, "aprobado_at": cuando})
            .eq("token_hash", token_hash).is_("aprobado_at", "null").execute())
+    return bool(res.data)
+
+
+def aprobar_qr_admin(token_hash: str, admin_id: str, cuando: str) -> bool:
+    res = (_client.table("qr_logins").update({"admin_id": admin_id, "aprobado_at": cuando})
+           .eq("token_hash", token_hash).eq("tipo", "admin").is_("aprobado_at", "null").execute())
     return bool(res.data)
 
 
@@ -1096,6 +1102,16 @@ def usar_llave(llave_id: str, contador: int, cuando: str) -> None:
 
 def borrar_llave(tenant_id: str, llave_id: str) -> None:
     _client.table("llaves_acceso").delete().eq("tenant_id", tenant_id).eq("id", llave_id).execute()
+
+
+def estado_seguridad_tenants() -> dict:
+    """Sólo cuentas: cuántas profesionales activas tienen mail, doble factor y llave."""
+    tenants = _client.table("tenants").select("id,email,totp_secreto,activo").execute().data
+    activos = [t for t in tenants if t.get("activo") is not False]
+    con_llave = {x["tenant_id"] for x in _client.table("llaves_acceso").select("tenant_id").execute().data}
+    return {"sin_mail": sum(not t.get("email") for t in activos),
+            "con_doble_factor": sum(bool(t.get("totp_secreto")) for t in activos),
+            "con_llave": sum(t["id"] in con_llave for t in activos)}
 
 
 def admin_llaves_de(admin_id: str) -> list[dict]:

@@ -1,11 +1,11 @@
 {% extends "base.html" %}
 {% block titulo %}Entrar en otra pantalla — FiBOT Consultorio{% endblock %}
 {% block cuerpo %}
-<header><span>FiBOT Consultorio · {{ tenant.nombre }}</span><a href="{{ url_for('agenda') }}">Panel</a></header>
+<header><span>FiBOT Consultorio · {{ tenant.nombre }}</span><a href="{{ volver or url_for('agenda') }}">Volver</a></header>
 <main style="max-width:420px">
   <div class="card">
     {% if estado == 'pregunta' %}
-    <h2>¿Entrar a tu panel en otra pantalla?</h2>
+    <h2>¿Entrar {{ 'a administración' if volver else 'a tu panel' }} en otra pantalla?</h2>
     <p>Pidió entrar: <strong>{{ q.dispositivo or 'un navegador' }}</strong>.</p>
     <p class="error" style="margin:10px 0">Aprobá sólo si vos estás frente a esa pantalla y acabás de pedir el código. Si alguien te mandó este link, tocá «No fui yo».</p>
     <form method="post" style="display:flex;gap:10px;flex-wrap:wrap">

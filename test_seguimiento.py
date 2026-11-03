@@ -2693,6 +2693,71 @@ chequear("en el dominio principal no redirige", r.status_code == 200)
 app.config.DOMINIO_PRINCIPAL = ""
 chequear("sin dominio cargado no redirige", app.app.test_client().get("/login").status_code == 200)
 
+# --- QR para entrar a administración y página de estado ---
+reset()
+TABLAS["login_intentos"] = []
+SEC6 = seguridad.nuevo_secreto()
+TABLAS["admins"] = [{"id": "a8", "usuario": "igna", "pass_hash": _bcrypt.hashpw(b"clave-admin-larga", _bcrypt.gensalt(4)).decode(), "totp_secreto": SEC6}]
+celu_adm = app.app.test_client()
+with celu_adm.session_transaction() as ses:
+    ses["admin_id"] = "a8"
+    ses["admin_version"] = 0
+    ses["csrf_token"] = "tok"
+compu_adm = app.app.test_client()
+chequear("el login de admin ofrece el QR", "Entrar con el celular" in compu_adm.get("/admin/login").data.decode())
+d = compu_adm.post("/admin/login/qr", headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/120"}).get_json()
+chequear("la compu recibe un QR de admin", d["svg"].startswith("<svg") and "/admin/login/qr/" in d["estado"] and TABLAS["qr_logins"][-1]["tipo"] == "admin")
+chequear("esperando", compu_adm.get(d["estado"]).get_json()["estado"] == "esperando")
+chequear("otro navegador no puede", app.app.test_client().get(d["estado"]).status_code == 404)
+anon = app.app.test_client()
+r = anon.get(f"/admin/qr/{d['token']}")
+chequear("sin sesión de admin pide entrar y vuelve", r.status_code == 302 and "siguiente=/admin/qr/" in r.headers["Location"])
+pro = app.app.test_client()
+with pro.session_transaction() as ses:
+    ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
+    ses["csrf_token"] = "tok"
+chequear("una profesional no aprueba un QR de admin", "/admin/login" in pro.get(f"/admin/qr/{d['token']}").headers.get("Location", ""))
+pro.post(f"/login/qr/{d['token']}", data={"csrf_token": "tok", "respuesta": "aprobar"})
+chequear("ni por la puerta del panel", not TABLAS["qr_logins"][-1].get("aprobado_at"))
+pregunta = celu_adm.get(f"/admin/qr/{d['token']}").data.decode()
+chequear("el celular de admin pregunta", "¿Entrar a administración en otra pantalla?" in pregunta and "Chrome en Windows" in pregunta)
+chequear("aprobar pide token", celu_adm.post(f"/admin/qr/{d['token']}", data={"respuesta": "aprobar"}).status_code == 403)
+celu_adm.post(f"/admin/qr/{d['token']}", data={"csrf_token": "tok", "respuesta": "aprobar"})
+e = compu_adm.get(d["estado"]).get_json()
+chequear("la compu entra a admin", e["estado"] == "listo" and e["destino"].endswith("/admin") and compu_adm.get("/admin").status_code == 200)
+chequear("no sirve dos veces", compu_adm.get(d["estado"]).get_json()["estado"] in ("vencido", "invalido"))
+compu_panel = app.app.test_client()
+dp = compu_panel.post("/login/qr").get_json()
+chequear("un QR del panel no se aprueba desde admin", "ya no sirve" in celu_adm.get(f"/admin/qr/{dp['token']}").data.decode())
+chequear("ni se consulta como admin", compu_panel.get(f"/admin/login/qr/{dp['token']}/estado").status_code == 404)
+# volver a aprobar después de entrar con clave y código
+anon2 = app.app.test_client()
+d2 = app.app.test_client().post("/admin/login/qr").get_json()
+anon2.post(f"/admin/login?siguiente=/admin/qr/{d2['token']}", data={"usuario": "igna", "clave": "clave-admin-larga", "siguiente": f"/admin/qr/{d2['token']}"})
+with anon2.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+r = anon2.post("/admin/codigo", data={"csrf_token": "tok", "codigo": seguridad._codigo(SEC6, int(_time.time() // 30))})
+chequear("después del código vuelve al QR", r.headers["Location"].endswith(f"/admin/qr/{d2['token']}"))
+anon3 = app.app.test_client()
+anon3.post("/admin/login", data={"usuario": "igna", "clave": "clave-admin-larga", "siguiente": "https://malo.com"})
+with anon3.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+TABLAS["admins"][0]["totp_ultimo_paso"] = None
+r = anon3.post("/admin/codigo", data={"csrf_token": "tok", "codigo": seguridad._codigo(SEC6, int(_time.time() // 30) + 1)})
+chequear("nunca vuelve a un sitio de afuera", r.headers["Location"].endswith("/admin"))
+
+# página de estado
+html = celu_adm.get("/admin").data.decode()
+estado_html = html.split("<h3>Estado</h3>")[1].split("</div>\n\n")[0] if "<h3>Estado</h3>" in html else ""
+for texto in ("Dominio", "Falta cargar DOMINIO_PRINCIPAL", "Mail", "Sin proveedor", "WhatsApp", "Recordatorios y limpieza",
+              "Respaldo", "Supabase", "Profesionales", "sin mail cargado"):
+    chequear(f"estado: {texto}", texto in html)
+chequear("el estado nunca muestra valores de variables", "re_prueba" not in html and "fake_signature" not in html)
+app.config.DOMINIO_PRINCIPAL = "localhost"
+chequear("con el dominio cargado lo marca bien", "Dominio principal: localhost" in celu_adm.get("/admin").data.decode())
+app.config.DOMINIO_PRINCIPAL = ""
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

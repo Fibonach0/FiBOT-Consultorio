@@ -15,6 +15,16 @@
   {% with mensajes = get_flashed_messages() %}{% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}{% endwith %}
 
   <div class="card">
+    <h3>Estado</h3>
+    {% for e in estado %}
+    <div class="ficha-item">
+      <span><strong>{% if e.ok is sameas true %}✓{% elif e.ok is sameas false %}✗{% else %}·{% endif %} {{ e.nombre }}</strong>
+        <span class="tenue">{{ e.detalle }}</span></span>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="card">
     <h3>Profesionales <span class="contador">{{ tenants|length }}</span></h3>
     <div class="tenue" style="margin-bottom:8px">Uso de los últimos 30 días. Desde acá no se ve ningún dato de pacientes: sólo cuentas.</div>
     <form method="get" action="{{ url_for('admin_uso_csv') }}" class="fila" style="margin-bottom:10px">
