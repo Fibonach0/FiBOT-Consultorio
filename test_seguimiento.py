@@ -2993,6 +2993,66 @@ _wa.aplicar_ajustes({})
 (_cfg.META_ACCESS_TOKEN, _cfg.PLATAFORMA_PHONE_NUMBER_ID, _cfg.META_WABA_ID, _cfg.RECORDATORIO_TEMPLATE,
  _cfg.REPROGRAMADO_TEMPLATE, _cfg.WHATSAPP_SOLO_A) = viejos
 
+# --- Confirmación por WhatsApp de una reserva web y perfil público ---
+import conversation as _conv  # noqa: E402
+
+reset()
+_futuro = (datetime.now(timezone.utc) + timedelta(days=2)).replace(second=0, microsecond=0)
+TABLAS["turnos"] = [turno("c1", "t1", _futuro, estado="reservado", paciente_telefono="5491166667777", paciente_nombre="Lola",
+                          confirmacion_enviada_at=ahora.isoformat(), confirmado_at=None, token_calendario="tok-c1"),
+                    turno("c2", "t1", _futuro + timedelta(days=7), estado="reservado", paciente_telefono="5491166667777",
+                          paciente_nombre="Lola", confirmacion_enviada_at=None, confirmado_at=None)]
+resp = _conv.responder(dict(TENANT), "5491166667777", "Sí, confirmo")
+chequear("confirmar: responde con el link para agendar", "Quedó confirmado" in resp and "/agendar/tok-c1" in resp)
+chequear("confirmar: marca sólo la que esperaba confirmación", TABLAS["turnos"][0]["confirmado_at"] and not TABLAS["turnos"][1]["confirmado_at"])
+resp = _conv.responder(dict(TENANT), "5491166667777", "si")
+chequear("confirmar: sin nada pendiente, sigue el menú", "Quedó confirmado" not in resp)
+html = None
+panel_c = app.app.test_client()
+with panel_c.session_transaction() as ses:
+    ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
+    ses["csrf_token"] = "tok"
+html = panel_c.get(f"/agenda?semana={_futuro.date().isoformat()}").data.decode()
+chequear("panel: marca la sesión confirmada", "✓ confirmó" in html)
+
+# el botón de la plantilla llega como type=button
+TABLAS["turnos"][0]["confirmado_at"] = None
+_resp_bot = []
+app.whatsapp.enviar_texto = lambda n, to, texto: _resp_bot.append(texto) or True
+_por_num = db.get_tenant_by_phone_number_id
+db.get_tenant_by_phone_number_id = lambda pid: dict(TENANT) if pid == "PN_MARCOS" else None
+_cuerpo = json.dumps({"object": "whatsapp_business_account", "entry": [{"changes": [{"field": "messages", "value": {
+    "metadata": {"phone_number_id": "PN_MARCOS"},
+    "messages": [{"from": "5491166667777", "type": "button", "button": {"text": "Sí, confirmo", "payload": "Sí, confirmo"}}]}}]}]}).encode()
+import hashlib as _hl, hmac as _hm  # noqa: E401,E402
+_firma = "sha256=" + _hm.new(app.config.META_APP_SECRET.encode(), _cuerpo, _hl.sha256).hexdigest()
+app.app.test_client().post("/webhook", data=_cuerpo, content_type="application/json", headers={"X-Hub-Signature-256": _firma})
+chequear("confirmar: el botón de la plantilla confirma", _resp_bot and "Quedó confirmado" in _resp_bot[-1] and TABLAS["turnos"][0]["confirmado_at"])
+db.get_tenant_by_phone_number_id = _por_num
+
+# liberar borra la confirmación
+db.cancelar_turno("t1", "c1")
+chequear("liberar borra confirmación y token", TABLAS["turnos"][0]["confirmado_at"] is None and TABLAS["turnos"][0]["token_calendario"] is None)
+
+# perfil público desde el panel
+panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "descripcion": "Adultos · Caballito", "modalidades_publicas": "ambas"})
+t1 = TABLAS["tenants"][0]
+chequear("perfil: guarda descripción, modalidad y sale del directorio sin tildar",
+         t1["descripcion"] == "Adultos · Caballito" and t1["modalidades_publicas"] == "ambas" and t1["en_directorio"] is False)
+chequear("perfil: avisa si ofrece videollamada sin link", "no cargaste el link" in panel_c.get("/agenda").data.decode())
+panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "cualquiera", "en_directorio": "1"})
+chequear("perfil: modalidad inválida vuelve a presencial", t1["modalidades_publicas"] == "presencial" and t1["en_directorio"] is True)
+import io as _io  # noqa: E402
+panel_c.post("/agenda/foto", data={"csrf_token": "tok", "foto": (_io.BytesIO(b"\x89PNG\r\n\x1a\n" + b"0" * 20), "yo.png")},
+             content_type="multipart/form-data")
+chequear("perfil: sube foto PNG", (t1.get("foto") or "").startswith("data:image/png;base64,"))
+panel_c.post("/agenda/foto", data={"csrf_token": "tok", "foto": (_io.BytesIO(b"<svg onload=alert(1)>"), "x.svg")},
+             content_type="multipart/form-data")
+chequear("perfil: rechaza lo que no es PNG/JPG", t1["foto"].startswith("data:image/png"))
+panel_c.post("/agenda/foto/borrar", data={"csrf_token": "tok"})
+chequear("perfil: quita la foto", t1["foto"] is None)
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

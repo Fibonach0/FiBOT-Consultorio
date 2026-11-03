@@ -23,6 +23,8 @@ from datetime import date, datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 
 import bcrypt
+from urllib.parse import urlencode
+
 from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, session, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from openpyxl import Workbook
@@ -119,6 +121,10 @@ def webhook_receive():
                 logger.warning("Mensaje a un phone_number_id sin tenant activo: %s", phone_number_id)
                 continue
             for msg in value.get("messages", []):
+                # Texto, o el botón de respuesta rápida de una plantilla (la de
+                # confirmación: «Sí, confirmo» / «Cancelar»).
+                if msg.get("type") == "button":
+                    msg = {**msg, "type": "text", "text": {"body": (msg.get("button") or {}).get("text", "")}}
                 if msg.get("type") != "text":
                     continue
                 telefono = msg.get("from")
@@ -766,7 +772,7 @@ def admin_uso_csv():
                               headers={"Content-Disposition": f'attachment; filename="uso-{primero:%Y-%m}.csv"'})
 
 
-SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos"}
+SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar"}
 RUBROS_ALTA = ["psicología", "psicopedagogía"]
 
 
@@ -2951,6 +2957,53 @@ def agenda_firma():
     return _volver_a_agenda()
 
 
+@app.post("/agenda/perfil")
+@login_required
+def agenda_perfil():
+    """Lo que ven los pacientes en /turnos y arriba del calendario."""
+    f = request.form
+    modalidades = f.get("modalidades_publicas") if f.get("modalidades_publicas") in MODALIDADES_PUBLICAS else "presencial"
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    db.guardar_ajustes(session["tenant_id"], {
+        "descripcion": (f.get("descripcion") or "").strip()[:160] or None,
+        "modalidades_publicas": modalidades,
+        "en_directorio": f.get("en_directorio") == "1",
+    })
+    if modalidades != "presencial" and not (tenant or {}).get("link_videollamada"):
+        flash("Guardado. Ojo: ofrecés videollamada pero no cargaste el link en Ajustes; el paciente no lo va a recibir.")
+    else:
+        flash("Listo, guardado: así te ven tus pacientes.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/foto")
+@login_required
+def agenda_foto():
+    """Foto para /turnos y el calendario. Mismo criterio que la firma: PNG o
+    JPG por los primeros bytes, hasta 300 KB, guardada en el tenant."""
+    archivo = request.files.get("foto")
+    crudo = archivo.read(FIRMA_MAX + 1) if archivo else b""
+    tipo = next((t for firma, t in FIRMA_TIPOS.items() if crudo.startswith(firma)), None)
+    if not crudo:
+        flash("Elegí una foto.")
+    elif len(crudo) > FIRMA_MAX:
+        flash("La foto es muy pesada: hasta 300 KB.")
+    elif not tipo:
+        flash("La foto tiene que ser PNG o JPG.")
+    else:
+        db.guardar_ajustes(session["tenant_id"], {"foto": f"data:{tipo};base64,{base64.b64encode(crudo).decode()}"})
+        flash("Se guardó tu foto.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/foto/borrar")
+@login_required
+def agenda_foto_borrar():
+    db.guardar_ajustes(session["tenant_id"], {"foto": None})
+    flash("Se quitó la foto.")
+    return _volver_a_agenda()
+
+
 @app.post("/agenda/firma/borrar")
 @login_required
 def agenda_firma_borrar():
@@ -3308,7 +3361,8 @@ def turnos_directorio():
     """La puerta de entrada para pacientes: todos los profesionales con página
     pública. Cada uno lleva a SU calendario (/<slug>), que es también el link
     que el profesional comparte."""
-    profesionales = sorted((t for t in db.tenants_activos() if t.get("slug")), key=lambda t: t["nombre"].casefold())
+    profesionales = sorted((t for t in db.tenants_activos() if t.get("slug") and t.get("en_directorio", True) is not False),
+                           key=lambda t: t["nombre"].casefold())
     return render_template("turnos.html", profesionales=profesionales)
 
 
@@ -3351,7 +3405,8 @@ def publico(slug):
                            siguiente=(lunes + timedelta(days=7)).isoformat(),
                            proximo_despues=_proximo_con_semana(siguiente, tz),
                            titulo_semana=f"{lunes.day}/{lunes.month:02d} al {(lunes + timedelta(days=6)).day}/{(lunes + timedelta(days=6)).month:02d}",
-                           hay_directorio=sum(1 for t in db.tenants_activos() if t.get("slug")) > 1)
+                           hay_directorio=sum(1 for t in db.tenants_activos()
+                                              if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
 
 
 @app.get("/<slug>/reservar/<turno_id>")
@@ -3383,6 +3438,7 @@ def publico_reservar(slug, turno_id):
         flash("Completá nombre y teléfono.")
         return redirect(url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    modalidad = _modalidad_publica(tenant, request.form.get("modalidad"))
     if request.form.get("confirmado") != "1":
         # Doble confirmación: primero se muestra todo junto (con quién, cuándo
         # y a qué WhatsApp) y recién el segundo POST reserva. No se toma el
@@ -3395,13 +3451,104 @@ def publico_reservar(slug, turno_id):
             flash("Revisá el WhatsApp: tiene que ir completo, con código de país (ej. 5491123456789).")
             return redirect(url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
         return render_template("publico_revisar.html", tenant=tenant, turno=_con_hora_local([turno], tz)[0],
-                               nombre=nombre, telefono=telefono)
+                               nombre=nombre, telefono=telefono, modalidad=modalidad,
+                               confirma_por_whatsapp=bool(config.CONFIRMACION_TEMPLATE))
     if not db.reservar_turno(tenant["id"], turno_id, telefono, nombre):
         flash("Ese horario ya no está disponible — elegí otro.")
         return redirect(url_for("publico", slug=slug))
+    token = secrets.token_urlsafe(16)
+    campos = {"token_calendario": token, "modalidad": None if modalidad == "presencial" else modalidad}
     turno = db.turno_por_id(tenant["id"], turno_id)
-    turno = _con_hora_local([turno], tz)[0]
-    return render_template("publico_confirmado.html", tenant=tenant, turno=turno)
+    enviada = _mandar_confirmacion(tenant, {**turno, **campos}, tz) if turno else False
+    if enviada:
+        campos["confirmacion_enviada_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
+    db.actualizar_reserva(tenant["id"], turno_id, campos)
+    turno = _con_hora_local([{**turno, **campos}], tz)[0]
+    return render_template("publico_confirmado.html", tenant=tenant, turno=turno, enviada=enviada, token=token)
+
+
+MODALIDADES_PUBLICAS = ("presencial", "virtual", "ambas")
+
+
+def _modalidad_publica(tenant: dict, pedida: str | None) -> str:
+    """La modalidad de una reserva web: la que ofrece el profesional, o la
+    elegida si ofrece las dos (y tiene link de videollamada para la virtual)."""
+    ofrece = tenant.get("modalidades_publicas") or "presencial"
+    if ofrece == "ambas":
+        return "virtual" if pedida == "virtual" else "presencial"
+    return ofrece
+
+
+def _mandar_confirmacion(tenant: dict, turno: dict, tz: ZoneInfo) -> bool:
+    """WhatsApp al paciente para que confirme la reserva web (y así saber que
+    el número está bien). Plantilla con botones; sin plantilla no se manda."""
+    if not config.CONFIRMACION_TEMPLATE:
+        return False
+    numero = whatsapp.numero_de(tenant)
+    if not numero:
+        return False
+    try:
+        return whatsapp.enviar_plantilla(numero, turno["paciente_telefono"], config.CONFIRMACION_TEMPLATE,
+                                         config.RECORDATORIO_TEMPLATE_LANG,
+                                         [tenant["nombre"], scheduler.cuando_de(turno, tenant, tz)])
+    except Exception:
+        logger.warning("No se pudo mandar la confirmación del turno %s", turno.get("id"), exc_info=True)
+        return False
+
+
+def _turno_para_agendar(token: str):
+    turno = db.turno_por_token_calendario(token)
+    tenant = db.get_tenant_by_id(turno["tenant_id"]) if turno else None
+    if not turno or not tenant or datetime.fromisoformat(turno["inicio"]) < datetime.now(ZoneInfo("UTC")) - timedelta(days=1):
+        return None, None
+    return turno, tenant
+
+
+def _sin_indexar(r):
+    r.headers["X-Robots-Tag"] = "noindex"
+    r.headers["Referrer-Policy"] = "no-referrer"
+    return r
+
+
+@app.get("/agendar/<token>")
+def agendar(token):
+    """Para sumar el turno al calendario del paciente (Google, iPhone,
+    Outlook). Sin el nombre del paciente: sólo con quién, cuándo y dónde."""
+    turno, tenant = _turno_para_agendar(token)
+    if not turno:
+        return _sin_indexar(app.make_response((render_template("agendar.html", turno=None, tenant=None), 404)))
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    inicio = datetime.fromisoformat(turno["inicio"]).astimezone(ZoneInfo("UTC"))
+    fin = datetime.fromisoformat(turno["fin"]).astimezone(ZoneInfo("UTC")) if turno.get("fin") else inicio + timedelta(minutes=50)
+    virtual = turno.get("modalidad") == "virtual"
+    detalle = f"Turno con {tenant['nombre']}" + (f". Videollamada: {tenant['link_videollamada']}" if virtual and tenant.get("link_videollamada") else "")
+    google = "https://calendar.google.com/calendar/render?" + urlencode({
+        "action": "TEMPLATE", "text": f"Turno con {tenant['nombre']}",
+        "dates": f"{inicio:%Y%m%dT%H%M%SZ}/{fin:%Y%m%dT%H%M%SZ}", "details": detalle})
+    return _sin_indexar(app.make_response(render_template(
+        "agendar.html", turno=_con_hora_local([turno], tz)[0], tenant=tenant, google=google, virtual=virtual)))
+
+
+@app.get("/agendar/<token>.ics")
+def agendar_ics(token):
+    turno, tenant = _turno_para_agendar(token)
+    if not turno:
+        return "No encontrado.", 404
+    inicio = datetime.fromisoformat(turno["inicio"]).astimezone(ZoneInfo("UTC"))
+    fin = datetime.fromisoformat(turno["fin"]).astimezone(ZoneInfo("UTC")) if turno.get("fin") else inicio + timedelta(minutes=50)
+    escapar = lambda t: t.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+    virtual = turno.get("modalidad") == "virtual"
+    detalle = f"Turno con {tenant['nombre']}" + (f". Videollamada: {tenant['link_videollamada']}" if virtual and tenant.get("link_videollamada") else "")
+    ics = "\r\n".join([
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//FiBOT Consultorio//Turnos//ES", "BEGIN:VEVENT",
+        f"UID:{turno['id']}@fibot-consultorio", f"DTSTAMP:{datetime.now(ZoneInfo('UTC')):%Y%m%dT%H%M%SZ}",
+        f"DTSTART:{inicio:%Y%m%dT%H%M%SZ}", f"DTEND:{fin:%Y%m%dT%H%M%SZ}",
+        f"SUMMARY:{escapar('Turno con ' + tenant['nombre'])}", f"DESCRIPTION:{escapar(detalle)}",
+        "BEGIN:VALARM", "TRIGGER:-PT2H", "ACTION:DISPLAY", f"DESCRIPTION:{escapar('Turno con ' + tenant['nombre'])}", "END:VALARM",
+        "END:VEVENT", "END:VCALENDAR", ""])
+    r = app.response_class(ics, mimetype="text/calendar")
+    r.headers["Content-Disposition"] = 'attachment; filename="turno.ics"'
+    return _sin_indexar(r)
 
 
 scheduler.iniciar()

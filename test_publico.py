@@ -52,7 +52,23 @@ def fake_reservar_turno(tenant_id, turno_id, telefono, nombre):
 db.reservar_turno = fake_reservar_turno
 OTRA = {"id": "t2", "nombre": "Lic. Beto Gómez", "rubro": "psicopedagogía", "slug": "betogomez", "activo": True}
 SIN_PAGINA = {"id": "t3", "nombre": "Lic. Sin Página", "rubro": "psicología", "slug": None, "activo": True}
-db.tenants_activos = lambda: [dict(TENANT, activo=True), OTRA, SIN_PAGINA]
+OCULTA = {"id": "t4", "nombre": "Lic. Oculta", "rubro": "psicología", "slug": "oculta", "activo": True, "en_directorio": False}
+db.tenants_activos = lambda: [dict(TENANT, activo=True), OTRA, SIN_PAGINA, OCULTA]
+db.get_tenant_by_id = lambda tid: TENANT if tid == "t1" else None
+ACTUALIZADOS = []
+
+
+def fake_actualizar_reserva(tenant_id, turno_id, campos):
+    ACTUALIZADOS.append((tenant_id, turno_id, campos))
+    if turno_id == "turno-a":
+        TURNO_LIBRE.update(campos)
+
+
+db.actualizar_reserva = fake_actualizar_reserva
+db.turno_por_token_calendario = lambda token: TURNO_LIBRE if token and token == TURNO_LIBRE.get("token_calendario") else None
+PLANTILLAS = []
+app.whatsapp.enviar_plantilla = lambda numero, to, plantilla, lang, params: PLANTILLAS.append((numero, to, plantilla, params)) or True
+app.config.PLATAFORMA_PHONE_NUMBER_ID = "PLAT"
 
 client = app.app.test_client()
 
@@ -63,7 +79,12 @@ print("GET /<slug desconocido> -> 404 OK")
 r = client.get("/turnos")
 html = r.data.decode()
 assert r.status_code == 200 and "Lic. Ana Pérez" in html and "Lic. Beto Gómez" in html and "Lic. Sin Página" not in html, html[:400]
-assert 'href="/anaperez"' in html and 'href="/betogomez"' in html
+assert 'href="/anaperez"' in html and 'href="/betogomez"' in html and "Lic. Oculta" not in html
+print("quien no quiere aparecer en /turnos no aparece OK")
+TENANT.update({"foto": "data:image/png;base64,AAAA", "descripcion": "Niños y adolescentes · Palermo", "modalidades_publicas": "ambas"})
+html = client.get("/turnos").data.decode()
+assert "data:image/png;base64,AAAA" in html and "Niños y adolescentes · Palermo" in html and "Presencial o videollamada" in html
+print("/turnos muestra foto, descripción y modalidad OK")
 print("GET /turnos -> lista los profesionales con página y lleva a cada calendario OK")
 
 r = client.get("/anaperez")
@@ -88,14 +109,15 @@ assert r.status_code == 200 and b"nombre" in r.data and b"telefono" in r.data, r
 print("GET /anaperez/reservar/turno-a -> 200 OK, formulario")
 
 r = client.get("/anaperez/reservar/turno-a")
-assert "Turno con <strong>Lic. Ana Pérez</strong>" in r.data.decode()
-print("el formulario dice con quién es el turno OK")
+assert "Turno con <strong>Lic. Ana Pérez</strong>" in r.data.decode() and 'value="virtual"' in r.data.decode()
+print("el formulario dice con quién es el turno y deja elegir modalidad OK")
 
 r = client.post(
     "/anaperez/reservar/turno-a",
-    data={"nombre": "Juan Pérez", "telefono": "+54 9 11 2345-6789"},
+    data={"nombre": "Juan Pérez", "telefono": "+54 9 11 2345-6789", "modalidad": "virtual"},
 )
 html = r.data.decode()
+assert "Por videollamada" in html and 'name="modalidad" value="virtual"' in html
 assert r.status_code == 200 and "Revisá antes de reservar" in html and "Lic. Ana Pérez" in html and "+5491123456789" in html, html[:300]
 assert TURNO_LIBRE["estado"] == "libre", "el primer paso NO reserva"
 print("primer POST -> pantalla de revisión, sin reservar OK")
@@ -106,9 +128,36 @@ print("WhatsApp incompleto -> vuelve al formulario OK")
 
 r = client.post(
     "/anaperez/reservar/turno-a",
-    data={"nombre": "Juan Pérez", "telefono": "5491123456789", "confirmado": "1"},
+    data={"nombre": "Juan Pérez", "telefono": "5491123456789", "confirmado": "1", "modalidad": "virtual"},
 )
 assert r.status_code == 200 and b"reservado" in r.data.lower() and "Con <strong>Lic. Ana Pérez</strong>" in r.data.decode(), r.status_code
+assert not PLANTILLAS and TURNO_LIBRE["modalidad"] == "virtual" and TURNO_LIBRE["token_calendario"]
+assert "Revisá tu WhatsApp" not in r.data.decode() and "/agendar/" in r.data.decode()
+print("sin plantilla de confirmación: reserva con modalidad y link para agendar, sin WhatsApp OK")
+
+# con plantilla de confirmación
+app.config.CONFIRMACION_TEMPLATE = "confirmar_turno"
+TURNO_LIBRE.update({"estado": "libre", "paciente_telefono": None, "paciente_nombre": None})
+r = client.post("/anaperez/reservar/turno-a",
+                data={"nombre": "Juan Pérez", "telefono": "5491123456789", "confirmado": "1", "modalidad": "presencial"})
+html = r.data.decode()
+assert PLANTILLAS and PLANTILLAS[-1][1] == "5491123456789" and PLANTILLAS[-1][2] == "confirmar_turno"
+assert PLANTILLAS[-1][3][0] == "Lic. Ana Pérez" and TURNO_LIBRE.get("confirmacion_enviada_at") and TURNO_LIBRE["modalidad"] is None
+assert "Revisá tu WhatsApp" in html
+print("con plantilla: le llega el WhatsApp para confirmar y queda marcado OK")
+
+# agendar
+TURNO_LIBRE["fin"] = (datetime.fromisoformat(TURNO_LIBRE["inicio"]) + timedelta(minutes=50)).isoformat()
+token = TURNO_LIBRE["token_calendario"]
+r = client.get(f"/agendar/{token}")
+html = r.data.decode()
+assert r.status_code == 200 and "calendar.google.com" in html and "Juan" not in html and r.headers.get("X-Robots-Tag") == "noindex"
+r = client.get(f"/agendar/{token}.ics")
+ics = r.data.decode()
+assert r.status_code == 200 and r.mimetype == "text/calendar" and "BEGIN:VEVENT" in ics and "Turno con Lic. Ana Pérez" in ics and "Juan" not in ics
+assert client.get("/agendar/inventado").status_code == 404 and client.get("/agendar/inventado.ics").status_code == 404
+print("agendar: Google Calendar y .ics sin datos del paciente OK")
+TENANT.update({"modalidades_publicas": "presencial"})
 assert TURNO_LIBRE["estado"] == "reservado"
 assert TURNO_LIBRE["paciente_telefono"] == "5491123456789", TURNO_LIBRE["paciente_telefono"]
 print("POST /anaperez/reservar/turno-a -> 200 OK, confirmado y teléfono normalizado a solo dígitos")

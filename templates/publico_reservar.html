@@ -16,7 +16,17 @@
       <input type="text" id="nombre" name="nombre" required>
 
       <label for="telefono">WhatsApp (con código de país, ej. 5491123456789)</label>
-      <input type="text" id="telefono" name="telefono" required placeholder="5491123456789">
+      <input type="tel" id="telefono" name="telefono" required placeholder="5491123456789">
+
+      {% if (tenant.modalidades_publicas or 'presencial') == 'ambas' %}
+      <label>¿Cómo preferís?</label>
+      <div style="display:flex;gap:16px;flex-wrap:wrap">
+        <label style="margin:0;color:inherit"><input type="radio" name="modalidad" value="presencial" checked> En el consultorio</label>
+        <label style="margin:0;color:inherit"><input type="radio" name="modalidad" value="virtual"> Por videollamada</label>
+      </div>
+      {% elif tenant.modalidades_publicas == 'virtual' %}
+      <p style="color:var(--muted);margin-bottom:0">La sesión es por videollamada.</p>
+      {% endif %}
 
       <div style="margin-top:14px;">
         <button class="btn" type="submit">Seguir</button>

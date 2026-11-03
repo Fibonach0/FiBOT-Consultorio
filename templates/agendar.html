@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titulo %}Agendar turno{% endblock %}
+{% block cuerpo %}
+<header><span>FiBOT Consultorio{% if tenant %} · {{ tenant.nombre }}{% endif %}</span></header>
+<main>
+  <div class="card" style="max-width:520px;margin:30px auto">
+    {% if not turno %}
+      <h2>Este link ya no sirve</h2>
+      <p style="color:var(--muted)">El turno pasó, se canceló o el link está incompleto.</p>
+    {% else %}
+      <h2>Agendá tu turno</h2>
+      <p>Con <strong>{{ tenant.nombre }}</strong>{% if tenant.rubro %} <span style="color:var(--muted)">({{ tenant.rubro }})</span>{% endif %}</p>
+      <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}{% if virtual %} · por videollamada{% endif %}</p>
+      {% if virtual and tenant.link_videollamada %}<p>Link de la videollamada: <a href="{{ tenant.link_videollamada }}" rel="noopener">{{ tenant.link_videollamada }}</a></p>{% endif %}
+      <div style="display:flex;flex-direction:column;gap:10px;margin-top:16px">
+        <a class="btn" style="text-decoration:none;text-align:center" href="{{ google }}" target="_blank" rel="noopener">Agregar a Google Calendar</a>
+        <a class="btn secundario" style="text-decoration:none;text-align:center" href="{{ url_for('agendar_ics', token=request.view_args.token) }}">iPhone, Outlook u otro calendario</a>
+      </div>
+      <p style="color:var(--muted);margin-bottom:0;margin-top:14px">Te avisa 2 horas antes. Si no podés ir, escribí <strong>cancelar</strong> por WhatsApp.</p>
+    {% endif %}
+  </div>
+</main>
+{% endblock %}

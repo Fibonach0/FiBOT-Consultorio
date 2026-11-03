@@ -373,6 +373,9 @@ _LIBERADO = {
     "frecuencia": None,
     "modalidad": None,
     "nota": None,
+    "confirmacion_enviada_at": None,
+    "confirmado_at": None,
+    "token_calendario": None,
 }
 
 
@@ -1266,3 +1269,35 @@ def respondido_sin_destino_desde(telefono_hash: str, desde: str) -> bool:
 def mensajes_sin_destino(limite: int = 50) -> list[dict]:
     return _client.table("mensajes_sin_destino").select("final,respondido,cuando").order(
         "cuando", desc=True).limit(limite).execute().data
+
+
+def actualizar_reserva(tenant_id: str, turno_id: str, campos: dict) -> None:
+    """Datos de una reserva ya tomada (modalidad elegida en la web, envío de
+    la confirmación). Sólo si sigue reservada."""
+    _client.table("turnos").update(campos).eq("tenant_id", tenant_id).eq("id", turno_id).eq("estado", "reservado").execute()
+
+
+def turno_por_token_calendario(token: str) -> dict | None:
+    """Para /agendar/<token>: el token aleatorio ES la credencial (como en los
+    cuestionarios). Sólo turnos reservados."""
+    if not token:
+        return None
+    res = (_client.table("turnos").select("*").eq("token_calendario", token).eq("estado", "reservado")
+           .limit(1).execute())
+    return res.data[0] if res.data else None
+
+
+def confirmar_proximo(tenant_id: str, telefono: str) -> dict | None:
+    """El paciente respondió «sí» por WhatsApp: confirma su próxima reserva
+    que esté esperando confirmación. Devuelve el turno confirmado."""
+    ahora = datetime.now(timezone.utc)
+    res = (_client.table("turnos").select("*").eq("tenant_id", tenant_id).eq("paciente_telefono", telefono)
+           .eq("estado", "reservado").gte("inicio", ahora.isoformat()).is_("confirmado_at", "null")
+           .order("inicio").execute())
+    pendientes = [t for t in res.data if t.get("confirmacion_enviada_at")]
+    if not pendientes:
+        return None
+    turno = pendientes[0]
+    _client.table("turnos").update({"confirmado_at": ahora.isoformat()}).eq("tenant_id", tenant_id).eq(
+        "id", turno["id"]).execute()
+    return {**turno, "confirmado_at": ahora.isoformat()}

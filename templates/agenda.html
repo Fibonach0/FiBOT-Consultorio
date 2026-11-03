@@ -169,6 +169,7 @@
             {% if t._reprogramado_desde %}<span class="chip">pasada del {{ t._reprogramado_desde }}</span>{% endif %}
             {% if t.frecuencia %}<span class="chip">{{ t.frecuencia }}</span>{% endif %}
             {% if t.modalidad == 'virtual' %}<span class="chip">videollamada</span>{% endif %}
+            {% if t.confirmado_at %}<span class="chip" title="Confirmó por WhatsApp: el número es correcto">✓ confirmó</span>{% elif t.confirmacion_enviada_at %}<span class="chip" title="Se le mandó un WhatsApp para confirmar y todavía no contestó">sin confirmar</span>{% endif %}
             {% if t.valor is not none and t.valor is defined %}<span class="chip">{{ t.valor|pesos }}</span>{% endif %}
             {% if t.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
             {% elif t.asistencia == 'no_vino' %}<span class="chip chip-alerta">no vino</span>{% endif %}
@@ -499,6 +500,32 @@
          href="https://wa.me/?text={{ ('Sacá tu turno conmigo acá: ' ~ mi_pagina)|urlencode }}">Compartir por WhatsApp</a>
       <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ mi_pagina }}">Ver</a>
     </div>
+    <details style="margin-top:8px"{% if not tenant.descripcion and not tenant.foto %} open{% endif %}><summary class="tenue">Cómo te ven: foto, descripción, modalidad</summary>
+      <div style="display:flex;gap:12px;align-items:center;margin:10px 0">
+        {% if tenant.foto %}<img src="{{ tenant.foto }}" alt="Tu foto" width="64" height="64" style="width:64px;height:64px;border-radius:50%;object-fit:cover">{% endif %}
+        <form method="post" action="{{ url_for('agenda_foto') }}" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="file" name="foto" accept="image/png,image/jpeg">
+          <button class="btn chico secundario" type="submit">{{ 'Cambiar foto' if tenant.foto else 'Subir foto' }}</button>
+        </form>
+        {% if tenant.foto %}
+        <form method="post" action="{{ url_for('agenda_foto_borrar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="quitar" type="submit" title="Quitar la foto">×</button></form>
+        {% endif %}
+      </div>
+      <form method="post" action="{{ url_for('agenda_perfil') }}" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div style="flex:2"><label>Una línea sobre vos (hasta 160 letras)</label><input type="text" name="descripcion" maxlength="160" placeholder="Niños y adolescentes · Palermo" value="{{ tenant.descripcion or '' }}"></div>
+        <div><label>Turnos que ofrecés en la página</label><select name="modalidades_publicas">
+          {% set m = tenant.modalidades_publicas or 'presencial' %}
+          <option value="presencial"{% if m == 'presencial' %} selected{% endif %}>Sólo presenciales</option>
+          <option value="virtual"{% if m == 'virtual' %} selected{% endif %}>Sólo por videollamada</option>
+          <option value="ambas"{% if m == 'ambas' %} selected{% endif %}>Las dos (elige el paciente)</option>
+        </select></div>
+        <div><label style="display:flex;gap:6px;align-items:center;color:inherit"><input type="checkbox" name="en_directorio" value="1"{% if tenant.en_directorio is not sameas false %} checked{% endif %} style="width:auto"> Aparecer en la lista de profesionales</label>
+          <span class="tenue" style="font-size:.8rem">Sin tildar, sólo entra quien tiene tu link.</span></div>
+        <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
+      </form>
+    </details>
     <details style="margin-top:8px"><summary class="tenue">Código QR (para imprimir o poner en el consultorio)</summary>
       <img src="{{ url_for('agenda_qr_pagina') }}" alt="QR de tu página de turnos" width="220" height="220" loading="lazy" style="margin-top:8px">
     </details>
