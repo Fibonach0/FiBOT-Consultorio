@@ -9,6 +9,7 @@ import re
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
+import config
 import db
 
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
@@ -100,9 +101,40 @@ def _cancelar(tenant: dict, telefono: str, nombre: str | None = None) -> str:
     return f"Cancelado el turno{de_quien} del {_fmt(turno['inicio'], tz)}. Escribí *turno* si querés reservar otro horario."
 
 
+# «Sí, confirmo» llega como botón de la plantilla de confirmación o tipeado.
+_CONFIRMAR = {"si", "sí", "si confirmo", "sí confirmo", "si, confirmo", "sí, confirmo", "confirmo", "confirmar",
+              "confirmado", "ok", "dale"}
+
+
+def _base_url() -> str:
+    if config.DOMINIO_PRINCIPAL:
+        return f"https://{config.DOMINIO_PRINCIPAL}"
+    from flask import has_request_context, request
+    return request.host_url.rstrip("/") if has_request_context() else ""
+
+
+def _confirmar(tenant: dict, telefono: str) -> str | None:
+    """Respuesta a la confirmación de una reserva hecha en la web, con el link
+    para agendarla. None si no había nada esperando confirmación."""
+    turno = db.confirmar_proximo(tenant["id"], telefono)
+    if not turno:
+        return None
+    texto = f"¡Listo! Quedó confirmado tu turno con *{tenant['nombre']}* el {_fmt(turno['inicio'], _tz(tenant))}."
+    if turno.get("modalidad") == "virtual" and tenant.get("link_videollamada"):
+        texto += f"\n\nEs por videollamada: {tenant['link_videollamada']}"
+    if turno.get("token_calendario"):
+        texto += f"\n\nAgendalo en tu calendario: {_base_url()}/agendar/{turno['token_calendario']}"
+    return texto + "\n\nSi no podés ir, escribí *cancelar*."
+
+
 def responder(tenant: dict, telefono: str, texto: str) -> str:
     limpio = (texto or "").strip()
     baja = limpio.lower()
+
+    if baja.rstrip(".!") in _CONFIRMAR:
+        confirmado = _confirmar(tenant, telefono)
+        if confirmado:
+            return confirmado
 
     m = _SELECCION.match(limpio)
     if m:

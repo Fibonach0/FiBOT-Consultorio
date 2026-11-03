@@ -10,13 +10,15 @@
     <div class="turno"><span>Profesional</span><strong>{{ tenant.nombre }}{% if tenant.rubro %} <span style="color:var(--muted);font-weight:400">· {{ tenant.rubro }}</span>{% endif %}</strong></div>
     <div class="turno"><span>Día</span><strong>{{ turno._dia }}</strong></div>
     <div class="turno"><span>Hora</span><strong>{{ turno._hora }}</strong></div>
+    <div class="turno"><span>Modalidad</span><strong>{{ 'Por videollamada' if modalidad == 'virtual' else 'En el consultorio' }}</strong></div>
     <div class="turno"><span>A nombre de</span><strong>{{ nombre }}</strong></div>
     <div class="turno"><span>WhatsApp</span><strong>+{{ telefono }}</strong></div>
-    <p style="color:var(--muted);">A ese WhatsApp te llega el recordatorio antes del turno. Si algo no está bien, corregilo antes de confirmar.</p>
+    <p style="color:var(--muted);">{% if confirma_por_whatsapp %}Al reservar te llega un WhatsApp para confirmar el turno: así sabemos que el número es el tuyo. {% endif %}A ese WhatsApp te llega también el recordatorio. Si algo no está bien, corregilo antes de confirmar.</p>
 
     <form method="post" action="{{ url_for('publico_reservar', slug=tenant.slug, turno_id=turno.id) }}">
       <input type="hidden" name="nombre" value="{{ nombre }}">
       <input type="hidden" name="telefono" value="{{ telefono }}">
+      <input type="hidden" name="modalidad" value="{{ modalidad }}">
       <input type="hidden" name="confirmado" value="1">
       <div style="margin-top:14px;">
         <button class="btn" type="submit">Sí, reservar con {{ tenant.nombre }}</button>

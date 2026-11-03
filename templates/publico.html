@@ -25,8 +25,14 @@
 </header>
 <main>
   <div class="card">
-    <h1 style="margin-bottom:4px">{{ tenant.nombre }}</h1>
-    {% if tenant.rubro %}<p style="color:var(--muted); margin-top:0; text-transform:capitalize">{{ tenant.rubro }}</p>{% endif %}
+    <div style="display:flex;gap:14px;align-items:center">
+      {% if tenant.foto %}<img src="{{ tenant.foto }}" alt="" width="72" height="72" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex:none">{% endif %}
+      <div>
+        <h1 style="margin:0 0 4px">{{ tenant.nombre }}</h1>
+        {% if tenant.rubro %}<p style="color:var(--muted); margin:0; text-transform:capitalize">{{ tenant.rubro }}{% if tenant.modalidades_publicas == 'virtual' %} · por videollamada{% elif tenant.modalidades_publicas == 'ambas' %} · presencial o videollamada{% endif %}</p>{% endif %}
+      </div>
+    </div>
+    {% if tenant.descripcion %}<p style="margin-bottom:0">{{ tenant.descripcion }}</p>{% endif %}
     <p style="margin-bottom:0">Tocá un horario libre para reservar tu turno.</p>
   </div>
 

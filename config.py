@@ -78,6 +78,13 @@ LISTA_ESPERA_TEMPLATE = os.environ.get("LISTA_ESPERA_TEMPLATE", "")
 # nada. Vacía = sin freno: le manda a todos (producción).
 WHATSAPP_SOLO_A = [n.strip() for n in os.environ.get("WHATSAPP_SOLO_A", "").split(",") if n.strip()]
 
+# Confirmación de una reserva hecha en la web (el paciente nunca escribió:
+# fuera de las 24 h, hace falta plantilla). Botones de respuesta rápida
+# «Sí, confirmo» y «Cancelar»:
+#   {{1}} nombre del profesional      {{2}} cuándo es
+# Vacía = no se manda confirmación.
+CONFIRMACION_TEMPLATE = os.environ.get("CONFIRMACION_TEMPLATE", "")
+
 # Mails (recuperar la clave). Proveedor: Resend (API HTTP). Sin las dos
 # variables, el sistema no manda mails y la recuperación sigue siendo por
 # el link que genera administración.

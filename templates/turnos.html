@@ -5,7 +5,7 @@
   .profesionales { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; }
   .profesional { display:flex; flex-direction:column; gap:6px; text-decoration:none; color:inherit; }
   .profesional:hover { border-color:var(--green); }
-  .profesional .rubro { color:var(--muted); font-size:.9rem; text-transform:capitalize; }
+  .profesional .rubro { color:var(--muted); font-size:.9rem; }
 </style>
 <header>
   <span>FiBOT Consultorio · Turnos</span>
@@ -19,8 +19,15 @@
   <div class="profesionales">
     {% for t in profesionales %}
     <a class="card profesional" href="{{ url_for('publico', slug=t.slug) }}">
-      <strong style="font-size:1.1rem">{{ t.nombre }}</strong>
-      {% if t.rubro %}<span class="rubro">{{ t.rubro }}</span>{% endif %}
+      <div style="display:flex;gap:12px;align-items:center">
+        {% if t.foto %}<img src="{{ t.foto }}" alt="" width="64" height="64" style="width:64px;height:64px;border-radius:50%;object-fit:cover;flex:none">{% endif %}
+        <div>
+          <strong style="font-size:1.1rem">{{ t.nombre }}</strong>
+          {% if t.rubro %}<div class="rubro">{{ t.rubro }}</div>{% endif %}
+        </div>
+      </div>
+      {% if t.descripcion %}<span>{{ t.descripcion }}</span>{% endif %}
+      {% if t.modalidades_publicas == 'virtual' %}<span class="rubro">Por videollamada</span>{% elif t.modalidades_publicas == 'ambas' %}<span class="rubro">Presencial o videollamada</span>{% endif %}
       <span class="btn" style="align-self:flex-start;margin-top:6px">Ver calendario</span>
     </a>
     {% endfor %}

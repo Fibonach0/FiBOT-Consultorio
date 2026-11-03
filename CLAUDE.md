@@ -178,6 +178,22 @@ los horarios libres; sin semana elegida abre la del próximo horario libre. En e
 panel, «Tu página de turnos» copia el link, lo comparte por WhatsApp y da un QR
 (`/agenda/mi-pagina-qr.svg`). `turnos` está en `SLUGS_RESERVADOS`.
 
+Perfil público (`migrations/047`): `tenants.foto` (data URL PNG/JPG, mismo
+criterio que la firma), `descripcion`, `modalidades_publicas` (presencial /
+virtual / ambas: con ambas elige el paciente) y `en_directorio` (si es false no
+aparece en /turnos, pero su link sigue andando). Se cargan en «Tu página de
+turnos» del panel.
+
+Confirmación por WhatsApp de la reserva web: con `CONFIRMACION_TEMPLATE`
+(plantilla con botones «Sí, confirmo» / «Cancelar», `{{1}}` profesional,
+`{{2}}` cuándo) se le manda al reservar y se marca `confirmacion_enviada_at`.
+El botón llega al webhook como `type: button` y se trata como texto; «sí» o
+el botón confirman la próxima reserva que esperaba confirmación
+(`db.confirmar_proximo`) y la respuesta lleva `/agendar/<token_calendario>`:
+Google Calendar o `.ics`, sin datos del paciente, `noindex`. El token es la
+credencial. Los tres campos van en `db._LIBERADO` y no viajan al reprogramar.
+En el panel, la sesión muestra «✓ confirmó» o «sin confirmar».
+
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin
 tomar el horario; el segundo reserva. Todas las pantallas dicen con quién es el
