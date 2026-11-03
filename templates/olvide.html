@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block titulo %}Olvidé la clave — FiBOT Consultorio{% endblock %}
+{% block cuerpo %}
+<main style="max-width:420px; margin-top:60px;">
+  <div class="card">
+    <h2>¿Te olvidaste la clave?</h2>
+    <p>Escribile a quien te dio la cuenta: te manda un link para poner una clave nueva. Sirve una sola vez y vence en 24 horas.</p>
+    <p class="tenue">Si tenés el panel abierto en el celular, también podés entrar con «Entrar con el celular» y cambiar la clave desde «Ajustes».</p>
+    <a href="{{ url_for('login') }}">Volver</a>
+  </div>
+</main>
+{% endblock %}

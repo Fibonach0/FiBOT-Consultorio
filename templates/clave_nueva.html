@@ -1,0 +1,23 @@
+{% extends "base.html" %}
+{% block titulo %}Clave nueva — FiBOT Consultorio{% endblock %}
+{% block cuerpo %}
+<meta name="robots" content="noindex">
+<main style="max-width:400px; margin-top:60px;">
+  <div class="card">
+    {% if listo %}
+    <h2>Listo</h2><p>Ya podés entrar con tu clave nueva. Se cerraron las sesiones que tenías abiertas.</p>
+    <a class="btn" href="{{ url_for('login') }}" style="text-decoration:none;display:inline-block">Entrar</a>
+    {% elif valido %}
+    <h2>Poné tu clave nueva</h2>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post">
+      <label>Clave nueva (mínimo 10)</label><input type="password" name="nueva" autocomplete="new-password" minlength="10" required>
+      <label>Repetila</label><input type="password" name="repetir" autocomplete="new-password" minlength="10" required>
+      <button class="btn" type="submit" style="margin-top:12px">Guardar</button>
+    </form>
+    {% else %}
+    <h2>Este link ya no sirve</h2><p>Venció o ya se usó. Pedí otro a la administración.</p>
+    {% endif %}
+  </div>
+</main>
+{% endblock %}

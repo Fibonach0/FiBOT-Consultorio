@@ -300,6 +300,22 @@ sesiones de la cuenta; cambiar la clave la sube y deja viva la sesión actual.
 panel (7 días) y en el resumen (24 horas). En la máquina de Nacho no hay `python`:
 los scripts van con `railway run .venv/bin/python scripts/...`.
 
+### Sesiones, QR y actividad (`migrations/040`)
+
+Cada login de profesional crea una fila en `sesiones` (`_abrir_sesion`); la cookie
+sólo lleva `sesion_id` y `login_required` exige que la fila exista (cerrar = borrar
+la fila; para tenants ya no se usa `sesion_version`). Dispositivo = «Chrome en
+Windows», nunca el user agent entero ni la IP.
+Entrar con QR: la compu pide `/login/qr` (token en el QR + nonce en SU sesión), el
+celular logueado abre `/login/qr/<token>` y aprueba (POST con CSRF), la compu
+consulta `/estado` y recién ahí se le abre la sesión, una sola vez. Del token y del
+nonce sólo se guardan hashes. Los QR se dibujan con `segno` en el servidor: el del
+doble factor lleva el secreto y nunca puede salir a un servicio externo.
+Doble factor opcional para profesionales (`tenants.totp_secreto`), mismo esquema
+que admin. `enlaces_clave`: link de 24 h que genera admin (no hay mail todavía).
+`actividad` registra ingresos, bloqueos, claves, sesiones, altas y moderación:
+nunca datos de pacientes.
+
 ### Límite de intentos de login (`migrations/038`)
 
 `login_intentos` cuenta fallos por usuario (`panel:`, `admin:`, `totp:`; 5) y por IP

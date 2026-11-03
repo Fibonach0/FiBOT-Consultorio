@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block titulo %}Código — FiBOT Consultorio{% endblock %}
+{% block cuerpo %}
+<main style="max-width:380px; margin-top:60px;">
+  <div class="card">
+    <h2>Código de seguridad</h2>
+    <p class="tenue">Abrí la app de autenticación y escribí el código de 6 números de «FiBOT Consultorio».</p>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post">
+      <input type="text" name="codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required autofocus style="font-size:1.4rem;letter-spacing:.2em;max-width:180px">
+      <div style="margin-top:12px"><button class="btn" type="submit">Entrar</button> <a href="{{ url_for('login') }}" style="margin-left:10px">Cancelar</a></div>
+    </form>
+  </div>
+</main>
+{% endblock %}

@@ -85,3 +85,31 @@ def agrupado(secreto: str) -> str:
 
 def ahora_utc() -> datetime:
     return datetime.now(timezone.utc)
+
+
+# --- Dispositivo, tokens y QR ---
+
+def dispositivo(user_agent: str | None) -> str:
+    """«Chrome en Windows»: lo justo para reconocer una sesión, sin guardar el
+    user agent entero."""
+    ua = user_agent or ""
+    navegador = next((n for clave, n in (("Edg/", "Edge"), ("OPR/", "Opera"), ("Firefox/", "Firefox"),
+                                         ("Chrome/", "Chrome"), ("Safari/", "Safari")) if clave in ua), "Navegador")
+    sistema = next((s for clave, s in (("iPhone", "iPhone"), ("iPad", "iPad"), ("Android", "Android"),
+                                       ("Windows", "Windows"), ("Mac OS", "Mac"), ("Linux", "Linux")) if clave in ua), "")
+    return f"{navegador} en {sistema}" if sistema else navegador
+
+
+def nuevo_token() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def hash_token(token: str) -> str:
+    return hashlib.sha256(token.encode()).hexdigest()
+
+
+def qr_svg(texto: str, escala: int = 5) -> str:
+    """SVG en línea (sin servicios externos: el QR del doble factor lleva el
+    secreto y no puede salir a ningún lado)."""
+    import segno
+    return segno.make(texto, error="m").svg_inline(scale=escala, border=2, dark="#1c1b19", light="#ffffff")

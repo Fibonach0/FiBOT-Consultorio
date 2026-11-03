@@ -1,0 +1,13 @@
+{% extends "base.html" %}
+{% block titulo %}Link de clave — Administración{% endblock %}
+{% block cuerpo %}
+<header><span>FiBOT Consultorio · Administración</span><a href="{{ url_for('admin_panel') }}">Volver</a></header>
+<main style="max-width:560px">
+  <div class="card">
+    <h2>Link para clave nueva de {{ tenant.nombre }}</h2>
+    <p>Mandáselo por un canal seguro (WhatsApp directo, no un grupo). Sirve una sola vez y vence en 24 horas. <strong>No se vuelve a mostrar:</strong> si lo perdés, generá otro.</p>
+    <input type="text" readonly value="{{ link }}" onclick="this.select()" aria-label="Link">
+    <button class="btn chico secundario" type="button" style="margin-top:8px" onclick="navigator.clipboard.writeText(this.previousElementSibling.value).then(() => this.textContent = 'Copiado')">Copiar link</button>
+  </div>
+</main>
+{% endblock %}

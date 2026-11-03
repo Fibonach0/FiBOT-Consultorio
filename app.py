@@ -145,7 +145,9 @@ def verificar_csrf():
     """Toda acción del panel tiene que traer el token de la sesión, para que
     otra página no pueda disparar un POST con la cookie del profesional. El
     webhook tiene su firma y la reserva pública no usa sesión."""
-    if request.method != "POST" or not request.path.startswith(("/agenda", "/admin")) or request.path == "/admin/login":
+    # /login/qr/<token> es la aprobación desde el celular (con sesión): necesita token.
+    if request.method != "POST" or not request.path.startswith(("/agenda", "/admin", "/login/qr/")) \
+            or request.path == "/admin/login":
         return None
     esperado = session.get("csrf_token")
     recibido = request.form.get("csrf_token") or ""
@@ -158,13 +160,18 @@ def login_required(vista):
     @functools.wraps(vista)
     def envoltorio(*args, **kwargs):
         if not session.get("tenant_id"):
-            return redirect(url_for("login"))
-        # Una cuenta desactivada desde /admin pierde también la sesión abierta.
+            return redirect(url_for("login", siguiente=request.path if request.method == "GET" else None))
+        # La sesión tiene que seguir en la tabla: cerrarla desde el panel, desde
+        # /admin o al cambiar la clave borra la fila. Una cuenta desactivada
+        # pierde también la sesión abierta.
         tenant = db.get_tenant_by_id(session["tenant_id"])
-        if not tenant or tenant.get("activo") is False \
-                or (tenant.get("sesion_version") or 0) != session.get("sesion_version", 0):
+        fila = db.sesion(session.get("sesion_id") or "")
+        if not tenant or tenant.get("activo") is False or not fila or fila["tenant_id"] != tenant["id"]:
             session.clear()
             return redirect(url_for("login"))
+        ahora = datetime.now(ZoneInfo("UTC"))
+        if ahora - datetime.fromisoformat(fila["ultima"]) > timedelta(minutes=5):
+            db.tocar_sesion(fila["id"], ahora.isoformat())
         return vista(*args, **kwargs)
 
     return envoltorio
@@ -173,6 +180,41 @@ def login_required(vista):
 @app.get("/login")
 def login():
     return render_template("login.html", error=None)
+
+
+@app.get("/olvide-la-clave")
+def olvide_clave():
+    return render_template("olvide.html")
+
+
+@app.route("/clave-nueva/<token>", methods=["GET", "POST"])
+def clave_nueva(token):
+    """Link de un solo uso que genera la administración. GET sólo muestra el
+    formulario (los previsualizadores no lo gastan)."""
+    h = seguridad.hash_token(token)
+    e = db.enlace_clave(h)
+    ahora = datetime.now(ZoneInfo("UTC"))
+    if not e or e.get("usado_at") or datetime.fromisoformat(e["vence"]) <= ahora:
+        return _sin_cache(app.make_response(render_template("clave_nueva.html", valido=False, error=None)))
+    if request.method == "GET":
+        return _sin_cache(app.make_response(render_template("clave_nueva.html", valido=True, error=None)))
+    nueva = request.form.get("nueva") or ""
+    error = None
+    if len(nueva) < MIN_CLAVE:
+        error = f"La clave tiene que tener al menos {MIN_CLAVE} caracteres."
+    elif nueva != (request.form.get("repetir") or ""):
+        error = "Las dos claves no coinciden."
+    if error:
+        return _sin_cache(app.make_response(render_template("clave_nueva.html", valido=True, error=error)))
+    tenant = db.get_tenant_by_id(e["tenant_id"])
+    if not tenant or not db.usar_enlace_clave(h, ahora.isoformat()):
+        return _sin_cache(app.make_response(render_template("clave_nueva.html", valido=False, error=None)))
+    db.cambiar_clave("tenants", tenant["id"], "panel_pass_hash", bcrypt.hashpw(nueva.encode(), bcrypt.gensalt()).decode(),
+                     (tenant.get("sesion_version") or 0) + 1)
+    db.cerrar_sesiones(tenant["id"])
+    db.borrar_intentos_login(f"panel:{tenant['panel_user'].casefold()}")
+    db.registrar_actividad(tenant["nombre"], "puso una clave nueva con el link de la administración", tenant["id"])
+    return render_template("clave_nueva.html", valido=False, listo=True, error=None)
 
 
 def usuario_de_clave(clave: str) -> str:
@@ -203,6 +245,9 @@ def _registrar_fallo(claves: list[str]) -> None:
             tenant = db.get_tenant_by_panel_user(usuario_de_clave(clave))
             if tenant:
                 db.marcar_bloqueo(tenant["id"], ahora.isoformat())
+                db.registrar_actividad("sistema", f"bloqueó 15 minutos el usuario de {tenant['nombre']} por claves equivocadas", tenant["id"])
+        elif nuevo["bloqueado_hasta"] and clave.startswith("admin:"):
+            db.registrar_actividad("sistema", f"bloqueó 15 minutos el usuario de administración «{usuario_de_clave(clave)}»")
 
 
 @app.post("/login")
@@ -218,11 +263,106 @@ def login_post():
         _registrar_fallo(claves)
         return render_template("login.html", error="Usuario o clave incorrectos."), 401
     db.borrar_intentos_login(claves[0])
+    siguiente = _siguiente_seguro(request.form.get("siguiente"))
     session.clear()
+    if tenant.get("totp_secreto"):
+        session["pendiente_tenant"] = tenant["id"]
+        session["siguiente"] = siguiente
+        return redirect(url_for("login_codigo"))
+    _abrir_sesion(tenant, "clave")
+    return redirect(siguiente or url_for("agenda"))
+
+
+def _siguiente_seguro(destino: str | None) -> str | None:
+    """Sólo rutas propias conocidas: nunca redirigir afuera del sitio."""
+    if destino and destino.startswith(("/agenda", "/login/qr/")) and "//" not in destino and "\\" not in destino:
+        return destino
+    return None
+
+
+def _abrir_sesion(tenant: dict, origen: str, disp: str | None = None) -> None:
+    """Sesión nueva del panel: fila en `sesiones` + cookie con su id."""
+    session.clear()
+    sesion_id = seguridad.nuevo_token()
+    disp = disp or seguridad.dispositivo(request.headers.get("User-Agent"))
+    db.crear_sesion(sesion_id, tenant["id"], disp, origen)
     session["tenant_id"] = tenant["id"]
-    session["sesion_version"] = tenant.get("sesion_version") or 0
+    session["sesion_id"] = sesion_id
     db.marcar_ingreso("tenants", tenant["id"], datetime.now(ZoneInfo("UTC")).isoformat())
-    return redirect(url_for("agenda"))
+    db.registrar_actividad(tenant["nombre"], f"entró al panel ({origen}, {disp})", tenant["id"])
+
+
+@app.route("/login/codigo", methods=["GET", "POST"])
+def login_codigo():
+    tenant = db.get_tenant_by_id(session["pendiente_tenant"]) if session.get("pendiente_tenant") else None
+    if not tenant or not tenant.get("totp_secreto") or tenant.get("activo") is False:
+        return redirect(url_for("login"))
+    if request.method == "GET":
+        return render_template("login_codigo.html", error=None)
+    claves = _claves_de_intento(f"totp-panel:{tenant['id']}")
+    bloqueo = _bloqueo_login(claves)
+    if bloqueo:
+        return render_template("login_codigo.html", error=bloqueo), 429
+    paso = seguridad.verificar(tenant["totp_secreto"], request.form.get("codigo") or "", tenant.get("totp_ultimo_paso"))
+    if paso is None:
+        _registrar_fallo(claves)
+        return render_template("login_codigo.html", error="Código incorrecto o ya usado."), 401
+    db.borrar_intentos_login(claves[0])
+    db.guardar_totp_tenant(tenant["id"], {"totp_ultimo_paso": paso})
+    siguiente = _siguiente_seguro(session.get("siguiente"))
+    _abrir_sesion(tenant, "clave y código")
+    return redirect(siguiente or url_for("agenda"))
+
+
+# --- Entrar leyendo un QR con el celular ---
+QR_VIGENCIA = timedelta(minutes=2)
+
+
+@app.post("/login/qr")
+def login_qr_nuevo():
+    """La compu pide un QR. El nonce queda en SU sesión: el link del QR solo
+    no alcanza para entrar, hace falta además el navegador que lo pidió."""
+    token, nonce = seguridad.nuevo_token(), seguridad.nuevo_token()
+    session["qr_nonce"] = nonce
+    vence = datetime.now(ZoneInfo("UTC")) + QR_VIGENCIA
+    db.crear_qr_login(seguridad.hash_token(token), seguridad.hash_token(nonce),
+                      seguridad.dispositivo(request.headers.get("User-Agent")), vence.isoformat())
+    link = url_for("login_qr_aprobar", token=token, _external=True)
+    return jsonify(token=token, svg=seguridad.qr_svg(link, escala=4), segundos=int(QR_VIGENCIA.total_seconds()))
+
+
+@app.get("/login/qr/<token>/estado")
+def login_qr_estado(token):
+    q = db.qr_login(seguridad.hash_token(token))
+    nonce = session.get("qr_nonce") or ""
+    if not q or not hmac.compare_digest(q["nonce_hash"], seguridad.hash_token(nonce)):
+        return jsonify(estado="invalido"), 404
+    if datetime.fromisoformat(q["vence"]) <= datetime.now(ZoneInfo("UTC")) or q.get("usado_at"):
+        return jsonify(estado="vencido")
+    if not q.get("aprobado_at"):
+        return jsonify(estado="esperando")
+    tenant = db.get_tenant_by_id(q["tenant_id"])
+    if not tenant or tenant.get("activo") is False or not db.usar_qr_login(q["token_hash"], datetime.now(ZoneInfo("UTC")).isoformat()):
+        return jsonify(estado="vencido")
+    _abrir_sesion(tenant, "QR", q.get("dispositivo"))
+    return jsonify(estado="listo", destino=url_for("agenda"))
+
+
+@app.route("/login/qr/<token>", methods=["GET", "POST"])
+@login_required
+def login_qr_aprobar(token):
+    """Se abre en el celular, que ya tiene sesión. Aprobar le da a la compu que
+    mostró el QR una sesión de esta misma cuenta."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    q = db.qr_login(seguridad.hash_token(token))
+    vigente = q and not q.get("aprobado_at") and datetime.fromisoformat(q["vence"]) > datetime.now(ZoneInfo("UTC"))
+    if request.method == "POST" and vigente:
+        if request.form.get("respuesta") == "aprobar" and \
+                db.aprobar_qr_login(q["token_hash"], tenant["id"], datetime.now(ZoneInfo("UTC")).isoformat()):
+            db.registrar_actividad(tenant["nombre"], f"aprobó entrar con QR en {q.get('dispositivo')}", tenant["id"])
+            return render_template("login_qr.html", tenant=tenant, estado="aprobado", q=q)
+        return render_template("login_qr.html", tenant=tenant, estado="rechazado", q=q)
+    return render_template("login_qr.html", tenant=tenant, estado="pregunta" if vigente else "vencido", q=q)
 
 
 def admin_requerido(vista):
@@ -292,6 +432,7 @@ def admin_codigo():
     session["admin_id"] = admin["id"]
     session["admin_version"] = admin.get("sesion_version") or 0
     db.marcar_ingreso("admins", admin["id"], datetime.now(ZoneInfo("UTC")).isoformat())
+    db.registrar_actividad(f"administración ({admin['usuario']})", "entró a administración")
     return redirect(url_for("admin_panel"))
 
 
@@ -312,12 +453,15 @@ def admin_doble_factor():
         paso = seguridad.verificar(secreto, request.form.get("codigo") or "")
         if paso is not None:
             db.guardar_totp(admin["id"], {"totp_secreto": secreto, "totp_ultimo_paso": paso})
+            db.registrar_actividad(f"administración ({admin['usuario']})", "activó el doble factor")
             session.pop("totp_nuevo", None)
             flash("Doble factor activado. Desde ahora, al entrar te va a pedir el código de la app.")
             return redirect(url_for("admin_panel"))
         error = "Ese código no coincide. Fijate que la hora del celular esté bien y probá con el próximo."
-    return render_template("admin_doble_factor.html", admin=admin, clave=seguridad.agrupado(secreto),
-                           uri=seguridad.uri(secreto, admin["usuario"]), error=error)
+    uri = seguridad.uri(secreto, admin["usuario"])
+    return render_template("doble_factor.html", cuenta=f"{admin['usuario']} (administración)", clave=seguridad.agrupado(secreto),
+                           uri=uri, qr=seguridad.qr_svg(uri), error=error, volver=None, salir=url_for("logout"),
+                           obligatorio=True)
 
 
 @app.get("/admin/uso.csv")
@@ -363,7 +507,12 @@ def admin_panel():
         t["_ingreso"] = datetime.fromisoformat(t["ultimo_ingreso"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if t.get("ultimo_ingreso") else "nunca"
     biblioteca = [dict(e, titulo=e["contenido"]["nombre"] + (f" · {e['contenido']['version']}" if e["contenido"].get("version") else ""))
                   for e in db.biblioteca()]
+    filtro = request.args.get("actividad_de") or None
+    actividad = db.actividad_reciente(200, filtro)
+    for a in actividad:
+        a["_cuando"] = datetime.fromisoformat(a["cuando"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if "T" in str(a["cuando"]) else a["cuando"]
     return render_template("admin.html", admin=db.admin_por_id(session["admin_id"]), tenants=tenants,
+                           actividad=actividad, filtro=filtro,
                            biblioteca=biblioteca, rubros=RUBROS_ALTA,
                            mes_actual=datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%Y-%m"))
 
@@ -391,6 +540,7 @@ def admin_alta():
                      "panel_pass_hash": bcrypt.hashpw(clave.encode(), bcrypt.gensalt()).decode(),
                      "timezone": "America/Argentina/Buenos_Aires", "duracion_turno_minutos": 50,
                      "recordatorio_horas_antes": 24})
+    db.registrar_actividad(_actor_admin(), f"dio de alta a {nombre}")
     flash(f"Se creó la cuenta de {nombre}. Pasale el usuario y la clave por un canal seguro.")
     return redirect(url_for("admin_panel"))
 
@@ -401,6 +551,10 @@ def admin_activar(tenant_id, accion):
     if accion not in ("activar", "desactivar"):
         return "No encontrado.", 404
     db.activar_tenant(tenant_id, accion == "activar")
+    if accion == "desactivar":
+        db.cerrar_sesiones(tenant_id)
+    t = db.get_tenant_by_id(tenant_id)
+    db.registrar_actividad(_actor_admin(), f"{'activó' if accion == 'activar' else 'desactivó'} la cuenta de {t['nombre'] if t else '?'}", tenant_id)
     flash("Cuenta activada." if accion == "activar" else "Cuenta desactivada: ya no puede entrar al panel.")
     return redirect(url_for("admin_panel"))
 
@@ -412,6 +566,7 @@ def admin_moderar(entrada_id, accion):
         return "No encontrado.", 404
     admin = db.admin_por_id(session["admin_id"])
     db.moderar_biblioteca(entrada_id, accion == "ocultar", f"administración ({admin['usuario']})" if accion == "ocultar" else None)
+    db.registrar_actividad(_actor_admin(), f"{'ocultó' if accion == 'ocultar' else 'volvió a mostrar'} un cuestionario de la biblioteca")
     flash("Se ocultó de la biblioteca." if accion == "ocultar" else "Volvió a la biblioteca.")
     return redirect(url_for("admin_panel"))
 
@@ -451,7 +606,8 @@ def agenda_clave():
     version = (tenant.get("sesion_version") or 0) + 1
     db.cambiar_clave("tenants", tenant["id"], "panel_pass_hash",
                      bcrypt.hashpw(request.form["nueva"].encode(), bcrypt.gensalt()).decode(), version)
-    session["sesion_version"] = version  # esta sigue; las demás se cierran
+    db.cerrar_sesiones(tenant["id"], excepto=session.get("sesion_id"))  # esta sigue; las demás se cierran
+    db.registrar_actividad(tenant["nombre"], "cambió su clave", tenant["id"])
     flash("Listo, cambiaste la clave. Se cerraron las sesiones abiertas en otros dispositivos.")
     return _volver_a_agenda()
 
@@ -470,6 +626,7 @@ def admin_clave():
     db.cambiar_clave("admins", admin["id"], "pass_hash",
                      bcrypt.hashpw(request.form["nueva"].encode(), bcrypt.gensalt()).decode(), version)
     session["admin_version"] = version
+    db.registrar_actividad(_actor_admin(), "cambió su clave de administración")
     flash("Listo, cambiaste la clave. Se cerraron tus otras sesiones.")
     return redirect(url_for("admin_panel"))
 
@@ -480,9 +637,99 @@ def admin_cerrar_sesiones(tenant_id):
     tenant = db.get_tenant_by_id(tenant_id)
     if not tenant:
         return "No encontrado.", 404
-    db.subir_version_sesion("tenants", tenant_id, (tenant.get("sesion_version") or 0) + 1)
+    db.cerrar_sesiones(tenant_id)
+    db.registrar_actividad(_actor_admin(), f"cerró todas las sesiones de {tenant['nombre']}", tenant_id)
     flash(f"Se cerraron todas las sesiones de {tenant['nombre']}: tiene que volver a entrar con su clave.")
     return redirect(url_for("admin_panel"))
+
+
+@app.post("/admin/profesionales/<tenant_id>/link-clave")
+@admin_requerido
+def admin_link_clave(tenant_id):
+    """Link de un solo uso (24 h) para que la profesional ponga clave nueva.
+    Se muestra una sola vez: del token sólo se guarda el hash."""
+    tenant = db.get_tenant_by_id(tenant_id)
+    if not tenant:
+        return "No encontrado.", 404
+    token = seguridad.nuevo_token()
+    db.crear_enlace_clave(seguridad.hash_token(token), tenant_id,
+                          (datetime.now(ZoneInfo("UTC")) + timedelta(hours=24)).isoformat())
+    db.registrar_actividad(_actor_admin(), f"generó un link para clave nueva de {tenant['nombre']}", tenant_id)
+    return render_template("admin_link.html", tenant=tenant, link=url_for("clave_nueva", token=token, _external=True))
+
+
+def _actor_admin() -> str:
+    admin = db.admin_por_id(session.get("admin_id") or "")
+    return f"administración ({admin['usuario']})" if admin else "administración"
+
+
+@app.post("/agenda/sesiones/<sesion_id>/cerrar")
+@login_required
+def agenda_sesion_cerrar(sesion_id):
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    db.cerrar_sesion(tenant["id"], sesion_id)
+    db.registrar_actividad(tenant["nombre"], "cerró una de sus sesiones", tenant["id"])
+    flash("Se cerró esa sesión.")
+    if sesion_id == session.get("sesion_id"):
+        session.clear()
+        return redirect(url_for("login"))
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/sesiones/cerrar-otras")
+@login_required
+def agenda_sesiones_cerrar_otras():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    db.cerrar_sesiones(tenant["id"], excepto=session.get("sesion_id"))
+    db.registrar_actividad(tenant["nombre"], "cerró sus otras sesiones", tenant["id"])
+    flash("Se cerraron las otras sesiones. Esta sigue abierta.")
+    return _volver_a_agenda()
+
+
+@app.route("/agenda/doble-factor", methods=["GET", "POST"])
+@login_required
+def agenda_doble_factor():
+    """Doble factor opcional para la profesional. Mismo esquema que el de
+    administración: el secreto queda en la sesión hasta que un código lo confirma."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    if tenant.get("totp_secreto"):
+        return redirect(url_for("agenda"))
+    secreto = session.get("totp_nuevo") or seguridad.nuevo_secreto()
+    session["totp_nuevo"] = secreto
+    error = None
+    if request.method == "POST":
+        paso = seguridad.verificar(secreto, request.form.get("codigo") or "")
+        if paso is not None:
+            db.guardar_totp_tenant(tenant["id"], {"totp_secreto": secreto, "totp_ultimo_paso": paso})
+            session.pop("totp_nuevo", None)
+            db.registrar_actividad(tenant["nombre"], "activó el doble factor", tenant["id"])
+            flash("Doble factor activado: desde ahora, al entrar con la clave te va a pedir el código de la app.")
+            return redirect(url_for("agenda"))
+        error = "Ese código no coincide. Fijate que la hora del celular esté bien y probá con el próximo."
+    uri = seguridad.uri(secreto, tenant["panel_user"])
+    return render_template("doble_factor.html", cuenta=tenant["panel_user"], clave=seguridad.agrupado(secreto), uri=uri,
+                           qr=seguridad.qr_svg(uri), error=error, volver=url_for("agenda"), salir=None)
+
+
+@app.post("/agenda/doble-factor/desactivar")
+@login_required
+def agenda_doble_factor_desactivar():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    if not tenant.get("totp_secreto"):
+        return _volver_a_agenda()
+    claves = _claves_de_intento(f"totp-panel:{tenant['id']}")
+    bloqueo = _bloqueo_login(claves)
+    paso = None if bloqueo else seguridad.verificar(tenant["totp_secreto"], request.form.get("codigo") or "",
+                                                     tenant.get("totp_ultimo_paso"))
+    if paso is None:
+        if not bloqueo:
+            _registrar_fallo(claves)
+        flash(bloqueo or "Para desactivarlo hace falta un código válido de la app.")
+        return _volver_a_agenda()
+    db.guardar_totp_tenant(tenant["id"], {"totp_secreto": None, "totp_ultimo_paso": None})
+    db.registrar_actividad(tenant["nombre"], "desactivó el doble factor", tenant["id"])
+    flash("Doble factor desactivado.")
+    return _volver_a_agenda()
 
 
 @app.get("/logout")
@@ -930,6 +1177,10 @@ def agenda():
                        for e in _biblioteca_visible(tenant)],
         "moderador": bool(tenant.get("moderador")),
         "bloqueo_reciente": _bloqueo_reciente(tenant, tz),
+        "mis_sesiones": [dict(x, actual=x["id"] == session.get("sesion_id"),
+                              _desde=datetime.fromisoformat(x["creada"]).astimezone(tz).strftime("%d/%m %H:%M"),
+                              _ultima=datetime.fromisoformat(x["ultima"]).astimezone(tz).strftime("%d/%m %H:%M"))
+                         for x in db.sesiones_de(tenant["id"])],
         "tests_para_repetir": [{"ficha": f, **t} for f in fichas for t in f.get("para_repetir") or []],
         "ventana_aviso": tests_sugeridos.VENTANA_AVISO,
         "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),

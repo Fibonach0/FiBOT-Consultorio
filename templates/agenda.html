@@ -498,6 +498,43 @@
       <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
     </form>
     <details>
+      <summary class="tenue">Tus sesiones abiertas ({{ mis_sesiones|length }}) ▾</summary>
+      {% for x in mis_sesiones %}
+      <div class="ficha-item">
+        <span><strong>{{ x.dispositivo or 'Navegador' }}</strong>{% if x.actual %} <span class="chip chip-ok">esta</span>{% endif %}
+          <span class="tenue">· entró el {{ x._desde }} con {{ x.origen }} · última vez {{ x._ultima }}</span></span>
+        <form method="post" action="{{ url_for('agenda_sesion_cerrar', sesion_id=x.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="btn chico secundario" type="submit">{{ 'Salir' if x.actual else 'Cerrar' }}</button>
+        </form>
+      </div>
+      {% endfor %}
+      {% if mis_sesiones|length > 1 %}
+      <form method="post" action="{{ url_for('agenda_sesiones_cerrar_otras') }}" style="margin-top:6px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <button class="btn chico secundario" type="submit">Cerrar todas menos esta</button>
+      </form>
+      {% endif %}
+      <div class="tenue">Si ves una que no reconocés, cerrala y cambiá la clave.</div>
+    </details>
+    <details>
+      <summary class="tenue">Doble factor{% if tenant.totp_secreto %} (activado){% endif %} ▾</summary>
+      {% if tenant.totp_secreto %}
+      <p class="tenue">Al entrar con la clave te pide el código de la app. Para desactivarlo, escribí un código actual.</p>
+      <form method="post" action="{{ url_for('agenda_doble_factor_desactivar') }}" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div><label>Código de la app</label><input type="text" name="codigo" inputmode="numeric" maxlength="7" required></div>
+        <div class="al-pie"><button class="btn chico secundario" type="submit">Desactivar</button></div>
+      </form>
+      {% else %}
+      <p class="tenue">Opcional: además de la clave, al entrar te pide un código de una app del celular. Se activa escaneando un QR.</p>
+      <a class="btn chico secundario" href="{{ url_for('agenda_doble_factor') }}" style="text-decoration:none;display:inline-block">Activar</a>
+      {% endif %}
+    </details>
+    <details>
       <summary class="tenue">Cambiar la clave ▾</summary>
       <form method="post" action="{{ url_for('agenda_clave') }}" class="fila">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -988,6 +988,92 @@ def registrar_intento_entrega(entrega_id: str, intentos: int) -> None:
     _client.table("entregas").update({"intentos": intentos}).eq("id", entrega_id).execute()
 
 
+# --- Sesiones, actividad, links de clave y QR ---
+
+def crear_sesion(sesion_id: str, tenant_id: str, dispositivo: str, origen: str) -> None:
+    from datetime import datetime, timezone
+    ahora = datetime.now(timezone.utc).isoformat()
+    _client.table("sesiones").insert({"id": sesion_id, "tenant_id": tenant_id, "dispositivo": dispositivo,
+                                      "origen": origen, "creada": ahora, "ultima": ahora}).execute()
+
+
+def sesion(sesion_id: str) -> dict | None:
+    res = _client.table("sesiones").select("*").eq("id", sesion_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def tocar_sesion(sesion_id: str, cuando: str) -> None:
+    _client.table("sesiones").update({"ultima": cuando}).eq("id", sesion_id).execute()
+
+
+def sesiones_de(tenant_id: str) -> list[dict]:
+    res = _client.table("sesiones").select("*").eq("tenant_id", tenant_id).order("ultima", desc=True).execute()
+    return res.data
+
+
+def cerrar_sesion(tenant_id: str, sesion_id: str) -> None:
+    _client.table("sesiones").delete().eq("tenant_id", tenant_id).eq("id", sesion_id).execute()
+
+
+def cerrar_sesiones(tenant_id: str, excepto: str | None = None) -> None:
+    q = _client.table("sesiones").delete().eq("tenant_id", tenant_id)
+    (q.neq("id", excepto) if excepto else q).execute()
+
+
+def registrar_actividad(actor: str, accion: str, tenant_id: str | None = None) -> None:
+    from datetime import datetime, timezone
+    _client.table("actividad").insert({"actor": actor, "accion": accion, "tenant_id": tenant_id,
+                                       "cuando": datetime.now(timezone.utc).isoformat()}).execute()
+
+
+def actividad_reciente(limite: int = 200, tenant_id: str | None = None) -> list[dict]:
+    q = _client.table("actividad").select("*")
+    if tenant_id:
+        q = q.eq("tenant_id", tenant_id)
+    return q.order("cuando", desc=True).limit(limite).execute().data
+
+
+def crear_enlace_clave(token_hash: str, tenant_id: str, vence: str) -> None:
+    _client.table("enlaces_clave").insert({"token_hash": token_hash, "tenant_id": tenant_id, "vence": vence}).execute()
+
+
+def enlace_clave(token_hash: str) -> dict | None:
+    res = _client.table("enlaces_clave").select("*").eq("token_hash", token_hash).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def usar_enlace_clave(token_hash: str, cuando: str) -> bool:
+    res = (_client.table("enlaces_clave").update({"usado_at": cuando}).eq("token_hash", token_hash)
+           .is_("usado_at", "null").execute())
+    return bool(res.data)
+
+
+def crear_qr_login(token_hash: str, nonce_hash: str, dispositivo: str, vence: str) -> None:
+    _client.table("qr_logins").insert({"token_hash": token_hash, "nonce_hash": nonce_hash,
+                                       "dispositivo": dispositivo, "vence": vence}).execute()
+
+
+def qr_login(token_hash: str) -> dict | None:
+    res = _client.table("qr_logins").select("*").eq("token_hash", token_hash).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def aprobar_qr_login(token_hash: str, tenant_id: str, cuando: str) -> bool:
+    res = (_client.table("qr_logins").update({"tenant_id": tenant_id, "aprobado_at": cuando})
+           .eq("token_hash", token_hash).is_("aprobado_at", "null").execute())
+    return bool(res.data)
+
+
+def usar_qr_login(token_hash: str, cuando: str) -> bool:
+    res = (_client.table("qr_logins").update({"usado_at": cuando}).eq("token_hash", token_hash)
+           .is_("usado_at", "null").execute())
+    return bool(res.data)
+
+
+def guardar_totp_tenant(tenant_id: str, campos: dict) -> None:
+    _client.table("tenants").update(campos).eq("id", tenant_id).execute()
+
+
 def borrar_test(tenant_id: str, test_id: str) -> None:
     _client.table("paciente_tests").delete().eq("tenant_id", tenant_id).eq("id", test_id).execute()
 

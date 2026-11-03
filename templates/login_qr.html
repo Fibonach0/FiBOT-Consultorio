@@ -1,0 +1,25 @@
+{% extends "base.html" %}
+{% block titulo %}Entrar en otra pantalla — FiBOT Consultorio{% endblock %}
+{% block cuerpo %}
+<header><span>FiBOT Consultorio · {{ tenant.nombre }}</span><a href="{{ url_for('agenda') }}">Panel</a></header>
+<main style="max-width:420px">
+  <div class="card">
+    {% if estado == 'pregunta' %}
+    <h2>¿Entrar a tu panel en otra pantalla?</h2>
+    <p>Pidió entrar: <strong>{{ q.dispositivo or 'un navegador' }}</strong>.</p>
+    <p class="error" style="margin:10px 0">Aprobá sólo si vos estás frente a esa pantalla y acabás de pedir el código. Si alguien te mandó este link, tocá «No fui yo».</p>
+    <form method="post" style="display:flex;gap:10px;flex-wrap:wrap">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn" type="submit" name="respuesta" value="aprobar">Sí, entrar</button>
+      <button class="btn secundario" type="submit" name="respuesta" value="rechazar">No fui yo</button>
+    </form>
+    {% elif estado == 'aprobado' %}
+    <h2>Listo</h2><p>En unos segundos se abre tu panel en la otra pantalla.</p>
+    {% elif estado == 'rechazado' %}
+    <h2>No se aprobó</h2><p>Nadie entró. Si no habías pedido el código, no hace falta que hagas nada más.</p>
+    {% else %}
+    <h2>Este código ya no sirve</h2><p>Venció o ya se usó. Pedí otro en la pantalla donde querés entrar.</p>
+    {% endif %}
+  </div>
+</main>
+{% endblock %}
