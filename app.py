@@ -2140,7 +2140,8 @@ def agenda_espera():
     if not nombre or not telefono:
         flash("Para la lista de espera hacen falta nombre y WhatsApp.")
         return _volver_a_agenda()
-    db.agregar_a_espera(session["tenant_id"], nombre, telefono, (request.form.get("preferencia") or "").strip() or None)
+    if not db.agregar_a_espera(session["tenant_id"], nombre, telefono, (request.form.get("preferencia") or "").strip() or None):
+        flash("Ese WhatsApp ya estaba en la lista de espera.")
     return _volver_a_agenda()
 
 
@@ -2970,6 +2971,8 @@ def agenda_perfil():
         "descripcion": (f.get("descripcion") or "").strip()[:160] or None,
         "modalidades_publicas": modalidades,
         "en_directorio": f.get("en_directorio") == "1",
+        "cancelar_hasta_horas": int(f.get("cancelar_hasta_horas")) if (f.get("cancelar_hasta_horas") or "") in
+        {str(h) for h in HORAS_CANCELAR} else (tenant or {}).get("cancelar_hasta_horas", 24),
     })
     if modalidades != "presencial" and not (tenant or {}).get("link_videollamada"):
         flash("Guardado. Ojo: ofrecés videollamada pero no cargaste el link en Ajustes; el paciente no lo va a recibir.")
@@ -3475,6 +3478,7 @@ def publico_reservar(slug, turno_id):
 
 
 MODALIDADES_PUBLICAS = ("presencial", "virtual", "ambas")
+HORAS_CANCELAR = (0, 2, 6, 12, 24, 48, 72)
 
 
 def _modalidad_publica(tenant: dict, pedida: str | None) -> str:
@@ -3518,7 +3522,44 @@ def agendar(token):
     return _sin_indexar(app.make_response(render_template(
         "agendar.html", turno=_con_hora_local([turno], tz)[0], tenant=tenant, google=google, virtual=virtual,
         futuro=datetime.fromisoformat(turno["inicio"]) > datetime.now(ZoneInfo("UTC")),
+        puede_modificar=_puede_modificar(turno, tenant),
+        horas_limite=tenant.get("cancelar_hasta_horas") if tenant.get("cancelar_hasta_horas") is not None else 24,
         cambiado=request.args.get("cambiado") == "1")))
+
+
+def _puede_modificar(turno: dict, tenant: dict) -> bool:
+    """Política del profesional: hasta cuántas horas antes se puede cancelar
+    o cambiar desde la web (`cancelar_hasta_horas`, 0 = hasta que empieza)."""
+    horas = tenant.get("cancelar_hasta_horas")
+    horas = 24 if horas is None else horas
+    return datetime.fromisoformat(turno["inicio"]) - datetime.now(ZoneInfo("UTC")) > timedelta(hours=horas)
+
+
+def _tarde(tenant: dict, turno: dict):
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    return _sin_indexar(app.make_response(render_template(
+        "agendar_accion.html", tenant=tenant, accion="tarde", turno=_con_hora_local([turno], tz)[0],
+        token=None, horas=tenant.get("cancelar_hasta_horas") if tenant.get("cancelar_hasta_horas") is not None else 24)))
+
+
+@app.post("/<slug>/lista-espera")
+def publico_espera(slug):
+    """Anotarse en la lista de espera desde la web (cuando no hay un horario
+    que le sirva). El profesional la ve en su panel y ofrece a mano, como
+    siempre; acá sólo se le avisa que alguien se anotó."""
+    tenant = db.get_tenant_by_slug(slug)
+    if not tenant:
+        return "No encontrado.", 404
+    nombre = (request.form.get("nombre") or "").strip()[:120]
+    telefono = "".join(ch for ch in (request.form.get("telefono") or "") if ch.isdigit())
+    preferencia = (request.form.get("preferencia") or "").strip()[:200] or None
+    if not nombre or len(telefono) < 10:
+        flash("Para anotarte hacen falta tu nombre y tu WhatsApp completo, con código de país (ej. 5491123456789).")
+        return redirect(url_for("publico", slug=slug) + "#espera")
+    nuevo = db.agregar_a_espera(tenant["id"], nombre, telefono, preferencia, origen="web")
+    if nuevo:
+        scheduler.avisar_profesional(tenant, "alguien se anotó en tu lista de espera desde tu página de turnos")
+    return render_template("espera_listo.html", tenant=tenant, ya_estaba=not nuevo)
 
 
 def _turno_futuro_de_token(token: str):
@@ -3542,9 +3583,14 @@ def agendar_cancelar(token):
     if not turno:
         return _ya_no_sirve()
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    if not _puede_modificar(turno, tenant):
+        return _tarde(tenant, turno)
     if request.method == "POST":
         db.cancelar_turno(tenant["id"], turno["id"], "paciente")
         db.registrar_actividad("paciente (web)", f"canceló un turno desde el link de agendar", tenant["id"])
+        esperando = len(db.lista_de_espera(tenant["id"]))
+        scheduler.avisar_profesional(tenant, f"un paciente canceló desde la web el turno del {scheduler.cuando_de(turno, tenant, tz)}"
+                                     + (f"; tenés {esperando} en lista de espera" if esperando else ""))
         return _sin_indexar(app.make_response(render_template(
             "agendar_listo.html", tenant=tenant, accion="cancelado", turno=_con_hora_local([turno], tz)[0])))
     return _sin_indexar(app.make_response(render_template(
@@ -3557,6 +3603,8 @@ def agendar_cambiar(token):
     turno, tenant = _turno_futuro_de_token(token)
     if not turno:
         return _ya_no_sirve()
+    if not _puede_modificar(turno, tenant):
+        return _tarde(tenant, turno)
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     return _sin_indexar(app.make_response(render_template(
         "publico.html", tenant=tenant, cambiar=token, actual=_con_hora_local([turno], tz)[0], hay_directorio=False,
@@ -3572,6 +3620,8 @@ def agendar_cambiar_a(token, turno_id):
     turno, tenant = _turno_futuro_de_token(token)
     if not turno:
         return _ya_no_sirve()
+    if not _puede_modificar(turno, tenant):
+        return _tarde(tenant, turno)
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     nuevo = db.turno_por_id(tenant["id"], turno_id)
     if not nuevo or nuevo["estado"] != "libre" or datetime.fromisoformat(nuevo["inicio"]) <= datetime.now(ZoneInfo("UTC")):
@@ -3591,6 +3641,9 @@ def agendar_cambiar_a(token, turno_id):
         "token_calendario": token, "confirmado_at": datetime.now(ZoneInfo("UTC")).isoformat(),
         "confirmacion_enviada_at": turno.get("confirmacion_enviada_at"), "reserva_nueva": True, "reserva_avisada": False})
     db.registrar_actividad("paciente (web)", "cambió el horario de un turno desde el link de agendar", tenant["id"])
+    scheduler.avisar_profesional(tenant, f"un paciente pasó desde la web su turno del {scheduler.cuando_de(turno, tenant, tz)} "
+                                         f"al {scheduler.cuando_de(nuevo, tenant, tz)}")
+    db.actualizar_reserva(tenant["id"], nuevo["id"], {"reserva_avisada": True})
     return redirect(url_for("agendar", token=token, cambiado=1))
 
 

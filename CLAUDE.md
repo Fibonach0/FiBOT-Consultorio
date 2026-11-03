@@ -203,6 +203,14 @@ reservas web sin confirmar. Desde `/agendar/<token>` el paciente cancela
 marcado `reserva_nueva` para que el profesional se entere. Esas rutas no piden
 CSRF (no hay sesión; el token es la credencial): ojo, `/agendar` empieza con
 `/agenda` y `verificar_csrf` lo excluye a propósito.
+`tenants.cancelar_hasta_horas` (`migrations/049`, default 24, 0 = hasta que
+empieza) limita cancelar/cambiar desde la web (`app._puede_modificar`, se chequea
+también en los POST); después, «escribile directamente». Al cancelar o cambiar
+desde la web se avisa al profesional en el momento (`scheduler.avisar_profesional`,
+con `AVISO_TEMPLATE`, sin nombres). La página del profesional tiene «Anotate en
+la lista de espera» (`/<slug>/lista-espera`): entra a `lista_espera` con
+`origen = 'web'`, no se duplica por teléfono y se avisa al profesional; ofrecer
+el horario sigue siendo a mano desde el panel.
 
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin

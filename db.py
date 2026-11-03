@@ -1195,11 +1195,19 @@ def lista_de_espera(tenant_id: str) -> list[dict]:
     return res.data
 
 
-def agregar_a_espera(tenant_id: str, nombre: str, telefono: str, preferencia: str | None) -> None:
+def agregar_a_espera(tenant_id: str, nombre: str, telefono: str, preferencia: str | None,
+                     origen: str = "panel") -> bool:
+    """False si ese teléfono ya estaba en la lista de este profesional (no se
+    duplica: desde la web alguien puede anotarse dos veces)."""
+    ya = (_client.table("lista_espera").select("id").eq("tenant_id", tenant_id).eq("telefono", telefono)
+          .limit(1).execute().data)
+    if ya:
+        return False
     _client.table("lista_espera").insert(
-        {"tenant_id": tenant_id, "nombre": nombre, "telefono": telefono, "preferencia": preferencia,
+        {"tenant_id": tenant_id, "nombre": nombre, "telefono": telefono, "preferencia": preferencia, "origen": origen,
          "created_at": datetime.now(timezone.utc).isoformat()}
     ).execute()
+    return True
 
 
 def quitar_de_espera(tenant_id: str, espera_id: str) -> None:

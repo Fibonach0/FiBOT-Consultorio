@@ -416,7 +416,7 @@
     <h3>Lista de espera{% if espera %} <span class="contador">{{ espera|length }}</span>{% endif %}</h3>
     {% for p in espera %}
     <div class="turno">
-      <span><strong>{{ p.nombre }}</strong>{% if p.preferencia %} <span class="tenue">· {{ p.preferencia }}</span>{% endif %}</span>
+      <span><strong>{{ p.nombre }}</strong>{% if p.origen == 'web' %} <span class="chip">se anotó en la web</span>{% endif %}{% if p.preferencia %} <span class="tenue">· {{ p.preferencia }}</span>{% endif %}</span>
       <span class="acciones">
         <form method="post" action="{{ url_for('agenda_espera_ofrecer', espera_id=p.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
@@ -520,6 +520,10 @@
           <option value="presencial"{% if m == 'presencial' %} selected{% endif %}>Sólo presenciales</option>
           <option value="virtual"{% if m == 'virtual' %} selected{% endif %}>Sólo por videollamada</option>
           <option value="ambas"{% if m == 'ambas' %} selected{% endif %}>Las dos (elige el paciente)</option>
+        </select></div>
+        <div><label>Cancelar o cambiar desde la web</label><select name="cancelar_hasta_horas">
+          {% set h = tenant.cancelar_hasta_horas if tenant.cancelar_hasta_horas is not none else 24 %}
+          {% for x in [0, 2, 6, 12, 24, 48, 72] %}<option value="{{ x }}"{% if h == x %} selected{% endif %}>{{ 'Hasta que empieza' if x == 0 else 'Hasta ' ~ x ~ ' h antes' }}</option>{% endfor %}
         </select></div>
         <div><label style="display:flex;gap:6px;align-items:center;color:inherit"><input type="checkbox" name="en_directorio" value="1"{% if tenant.en_directorio is not sameas false %} checked{% endif %} style="width:auto"> Aparecer en la lista de profesionales</label>
           <span class="tenue" style="font-size:.8rem">Sin tildar, sólo entra quien tiene tu link.</span></div>
