@@ -26,7 +26,7 @@ def test_sin_freno_manda_a_todos():
     config.WHATSAPP_SOLO_A = []
     llamadas.clear()
     assert whatsapp.enviar_texto("N", "5491100000000", "hola")
-    assert llamadas == ["541100000000"]
+    assert llamadas == ["5491100000000"]
 
 
 def test_con_freno_solo_a_la_lista():
@@ -39,15 +39,49 @@ def test_con_freno_solo_a_la_lista():
     assert whatsapp.enviar_texto("N", "5491199998888", "hola")
     assert whatsapp.enviar_plantilla("N", "5491199998888", "p", "es_AR", ["a"])
     assert whatsapp.enviar_texto("N", "", "hola")
-    assert llamadas == ["541122223333", "1122223333"]
+    assert llamadas == ["5491122223333", "1122223333"]
 
 
-def test_argentina_sin_el_9():
-    assert whatsapp.destino("5491128524957") == "541128524957"
-    assert whatsapp.destino("+54 9 11 2852-4957") == "541128524957"
-    assert whatsapp.destino("541128524957") == "541128524957"
-    assert whatsapp.destino("15551234567") == "15551234567"
-    assert whatsapp.destino("5215512345678") == "5215512345678"
+def test_formato_del_15():
+    assert whatsapp.con_15("5491128524957") == "54111528524957"
+    assert whatsapp.con_15("+54 9 351 555-1234") == "54351155551234"
+    assert whatsapp.con_15("5492954123456") == "54295415123456"  # Santa Rosa: 4 dígitos
+    assert whatsapp.con_15("541128524957") is None
+    assert whatsapp.con_15("15551234567") is None
+
+
+def test_131030_reintenta_con_el_15():
+    config.WHATSAPP_SOLO_A = []
+    destinos = []
+
+    class _Rechazo:
+        status_code = 400
+        text = "131030"
+
+        def json(self):
+            return {"error": {"code": 131030, "message": "not in allowed list"}}
+
+    def post(url, headers=None, json=None, timeout=None):
+        destinos.append(json["to"])
+        return _Rechazo() if len(destinos) == 1 else _Resp()
+
+    viejo = whatsapp.requests.post
+    whatsapp.requests.post = post
+    try:
+        ok, detalle = whatsapp.enviar_plantilla_detalle("N", "5491128524957", "hello_world", "en_US", [])
+        assert ok and detalle == "aceptado"
+        assert destinos == ["5491128524957", "54111528524957"]
+        # Otro error no reintenta.
+        destinos.clear()
+
+        class _Otro(_Rechazo):
+            def json(self):
+                return {"error": {"code": 132001}}
+        whatsapp.requests.post = lambda url, headers=None, json=None, timeout=None: destinos.append(json["to"]) or _Otro()
+        assert not whatsapp.enviar_texto("N", "5491128524957", "hola")
+        assert destinos == ["5491128524957"]
+    finally:
+        whatsapp.requests.post = viejo
 
 
 if __name__ == "__main__":

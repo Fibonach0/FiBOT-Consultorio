@@ -20,18 +20,26 @@ def _ultimos10(numero: str) -> str:
     return "".join(ch for ch in numero or "" if ch.isdigit())[-10:]
 
 
-def destino(to: str) -> str:
-    """El número tal como lo acepta la API de Meta para mandar.
+# Características argentinas de 2 y 3 dígitos; el resto tiene 4 (ENACOM).
+_CARACTERISTICAS_3 = {
+    "220", "221", "223", "230", "236", "237", "249", "260", "261", "263", "264", "266", "280", "291",
+    "294", "297", "299", "336", "341", "342", "343", "345", "348", "351", "353", "358", "362", "364",
+    "370", "376", "379", "380", "381", "383", "385", "387", "388",
+}
 
-    Los celulares argentinos llegan con el 9 (5491122223333: así es el wa_id
-    del webhook y así lo cargan los pacientes), pero la API los quiere SIN el 9
-    (541122223333). Con el 9, el número de prueba de Meta contesta 131030 («no
-    está en la lista de autorizados») aunque esté autorizado. Sin el 9, Meta lo
-    entrega igual al mismo WhatsApp."""
-    digitos = "".join(ch for ch in to or "" if ch.isdigit())
-    if digitos.startswith("549") and len(digitos) == 13:
-        return "54" + digitos[3:]
-    return digitos or to
+
+def con_15(to: str) -> str | None:
+    """5491128524957 → 54111528524957: el formato viejo de celular argentino
+    (sin el 9, con el 15 después de la característica). Es como guarda Meta
+    los destinatarios autorizados del número de prueba: con el 9 contesta
+    131030 aunque el número esté en la lista. None si no es un celular
+    argentino con el 9."""
+    d = "".join(ch for ch in to or "" if ch.isdigit())
+    if not (d.startswith("549") and len(d) == 13):
+        return None
+    nacional = d[3:]
+    largo = 2 if nacional.startswith("11") else 3 if nacional[:3] in _CARACTERISTICAS_3 else 4
+    return "54" + nacional[:largo] + "15" + nacional[largo:]
 
 
 def permitido(to: str) -> bool:
@@ -55,12 +63,12 @@ def enviar_texto(phone_number_id: str, to: str, texto: str) -> bool:
     }
     payload = {
         "messaging_product": "whatsapp",
-        "to": destino(to),
+        "to": to,
         "type": "text",
         "text": {"body": texto},
     }
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=15)
+        r = _mandar(url, headers, payload)
         if r.status_code >= 300:
             logger.error("Meta rechazó el envío (%s): %s", r.status_code, r.text)
             return False
@@ -68,6 +76,24 @@ def enviar_texto(phone_number_id: str, to: str, texto: str) -> bool:
     except requests.RequestException:
         logger.exception("Error de red mandando WhatsApp")
         return False
+
+
+def _codigo_de_error(r) -> int | None:
+    try:
+        return r.json().get("error", {}).get("code")
+    except (ValueError, AttributeError):
+        return None
+
+
+def _mandar(url: str, headers: dict, payload: dict):
+    """POST a Meta. Si contesta 131030 («no está en la lista de autorizados»)
+    y es un celular argentino con el 9, reintenta UNA vez con el formato del 15
+    (ver con_15). Con números reales no pasa: el 9 anda y no hay reintento."""
+    r = requests.post(url, headers=headers, json=payload, timeout=15)
+    alternativo = con_15(payload["to"]) if r.status_code >= 300 and _codigo_de_error(r) == 131030 else None
+    if alternativo:
+        r = requests.post(url, headers=headers, json={**payload, "to": alternativo}, timeout=15)
+    return r
 
 
 def numero_de(tenant: dict) -> str:
@@ -117,9 +143,9 @@ def enviar_plantilla_detalle(phone_number_id: str, to: str, plantilla: str,
             "type": "body",
             "parameters": [{"type": "text", "text": p} for p in params],
         }]
-    payload = {"messaging_product": "whatsapp", "to": destino(to), "type": "template", "template": template}
+    payload = {"messaging_product": "whatsapp", "to": to, "type": "template", "template": template}
     try:
-        r = requests.post(url, headers=headers, json=payload, timeout=15)
+        r = _mandar(url, headers, payload)
         if r.status_code >= 300:
             logger.error("Meta rechazó la plantilla '%s' (%s): %s", plantilla, r.status_code, r.text)
             return False, _error_de_meta(r)
