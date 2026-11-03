@@ -182,10 +182,22 @@ def diagnostico(ultimo_webhook: str | None = None, ultimo_mensaje: str | None = 
     elif real:
         ok, d = consultar(f"{waba}/subscribed_apps")
         if ok:
-            apps = [a.get("whatsapp_business_api_data", {}).get("name") or "una app" for a in d.get("data", [])]
-            pasos.append(paso("App suscripta a la cuenta", bool(apps),
-                              f"Suscriptas: {', '.join(apps)}." if apps else "Ninguna app suscripta: los mensajes que escriben los pacientes no llegan.",
-                              "" if apps else f"railway run sh -c 'curl -s -X POST \"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{waba}/subscribed_apps\" -H \"Authorization: Bearer $META_ACCESS_TOKEN\"'"))
+            datos = [a.get("whatsapp_business_api_data", {}) for a in d.get("data", [])]
+            apps = [a.get("name") or "una app" for a in datos]
+            # Hay que encontrar NUESTRA app: la cuenta de prueba trae suscripta
+            # una app interna de Meta (la del visor de webhooks) y con eso la
+            # lista no está vacía, pero los mensajes no llegan al servidor.
+            ok_app, propia = consultar("app", {"fields": "id,name"})
+            if ok_app:
+                suscripta = any(a.get("id") == propia.get("id") for a in datos)
+                detalle = (f"«{propia.get('name')}» está suscripta." if suscripta else
+                           f"«{propia.get('name')}» NO está suscripta: los mensajes que escriben los pacientes no llegan."
+                           + (f" (Suscriptas: {', '.join(apps)}.)" if apps else ""))
+            else:
+                suscripta = None if apps else False
+                detalle = f"Suscriptas: {', '.join(apps)}. Fijate que esté la de FiBOT." if apps else "Ninguna app suscripta: los mensajes que escriben los pacientes no llegan."
+            pasos.append(paso("App suscripta a la cuenta", suscripta, detalle,
+                              "" if suscripta else f"railway run sh -c 'curl -s -X POST \"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{waba}/subscribed_apps\" -H \"Authorization: Bearer $META_ACCESS_TOKEN\"'"))
         else:
             pasos.append(paso("App suscripta a la cuenta", False, f"No se pudo revisar: {d}",
                               "Generá de nuevo el token del usuario del sistema DESPUÉS de asignarle la cuenta."))
