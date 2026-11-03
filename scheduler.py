@@ -193,6 +193,34 @@ def _tick() -> None:
                 logger.error("No se pudo mandar el recordatorio del turno %s", turno["id"])
 
 
+def vista_previa(tenant: dict, momento: datetime) -> dict:
+    """Lo que el scheduler mandaría en `momento` para este tenant, sin mandar
+    ni marcar nada. Para la vista previa de administración: sin nombres de
+    pacientes, sólo los últimos 4 dígitos del teléfono."""
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    local = momento.astimezone(tz)
+    hoy = local.date()
+    partes = _partes_del_resumen(tenant, hoy)
+    if not tenant.get("aviso_telefono"):
+        resumen = {"sale": False, "texto": None, "por_que": "La cuenta no tiene cargado un teléfono para avisos."}
+    elif local.hour < HORA_AVISO:
+        resumen = {"sale": False, "texto": ", ".join(partes) or None,
+                   "por_que": f"Todavía no son las {HORA_AVISO}: el resumen sale desde esa hora."}
+    elif not partes:
+        resumen = {"sale": False, "texto": None, "por_que": "No hay nada que contar ese día: el resumen no sale."}
+    else:
+        resumen = {"sale": True, "texto": ", ".join(partes), "por_que": "Sale una vez ese día."}
+    horas_antes = tenant.get("recordatorio_horas_antes") or 24
+    recordatorios = [
+        {"final": "…" + "".join(ch for ch in t.get("paciente_telefono") or "" if ch.isdigit())[-4:],
+         "cuando": cuando_de(t, tenant, tz)}
+        for t in sorted(db.turnos_para_recordar(tenant["id"], horas_antes, ahora=momento.astimezone(timezone.utc)),
+                        key=lambda t: t["inicio"])
+    ]
+    return {"resumen": resumen, "recordatorios": recordatorios, "horas_antes": horas_antes,
+            "plantilla": config.RECORDATORIO_TEMPLATE or None}
+
+
 def _loop() -> None:
     intervalo = config.RECORDATORIO_INTERVALO_MIN * 60
     while True:

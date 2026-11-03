@@ -1163,10 +1163,11 @@ def borrar_fecha(tenant_id: str, fecha_id: str) -> None:
     _client.table("paciente_fechas").delete().eq("tenant_id", tenant_id).eq("id", fecha_id).execute()
 
 
-def turnos_para_recordar(tenant_id: str, horas_antes: int) -> list[dict]:
+def turnos_para_recordar(tenant_id: str, horas_antes: int, ahora: datetime | None = None) -> list[dict]:
     """Turnos reservados cuyo recordatorio todavía no salió y ya están
-    dentro de la ventana (inicio - horas_antes <= ahora < inicio)."""
-    ahora = datetime.now(timezone.utc)
+    dentro de la ventana (inicio - horas_antes <= ahora < inicio). `ahora`
+    distinto del real sólo lo usa la vista previa de administración."""
+    ahora = ahora or datetime.now(timezone.utc)
     limite = ahora + timedelta(hours=horas_antes)
     res = (
         _client.table("turnos")

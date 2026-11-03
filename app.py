@@ -140,8 +140,33 @@ def webhook_receive():
 
 RESPUESTA_SIN_DESTINO = (
     "Hola. Este es el WhatsApp de turnos de FiBOT Consultorio. No encontramos un turno con este número.\n\n"
-    "Para reservar, entrá a la página que te pasó tu profesional. Si ya reservaste, escribinos desde el "
-    "mismo número que dejaste al reservar.")
+    "Para reservar, entrá a {link}. Si ya reservaste, escribinos desde el mismo número que dejaste al reservar.")
+SIN_LINK = "la página que te pasó tu profesional"
+
+
+def _link_sin_destino() -> str | None:
+    """Si un solo profesional usa el número compartido (y tiene página
+    pública), el link a su página. Con más de uno no se puede elegir: el
+    número no dice a quién le escribieron."""
+    compartidos = [t for t in db.tenants_activos() if not t.get("whatsapp_phone_number_id") and t.get("slug")]
+    if len(compartidos) != 1:
+        return None
+    base = f"https://{config.DOMINIO_PRINCIPAL}" if config.DOMINIO_PRINCIPAL else request.host_url.rstrip("/")
+    return f"{base}/{compartidos[0]['slug']}"
+
+
+def _respuesta_sin_destino() -> tuple[str, str]:
+    """(texto con el link puesto, texto tal como está guardado)."""
+    try:
+        guardado = (db.ajustes_plataforma().get("respuesta_sin_destino") or "").strip()
+    except Exception:
+        guardado = ""
+    plantilla = guardado or RESPUESTA_SIN_DESTINO
+    try:
+        link = _link_sin_destino()
+    except Exception:
+        link = None
+    return plantilla.replace("{link}", link or SIN_LINK), plantilla
 
 
 def _sin_destino(phone_number_id: str, telefono: str) -> None:
@@ -155,7 +180,7 @@ def _sin_destino(phone_number_id: str, telefono: str) -> None:
     try:
         desde = (datetime.now(ZoneInfo("UTC")) - timedelta(hours=24)).isoformat()
         ya = db.respondido_sin_destino_desde(clave, desde)
-        respondido = False if ya else whatsapp.enviar_texto(phone_number_id, telefono, RESPUESTA_SIN_DESTINO)
+        respondido = False if ya else whatsapp.enviar_texto(phone_number_id, telefono, _respuesta_sin_destino()[0])
         db.registrar_sin_destino(final, clave, bool(respondido))
     except Exception:
         logger.warning("No se pudo registrar el mensaje sin destino (…%s)", final, exc_info=True)
@@ -853,8 +878,51 @@ def admin_whatsapp():
     cuentas = [t for t in db.todos_los_tenants() if t.get("activo") is not False]
     return render_template("admin_whatsapp.html", pasos=pasos, plantillas=plantillas, avisos=avisos, ajustes=ajustes,
                            bandeja=bandeja, cuentas=cuentas, simulacion=simulacion, simulado=SIMULADO[-4:],
-                           respuesta_sin_destino=RESPUESTA_SIN_DESTINO,
+                           respuesta_sin_destino=_respuesta_sin_destino(), por_defecto=RESPUESTA_SIN_DESTINO,
+                           vista=session.pop("vista_previa", None),
                            resultado=session.pop("prueba_whatsapp", None))
+
+
+@app.post("/admin/whatsapp/respuesta")
+@admin_requerido
+def admin_whatsapp_respuesta():
+    """Texto que recibe quien escribe sin turno. Vacío = el de fábrica.
+    `{link}` se reemplaza por la página pública cuando hay un solo profesional
+    en el número compartido."""
+    texto = (request.form.get("texto") or "").replace("\r\n", "\n").strip()[:1000]
+    if request.form.get("fabrica") or texto == RESPUESTA_SIN_DESTINO:
+        texto = ""
+    db.guardar_ajustes_plataforma({"respuesta_sin_destino": texto})
+    db.registrar_actividad(_actor_admin(), "cambió la respuesta a quien escribe sin turno" if texto
+                           else "volvió a la respuesta de fábrica para quien escribe sin turno")
+    session["prueba_whatsapp"] = {"ok": True, "texto": "Respuesta guardada." if texto else "Volvió el texto de fábrica."}
+    return redirect(url_for("admin_whatsapp") + "#sin-turno")
+
+
+@app.post("/admin/whatsapp/vista-previa")
+@admin_requerido
+def admin_whatsapp_vista_previa():
+    """Qué saldría «como si fuera» otro día y hora: resumen diario y
+    recordatorios de una cuenta. No manda nada ni marca nada."""
+    tenant = db.get_tenant_by_id(request.form.get("tenant_id") or "")
+    tz = ZoneInfo((tenant or {}).get("timezone") or "America/Argentina/Buenos_Aires")
+    try:
+        momento = datetime.fromisoformat(request.form.get("momento") or "").replace(tzinfo=tz)
+    except ValueError:
+        momento = None
+    if not tenant or not momento:
+        session["prueba_whatsapp"] = {"ok": False, "texto": "Elegí una cuenta, un día y una hora."}
+        return redirect(url_for("admin_whatsapp") + "#vista-previa")
+    try:
+        vista = scheduler.vista_previa(tenant, momento)
+    except Exception:
+        logger.exception("Falló la vista previa del tenant %s", tenant["id"])
+        session["prueba_whatsapp"] = {"ok": False, "texto": "No se pudo armar la vista previa: mirá los registros del servidor."}
+        return redirect(url_for("admin_whatsapp") + "#vista-previa")
+    session["vista_previa"] = {**vista, "nombre": tenant["nombre"], "tenant_id": tenant["id"],
+                               "momento": momento.strftime("%Y-%m-%dT%H:%M"),
+                               "momento_texto": momento.strftime("%d/%m/%Y %H:%M")}
+    return redirect(url_for("admin_whatsapp") + "#vista-previa")
 
 
 # El «paciente» del simulador. Nunca recibe nada: el simulador no manda

@@ -2910,6 +2910,32 @@ chequear("sin turno: queda en la bandeja sin el número entero", len(TABLAS["men
 html = celu_adm.get("/admin/whatsapp").data.decode()
 chequear("sin turno: se ve en administración", "Escribieron sin turno" in html and "…8888" in html and "5491177778888" not in html
          and "ya se le había contestado hoy" in html)
+
+# link a la página pública y texto editable
+for t in TABLAS["tenants"]:
+    t["activo"] = True
+TABLAS["tenants"][0]["slug"], TABLAS["tenants"][1]["slug"] = "marcos", None
+TABLAS["mensajes_sin_destino"] = []
+avisos_wa.clear()
+db.get_tenant_by_phone_number_id = lambda pid: None
+db.tenant_por_paciente = lambda tel: None
+_webhook(_msg())
+chequear("sin turno: con un solo profesional en el número, va el link", avisos_wa and "/marcos" in avisos_wa[-1]["texto"])
+TABLAS["tenants"][1]["slug"] = "otra"
+TABLAS["mensajes_sin_destino"] = []
+_webhook(_msg())
+chequear("sin turno: con dos, no elige", "/marcos" not in avisos_wa[-1]["texto"] and "la página que te pasó tu profesional" in avisos_wa[-1]["texto"])
+celu_adm.post("/admin/whatsapp/respuesta", data={"csrf_token": "tok", "texto": "Hola! Reservá en {link} 🙂"})
+TABLAS["mensajes_sin_destino"] = []
+TABLAS["tenants"][1]["slug"] = None
+_webhook(_msg())
+chequear("sin turno: usa el texto guardado con el link", avisos_wa[-1]["texto"].startswith("Hola! Reservá en http") and "/marcos" in avisos_wa[-1]["texto"])
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("sin turno: el texto se ve y se edita", "Hola! Reservá en {link}" in html and "/marcos 🙂" in html)
+celu_adm.post("/admin/whatsapp/respuesta", data={"csrf_token": "tok", "texto": "algo", "fabrica": "1"})
+chequear("sin turno: volver al de fábrica", "No encontramos un turno" in celu_adm.get("/admin/whatsapp").data.decode()
+         and any("respuesta de fábrica" in a["accion"] for a in TABLAS["actividad"]))
+TABLAS["tenants"][0]["slug"] = None
 db.get_tenant_by_phone_number_id, db.tenant_por_paciente = _viejo_por_numero, _viejo_por_paciente
 
 # simulador
@@ -2932,6 +2958,23 @@ html = celu_adm.get("/admin/whatsapp").data.decode()
 chequear("deshacer: libera sus turnos sin contarlo como cancelación", _cancelados == [("t1", "x1", None), ("t1", "x2", None)]
          and "2 turno(s) del simulador liberados" in html and "Charla con el bot de" not in html)
 db.proximos_turnos_de, db.cancelar_turno = _viejo_prox, _viejo_cancelar
+
+# como si fuera otro día
+_mañana10 = (datetime.now(timezone.utc) + timedelta(days=1)).astimezone(app.ZoneInfo(TZ)).replace(hour=10, minute=0, second=0, microsecond=0)
+TABLAS["turnos"] = [turno("r1", "t1", _mañana10 + timedelta(hours=3), estado="reservado", paciente_telefono="5491155556666",
+                          paciente_nombre="Paciente Secreta"),
+                    turno("r2", "t1", _mañana10 + timedelta(hours=30), estado="reservado", paciente_telefono="5491100001111")]
+TABLAS["tenants"][0]["aviso_telefono"] = "5491122223333"
+avisos_wa.clear()
+celu_adm.post("/admin/whatsapp/vista-previa", data={"csrf_token": "tok", "tenant_id": "t1", "momento": _mañana10.strftime("%Y-%m-%dT%H:%M")})
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("vista previa: recordatorio dentro de la ventana", "1 saldrían" in html and "…6666" in html and "…1111" not in html)
+chequear("vista previa: sin nombres de pacientes", "Paciente Secreta" not in html and "5491155556666" not in html)
+chequear("vista previa: no manda ni marca nada", not avisos_wa and not any(t["recordatorio_enviado"] for t in TABLAS["turnos"]))
+celu_adm.post("/admin/whatsapp/vista-previa", data={"csrf_token": "tok", "tenant_id": "t1", "momento": _mañana10.replace(hour=6).strftime("%Y-%m-%dT%H:%M")})
+chequear("vista previa: antes de las 8 no sale el resumen", "Todavía no son las 8" in celu_adm.get("/admin/whatsapp").data.decode())
+celu_adm.post("/admin/whatsapp/vista-previa", data={"csrf_token": "tok", "tenant_id": "t1", "momento": "cualquiera"})
+chequear("vista previa: fecha mala", "Elegí una cuenta, un día y una hora" in celu_adm.get("/admin/whatsapp").data.decode())
 
 _wa.aplicar_ajustes({})
 

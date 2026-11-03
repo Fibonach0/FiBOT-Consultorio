@@ -90,7 +90,7 @@
     {% endif %}
   </div>
 
-  <div class="card">
+  <div class="card" id="sin-turno">
     <h3>Escribieron sin turno <span class="contador">{{ bandeja|length }}</span></h3>
     <p class="tenue" style="margin-top:0">Mensajes al número compartido de teléfonos sin turno: no hay a qué profesional mandarlos. Se ven sólo los últimos 4 dígitos, nunca el texto. Se borran a los 30 días.</p>
     {% for m in bandeja %}
@@ -98,7 +98,43 @@
     {% else %}
     <p class="tenue" style="margin:0">Nadie por ahora.</p>
     {% endfor %}
-    <details style="margin-top:8px"><summary class="tenue">Qué se le contesta</summary><div style="white-space:pre-wrap;margin-top:6px">{{ respuesta_sin_destino }}</div></details>
+    <details style="margin-top:8px"><summary class="tenue">Qué se le contesta</summary>
+      <div class="burbuja bot" style="margin:8px 0;max-width:100%">{{ respuesta_sin_destino[0] }}</div>
+      <form method="post" action="{{ url_for('admin_whatsapp_respuesta') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Texto (<code>{link}</code> se cambia por la página de reserva si hay un solo profesional en el número compartido; si no, por «la página que te pasó tu profesional»)</label>
+        <textarea name="texto" rows="4" maxlength="1000" style="width:100%">{{ respuesta_sin_destino[1] }}</textarea>
+        <div style="display:flex;gap:10px;margin-top:6px">
+          <button class="btn chico" type="submit">Guardar texto</button>
+          <button class="btn chico secundario" type="submit" name="fabrica" value="1">Volver al de fábrica</button>
+        </div>
+      </form>
+    </details>
+  </div>
+
+  <div class="card" id="vista-previa">
+    <h3>Como si fuera otro día</h3>
+    <p class="tenue" style="margin-top:0">Qué mandaría el sistema a una hora dada: el resumen diario al profesional y los recordatorios a pacientes. No manda ni marca nada.</p>
+    <form method="post" action="{{ url_for('admin_whatsapp_vista_previa') }}" class="fila">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label>Cuenta</label><select name="tenant_id">{% for t in cuentas %}<option value="{{ t.id }}"{% if vista and vista.tenant_id == t.id %} selected{% endif %}>{{ t.nombre }}</option>{% endfor %}</select></div>
+      <div><label>Día y hora</label><input type="datetime-local" name="momento" value="{{ vista.momento if vista else '' }}" required></div>
+      <div class="al-pie"><button class="btn" type="submit">Ver</button></div>
+    </form>
+    {% if vista %}
+    <div style="margin-top:12px">
+      <div class="tenue">{{ vista.nombre }} · {{ vista.momento_texto }}</div>
+      <div class="paso {{ 'bien' if vista.resumen.sale else '' }}"><span class="marca">{{ '✓' if vista.resumen.sale else '·' }}</span><strong>Resumen diario</strong>
+        <span class="tenue">{{ vista.resumen.por_que }}</span>
+        {% if vista.resumen.texto %}<div class="burbuja bot" style="margin:6px 0 0 1.4em;max-width:90%">Tu consultorio hoy: {{ vista.resumen.texto }}. Mirá el panel.</div>{% endif %}
+      </div>
+      <div class="paso"><span class="marca">·</span><strong>Recordatorios</strong>
+        <span class="tenue">{% if vista.recordatorios %}{{ vista.recordatorios|length }} saldrían (turnos dentro de las {{ vista.horas_antes }} h siguientes que todavía no tuvieron recordatorio){% if vista.plantilla %}, con la plantilla {{ vista.plantilla }}{% else %}, como texto libre (sin plantilla cargada){% endif %}.{% else %}Ninguno: no hay turnos sin recordar en las {{ vista.horas_antes }} h siguientes.{% endif %}</span>
+        {% for r in vista.recordatorios %}<div class="como">{{ r.final }} · {{ vista.nombre }} · {{ r.cuando }}</div>{% endfor %}
+      </div>
+      <p class="tenue" style="margin-bottom:0">Si elegís un día futuro, los recordatorios que salgan antes de esa hora ya no van a estar en la lista ese día.</p>
+    </div>
+    {% endif %}
   </div>
 
   <div class="card">
