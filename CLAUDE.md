@@ -339,6 +339,14 @@ factor) si hay proveedor y la profesional cargó su mail: sin IP ni pacientes.
 308, salvo `/webhook` (Meta sigue apuntando a la URL de Railway) y `/health`.
 Cargarla recién cuando el dominio tenga certificado; las llaves creadas en la
 dirección vieja dejan de servir.
+El QR también entra a administración (`migrations/043`: `qr_logins.tipo` =
+'panel' | 'admin'; un QR de un lado nunca abre el otro). Crear y consultar:
+`/admin/login/qr` (sin sesión ni CSRF); aprobar: `/admin/qr/<token>` (sesión de
+admin + CSRF). `_estado_plataforma` arma la tarjeta «Estado» de /admin: dice si
+las variables están cargadas, nunca sus valores.
+Las llaves se probaron en Chrome real (sin ventana, autenticador virtual de
+DevTools) contra la app local con la base en memoria de las pruebas: registrar
+y entrar, para profesional y para admin.
 
 ### Límite de intentos de login (`migrations/038`)
 
