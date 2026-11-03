@@ -1956,6 +1956,7 @@ def agenda_generar():
     hora_inicio = dtime.fromisoformat(request.form["hora_inicio"])
     hora_fin = dtime.fromisoformat(request.form["hora_fin"])
     duracion = int(request.form.get("duracion_minutos") or tenant.get("duracion_turno_minutos") or 50)
+    descanso = int(request.form.get("descanso_minutos") or tenant.get("descanso_minutos") or 0)
     dias_semana = {int(d) for d in request.form.getlist("dias_semana")}
 
     inicios = []
@@ -1966,7 +1967,7 @@ def agenda_generar():
             fin_del_dia = datetime.combine(cursor, hora_fin, tzinfo=tz)
             while paso + timedelta(minutes=duracion) <= fin_del_dia:
                 inicios.append(paso.astimezone(ZoneInfo("UTC")))
-                paso += timedelta(minutes=duracion)
+                paso += timedelta(minutes=duracion + descanso)
         cursor += timedelta(days=1)
 
     creados = db.crear_turnos_libres(tenant["id"], inicios, duracion)
@@ -3029,12 +3030,13 @@ def agenda_tipos():
     for n in range(1, 5):
         nombre = (f.get(f"tipo{n}_nombre") or "").strip()[:60]
         minutos = f.get(f"tipo{n}_minutos") or ""
+        precio = "".join(ch for ch in (f.get(f"tipo{n}_precio") or "") if ch.isdigit())
         if not nombre:
             continue
         if not minutos.isdigit() or not 10 <= int(minutos) <= 240:
             flash(f"«{nombre}»: la duración tiene que ser entre 10 y 240 minutos.")
             return _volver_a_agenda()
-        tipos.append({"nombre": nombre, "minutos": int(minutos)})
+        tipos.append({"nombre": nombre, "minutos": int(minutos), **({"precio": int(precio)} if precio and int(precio) > 0 else {})})
     db.guardar_ajustes(session["tenant_id"], {"tipos_turno": tipos or None})
     flash("Guardado: tus pacientes eligen el tipo de turno al reservar." if len(tipos) > 1
           else "Guardado." if tipos else "Sin tipos de turno: se reserva un solo tipo, como siempre.")
@@ -3061,9 +3063,23 @@ def agenda_horario():
             if not ok:
                 flash(f"Revisá el horario del {DIAS_LABEL[d].lower()}: falta una hora o termina antes de empezar.")
                 return _volver_a_agenda()
-            rangos.append({"dia": d, "desde": desde[:5], "hasta": hasta[:5]})
+            modalidad = f.get(f"dia{d}_mod{n}")
+            rangos.append({"dia": d, "desde": desde[:5], "hasta": hasta[:5],
+                           **({"modalidad": modalidad} if modalidad in ("presencial", "virtual") else {})})
     semanas = int(f.get("horario_semanas")) if (f.get("horario_semanas") or "") in {str(x) for x in range(1, 13)} else 4
-    db.guardar_ajustes(session["tenant_id"], {"horario_semanal": rangos or None, "horario_semanas": semanas})
+    campos = {"horario_semanal": rangos or None, "horario_semanas": semanas}
+    duracion, descanso = f.get("duracion_turno_minutos") or "", f.get("descanso_minutos") or ""
+    if duracion:
+        if not duracion.isdigit() or not 10 <= int(duracion) <= 240:
+            flash("La duración del turno tiene que ser entre 10 y 240 minutos.")
+            return _volver_a_agenda()
+        campos["duracion_turno_minutos"] = int(duracion)
+    if descanso:
+        if not descanso.isdigit() or int(descanso) > 60:
+            flash("El descanso entre turnos tiene que ser entre 0 y 60 minutos.")
+            return _volver_a_agenda()
+        campos["descanso_minutos"] = int(descanso)
+    db.guardar_ajustes(session["tenant_id"], campos)
     if not rangos:
         flash("Borraste tu horario de atención: los horarios ya generados siguen, pero no se crean nuevos solos.")
         return _volver_a_agenda()
@@ -3527,7 +3543,9 @@ def tipos_de(tenant: dict) -> list[dict]:
         except (KeyError, TypeError, ValueError):
             continue
         if nombre and 10 <= minutos <= 240:
-            tipos.append({"nombre": nombre, "minutos": minutos})
+            precio = t.get("precio")
+            tipos.append({"nombre": nombre, "minutos": minutos,
+                          "precio": int(precio) if isinstance(precio, (int, float)) and precio > 0 else None})
     return tipos
 
 
@@ -3542,17 +3560,22 @@ def _tipo_elegido(tenant: dict, valor) -> tuple[int | None, dict | None]:
     return (i, tipos[i]) if 0 <= i < len(tipos) else (None, None)
 
 
-def _cabe(turno: dict, minutos: int, libres_por_inicio: dict) -> bool:
+def _cabe(turno: dict, minutos: int, libres_por_inicio: dict, descanso: int = 0) -> bool:
     """¿Entra un turno de `minutos` empezando en `turno`? Si dura más que el
     horario, tiene que seguir en horarios libres consecutivos (así no se pasa
-    del horario de atención ni pisa otra sesión)."""
+    del horario de atención ni pisa otra sesión). Entre uno y otro puede haber
+    a lo sumo el descanso del profesional (con 45 + 15, el de 10:00 sigue en
+    el de 10:15)."""
     inicio = datetime.fromisoformat(turno["inicio"])
     fin_pedido = inicio + timedelta(minutes=minutos)
     cursor = datetime.fromisoformat(turno["fin"]) if turno.get("fin") else inicio
     while cursor < fin_pedido:
-        siguiente = libres_por_inicio.get(cursor)
+        siguiente = next((libres_por_inicio[cursor + timedelta(minutes=m)] for m in range(0, descanso + 1)
+                          if cursor + timedelta(minutes=m) in libres_por_inicio), None)
         if not siguiente:
-            return False
+            # Si lo que sobra entra en el descanso (ej. 50 min en un horario
+            # de 45 con 15 de descanso), entra sin tocar el siguiente.
+            return fin_pedido <= cursor + timedelta(minutes=descanso)
         cursor = datetime.fromisoformat(siguiente["fin"])
     return True
 
@@ -3580,7 +3603,7 @@ def _semana_libre(tenant: dict, semana: str | None, minutos: int | None = None) 
     libres = [t for t in todos if desde <= datetime.fromisoformat(t["inicio"]) < hasta]
     if minutos:
         por_inicio = {datetime.fromisoformat(t["inicio"]): t for t in todos if t.get("fin")}
-        libres = [t for t in libres if _cabe(t, minutos, por_inicio)]
+        libres = [t for t in libres if _cabe(t, minutos, por_inicio, tenant.get("descanso_minutos") or 0)]
     por_dia = {lunes + timedelta(days=i): [] for i in range(7)}
     for t in _con_hora_local(libres, tz):
         dia = datetime.fromisoformat(t["inicio"]).astimezone(tz).date()
@@ -3594,6 +3617,47 @@ def _semana_libre(tenant: dict, semana: str | None, minutos: int | None = None) 
             "siguiente": (lunes + timedelta(days=7)).isoformat(),
             "proximo_despues": _proximo_con_semana(db.turnos_libres(tenant["id"], hasta, limite=1), tz),
             "titulo_semana": f"{lunes.day}/{lunes.month:02d} al {domingo.day}/{domingo.month:02d}"}
+
+
+def _mes_libre(tenant: dict, mes: str | None, minutos: int | None) -> dict:
+    """Un mes de calendario (lunes a domingo) con cuántos horarios libres hay
+    cada día, para saltar a la semana del día que le sirve."""
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    ahora = datetime.now(ZoneInfo("UTC"))
+    hoy = ahora.astimezone(tz).date()
+    try:
+        primero = date.fromisoformat((mes or "") + "-01")
+    except ValueError:
+        primero = None
+    if not primero or primero < hoy.replace(day=1):
+        primero = hoy.replace(day=1)
+    siguiente = (primero.replace(day=28) + timedelta(days=4)).replace(day=1)
+    desde = max(ahora, datetime.combine(primero, dtime(0), tz))
+    hasta = datetime.combine(siguiente, dtime(0), tz)
+    todos = db.turnos_libres(tenant["id"], desde, limite=2000)
+    libres = [t for t in todos if desde <= datetime.fromisoformat(t["inicio"]) < hasta]
+    if minutos:
+        por_inicio = {datetime.fromisoformat(t["inicio"]): t for t in todos if t.get("fin")}
+        libres = [t for t in libres if _cabe(t, minutos, por_inicio, tenant.get("descanso_minutos") or 0)]
+    cuenta: dict = {}
+    for t in libres:
+        d = datetime.fromisoformat(t["inicio"]).astimezone(tz).date()
+        cuenta[d] = cuenta.get(d, 0) + 1
+    inicio_grilla = primero - timedelta(days=primero.weekday())
+    semanas = []
+    d = inicio_grilla
+    while d < siguiente:
+        semanas.append([{"fecha": d + timedelta(days=i), "numero": (d + timedelta(days=i)).day,
+                         "del_mes": (d + timedelta(days=i)).month == primero.month,
+                         "libres": cuenta.get(d + timedelta(days=i), 0),
+                         "lunes": d.isoformat()} for i in range(7)])
+        d += timedelta(days=7)
+    meses = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre",
+             "noviembre", "diciembre"]
+    anterior = (primero - timedelta(days=1)).replace(day=1)
+    return {"semanas_mes": semanas, "titulo_mes": f"{meses[primero.month - 1].capitalize()} {primero.year}",
+            "mes_anterior": anterior.strftime("%Y-%m") if anterior >= hoy.replace(day=1) else None,
+            "mes_siguiente": siguiente.strftime("%Y-%m"), "hay_en_mes": bool(libres)}
 
 
 @app.get("/<slug>")
@@ -3614,6 +3678,12 @@ def publico(slug):
     if tipos and tipo is None:
         return render_template("publico.html", tenant=tenant, cambiar=None, tipos=tipos, elegir_tipo=True, dias=[], hay=False,
                                anterior=None, siguiente=None, proximo_despues=None, titulo_semana="",
+                               hay_directorio=sum(1 for t in db.tenants_activos()
+                                                  if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
+    if request.args.get("vista") == "mes":
+        return render_template("publico.html", tenant=tenant, cambiar=None, tipos=tipos, tipo=tipo, i_tipo=i_tipo,
+                               vista_mes=True, dias=[], hay=True, anterior=None, siguiente=None, proximo_despues=None,
+                               titulo_semana="", **_mes_libre(tenant, request.args.get("mes"), tipo["minutos"] if tipo else None),
                                hay_directorio=sum(1 for t in db.tenants_activos()
                                                   if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
     return render_template("publico.html", tenant=tenant, cambiar=None, tipos=tipos, tipo=tipo, i_tipo=i_tipo,
@@ -3654,7 +3724,7 @@ def publico_reservar(slug, turno_id):
         flash("Completá nombre y teléfono.")
         return redirect(url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
-    modalidad = _modalidad_publica(tenant, request.form.get("modalidad"))
+    modalidad = _modalidad_publica(tenant, request.form.get("modalidad"), db.turno_por_id(tenant["id"], turno_id))
     i_tipo, tipo = _tipo_elegido(tenant, request.form.get("tipo"))
     if tipos_de(tenant) and tipo is None:
         flash("Elegí qué tipo de turno querés.")
@@ -3686,6 +3756,8 @@ def publico_reservar(slug, turno_id):
     turno = db.turno_por_id(tenant["id"], turno_id)
     if tipo and turno:
         campos["tipo"] = tipo["nombre"]
+        if tipo.get("precio"):
+            campos["valor"] = tipo["precio"]
         campos["fin"] = (datetime.fromisoformat(turno["inicio"]) + timedelta(minutes=tipo["minutos"])).isoformat()
     enviada = scheduler.mandar_confirmacion(tenant, {**turno, **campos}, tz) if turno else False
     if enviada:
@@ -3703,7 +3775,8 @@ def _entra(tenant: dict, turno_id: str, minutos: int) -> bool:
         return False
     inicio = datetime.fromisoformat(turno["inicio"])
     libres = db.turnos_libres(tenant["id"], inicio, limite=30)
-    return _cabe(turno, minutos, {datetime.fromisoformat(t["inicio"]): t for t in libres if t.get("fin")})
+    return _cabe(turno, minutos, {datetime.fromisoformat(t["inicio"]): t for t in libres if t.get("fin")},
+                 tenant.get("descanso_minutos") or 0)
 
 
 MODALIDADES_PUBLICAS = ("presencial", "virtual", "ambas")
@@ -3711,9 +3784,11 @@ HORAS_CANCELAR = (0, 2, 6, 12, 24, 48, 72)
 HORAS_VENCE_HUECO = (0, 1, 2, 4, 8, 12, 24)
 
 
-def _modalidad_publica(tenant: dict, pedida: str | None) -> str:
-    """La modalidad de una reserva web: la que ofrece el profesional, o la
-    elegida si ofrece las dos (y tiene link de videollamada para la virtual)."""
+def _modalidad_publica(tenant: dict, pedida: str | None, horario: dict | None = None) -> str:
+    """La modalidad de una reserva web: la del horario si su franja la fija,
+    si no la que ofrece el profesional, o la elegida si ofrece las dos."""
+    if horario and horario.get("solo_modalidad"):
+        return horario["solo_modalidad"]
     ofrece = tenant.get("modalidades_publicas") or "presencial"
     if ofrece == "ambas":
         return "virtual" if pedida == "virtual" else "presencial"

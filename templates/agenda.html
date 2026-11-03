@@ -346,7 +346,7 @@
   <div>
   <div class="card" id="tipos">
     <h3>Tipos de turno</h3>
-    <p class="tenue" style="margin-top:0">Si ofrecés turnos de distinta duración, cargalos y el paciente elige al reservar (ej. «Primera entrevista» 60 min y «Sesión» 45). Un turno largo ocupa los horarios libres siguientes. Vacío = un solo tipo, de {{ duracion_default }} minutos.</p>
+    <p class="tenue" style="margin-top:0">Si ofrecés turnos de distinta duración, cargalos y el paciente elige al reservar (ej. «Primera entrevista» 60 min y «Sesión» 45). Un turno largo ocupa los horarios libres siguientes. Con precio, la sesión queda cargada con ese valor al reservar. Vacío = un solo tipo, de {{ duracion_default }} minutos.</p>
     <form method="post" action="{{ url_for('agenda_tipos') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% set tt = tenant.tipos_turno or [] %}
@@ -354,6 +354,7 @@
       <div class="fila" style="margin-bottom:4px">
         <div style="flex:2"><input type="text" name="tipo{{ n }}_nombre" maxlength="60" placeholder="{{ 'Primera entrevista' if n == 1 else 'Sesión' if n == 2 else '' }}" value="{{ tt[n-1].nombre if tt|length >= n else '' }}" aria-label="Nombre del tipo {{ n }}"></div>
         <div><input type="number" name="tipo{{ n }}_minutos" min="10" max="240" step="5" placeholder="min" value="{{ tt[n-1].minutos if tt|length >= n else '' }}" aria-label="Minutos del tipo {{ n }}"></div>
+        <div><input type="text" inputmode="numeric" name="tipo{{ n }}_precio" placeholder="$ precio (opcional)" value="{{ tt[n-1].precio if tt|length >= n and tt[n-1].precio else '' }}" aria-label="Precio del tipo {{ n }}"></div>
       </div>
       {% endfor %}
       <div class="al-pie"><button class="btn chico" type="submit">Guardar tipos</button></div>
@@ -362,17 +363,27 @@
 
   <div class="card" id="horario">
     <h3>Tu horario de atención</h3>
-    <p class="tenue" style="margin-top:0">Cargalo una vez y los horarios libres se generan solos, semana a semana. Hasta dos franjas por día (ej. 9 a 13 y 15 a 19). Turnos de {{ duracion_default }} minutos.</p>
+    <p class="tenue" style="margin-top:0">Cargalo una vez y los horarios libres se generan solos, semana a semana. Hasta dos franjas por día. Ejemplo: sesiones de 45 con 15 de descanso y la franja de 9:15 a 13:00 dan 9:15, 10:15, 11:15 y 12:15. Cada franja puede ser sólo presencial o sólo por videollamada.</p>
     <form method="post" action="{{ url_for('agenda_horario') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="fila">
+        <div><label>Duración de cada turno (min)</label><input type="number" name="duracion_turno_minutos" min="10" max="240" step="5" value="{{ tenant.duracion_turno_minutos or 50 }}"></div>
+        <div><label>Descanso entre turnos (min)</label><input type="number" name="descanso_minutos" min="0" max="60" step="5" value="{{ tenant.descanso_minutos or 0 }}"></div>
+      </div>
       {% for d in range(7) %}
       {% set fr = horario_por_dia[d] %}
       <div class="fila" style="align-items:center;margin-bottom:4px">
         <div style="min-width:90px;flex:0"><strong>{{ dias_label[d] }}</strong></div>
-        <div><input type="time" name="dia{{ d }}_desde1" step="900" value="{{ fr[0][1] if fr|length > 0 else '' }}" aria-label="{{ dias_label[d] }} desde"></div>
-        <div><input type="time" name="dia{{ d }}_hasta1" step="900" value="{{ fr[0][2] if fr|length > 0 else '' }}" aria-label="{{ dias_label[d] }} hasta"></div>
-        <div><input type="time" name="dia{{ d }}_desde2" step="900" value="{{ fr[1][1] if fr|length > 1 else '' }}" aria-label="{{ dias_label[d] }} desde (2da franja)"></div>
-        <div><input type="time" name="dia{{ d }}_hasta2" step="900" value="{{ fr[1][2] if fr|length > 1 else '' }}" aria-label="{{ dias_label[d] }} hasta (2da franja)"></div>
+        {% for n in (1, 2) %}
+        {% set r = fr[n-1] if fr|length >= n else none %}
+        <div><input type="time" name="dia{{ d }}_desde{{ n }}" step="300" value="{{ r[1] if r else '' }}" aria-label="{{ dias_label[d] }} desde ({{ n }})"></div>
+        <div><input type="time" name="dia{{ d }}_hasta{{ n }}" step="300" value="{{ r[2] if r else '' }}" aria-label="{{ dias_label[d] }} hasta ({{ n }})"></div>
+        <div><select name="dia{{ d }}_mod{{ n }}" aria-label="{{ dias_label[d] }} modalidad ({{ n }})">
+          <option value="">Como ofrezcas</option>
+          <option value="presencial"{% if r and r[3] == 'presencial' %} selected{% endif %}>Presencial</option>
+          <option value="virtual"{% if r and r[3] == 'virtual' %} selected{% endif %}>Videollamada</option>
+        </select></div>
+        {% endfor %}
       </div>
       {% endfor %}
       <div class="fila">

@@ -3373,6 +3373,53 @@ chequear("tipos: reserva con su duración", k1["estado"] == "reservado" and k1["
 chequear("tipos: tapa el horario siguiente", "reservar/k2" not in web5.get("/marcos?tipo=1").data.decode())
 chequear("tipos: el panel lo muestra", "Primera entrevista" in panel_c.get(f"/agenda?semana={_c.date().isoformat()}").data.decode())
 
+# --- Descanso entre turnos (el caso de Marcos), modalidad por franja, precio, recordatorio y mes ---
+reset()
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "activo": True, "modalidades_publicas": "ambas", "link_videollamada": "https://meet.example/x"})
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+_previos = {t["id"] for t in TABLAS["turnos"]}
+panel_c.post("/agenda/horario", data={"csrf_token": "tok", "duracion_turno_minutos": "45", "descanso_minutos": "15",
+                                      "dia1_desde1": "09:15", "dia1_hasta1": "13:00",
+                                      "dia1_desde2": "15:15", "dia1_hasta2": "17:00", "dia1_mod2": "virtual",
+                                      "horario_semanas": "2"})
+_nuevos = [t for t in TABLAS["turnos"] if t["id"] not in _previos]
+_loc = lambda t: datetime.fromisoformat(t["inicio"]).astimezone(app.ZoneInfo(TZ))
+_horas = sorted({_loc(t).strftime("%H:%M") for t in _nuevos})
+chequear("Marcos: 45 + 15 desde y cuarto", _horas == ["09:15", "10:15", "11:15", "12:15", "15:15", "16:15"], _horas)
+chequear("Marcos: cada uno termina en punto", all(
+    datetime.fromisoformat(t["fin"]).astimezone(app.ZoneInfo(TZ)).strftime("%M") == "00" for t in _nuevos))
+chequear("modalidad por franja: la tarde es por videollamada", all(
+    (t.get("solo_modalidad") == "virtual") == (_loc(t).hour >= 15) for t in _nuevos))
+_tarde = next((t for t in _nuevos if _loc(t).hour >= 15), None)
+_maniana = next((t for t in _nuevos if _loc(t).hour < 13), None)
+web6 = app.app.test_client()
+if _tarde:
+    html = web6.get(f"/marcos?semana={_loc(_tarde).date().isoformat()}").data.decode()
+    chequear("modalidad por franja: el calendario lo marca", "· video" in html)
+    chequear("modalidad por franja: el formulario no deja elegir", "Este horario es por videollamada" in
+             web6.get(f"/marcos/reservar/{_tarde['id']}").data.decode())
+    web6.post(f"/marcos/reservar/{_tarde['id']}", data={"nombre": "Ana", "telefono": "5491100003333", "modalidad": "presencial",
+                                                        "confirmado": "1"})
+    chequear("modalidad por franja: se reserva como la franja", _tarde["modalidad"] == "virtual")
+if _maniana:
+    # una entrevista de 100 min arranca a las 9:15, sigue en el de 10:15 (salteando el descanso) y entra
+    _t1["tipos_turno"] = [{"nombre": "Primera entrevista", "minutos": 100, "precio": 30000}, {"nombre": "Sesión", "minutos": 45}]
+    _9 = next(t for t in _nuevos if _loc(t).strftime("%H:%M") == "09:15")
+    _12 = next((t for t in _nuevos if _loc(t).strftime("%H:%M") == "12:15" and _loc(t).date() == _loc(_9).date()), None)
+    html = web6.get(f"/marcos?tipo=0&semana={_loc(_9).date().isoformat()}").data.decode()
+    chequear("descanso: el turno largo salta el descanso", f"reservar/{_9['id']}" in html)
+    if _12:
+        chequear("descanso: pero no después de la última franja", f"reservar/{_12['id']}" not in html)
+    web6.post(f"/marcos/reservar/{_9['id']}", data={"nombre": "Bea", "telefono": "5491100004444", "tipo": "0", "confirmado": "1"})
+    chequear("precio por tipo: la sesión queda con su valor", _9["valor"] == 30000 and _9["tipo"] == "Primera entrevista")
+    chequear("recordatorio: dice el tipo y la duración", "(Primera entrevista de 100 min)" in
+             scheduler.cuando_de(_9, dict(_t1), app.ZoneInfo(TZ)))
+html = web6.get("/marcos?vista=mes&tipo=1").data.decode()
+chequear("mes: muestra el mes con los días que tienen lugar", "Lu" in html and "libre" in html and "semana=" in html)
+chequear("mes: se puede volver a la semana", 'vista=mes' in web6.get("/marcos?tipo=1").data.decode())
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")
