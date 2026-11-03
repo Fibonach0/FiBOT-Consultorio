@@ -210,7 +210,22 @@ desde la web se avisa al profesional en el momento (`scheduler.avisar_profesiona
 con `AVISO_TEMPLATE`, sin nombres). La página del profesional tiene «Anotate en
 la lista de espera» (`/<slug>/lista-espera`): entra a `lista_espera` con
 `origen = 'web'`, no se duplica por teléfono y se avisa al profesional; ofrecer
-el horario sigue siendo a mano desde el panel.
+el horario sigue siendo a mano desde el panel, salvo que active la opción
+automática (abajo).
+
+**Cancelaciones del paciente (`cancelaciones.py`, `migrations/050`)**: web y bot
+pasan por `cancelaciones.tras_cancelar`, y los dos respetan el plazo
+(`cancelaciones.puede_modificar`). Con `tenants.al_cancelar = 'preguntar'` el
+horario queda retenido (`turnos.hueco = 'pendiente'`): libre pero fuera de
+`turnos_disponibles` (la vista filtra `hueco is null`) y rechazado al
+reservarlo por id. El profesional decide en la tarjeta «Horarios que te
+cancelaron» o contestando LIBERAR / ME LO TOMO desde su `aviso_telefono` (el
+webhook lo intercepta antes de rutear al paciente; `db.tenant_por_aviso`).
+«Me lo tomo» = `'propio'`. Con `ofrecer_espera_auto`, cada horario que queda
+libre de verdad se le ofrece al primero de la lista que hoy no recibió otro.
+`eventos_pagina` cuenta visitas (sin bots, sólo la semana inicial), reservas,
+cancelaciones, cambios y anotados de la web: «Este mes» en «Tu página de
+turnos». `hueco` va en `db._LIBERADO` y reservar lo limpia.
 
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin

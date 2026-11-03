@@ -318,7 +318,7 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
         revisar = bool(nombre) and nombre_ambiguo(tenant_id, telefono, nombre)
     res = (
         _client.table("turnos")
-        .update({"estado": "reservado", "paciente_telefono": telefono, "paciente_nombre": nombre, "ficha": ficha,
+        .update({"estado": "reservado", "hueco": None, "paciente_telefono": telefono, "paciente_nombre": nombre, "ficha": ficha,
                  "revisar_ficha": revisar, "reserva_nueva": llego_sola, "reserva_avisada": False,
                  "valor": valor, "frecuencia": frecuencia, "modalidad": modalidad})
         .eq("tenant_id", tenant_id)
@@ -377,6 +377,7 @@ _LIBERADO = {
     "confirmado_at": None,
     "token_calendario": None,
     "confirmacion_recordada_at": None,
+    "hueco": None,
 }
 
 
@@ -1319,3 +1320,48 @@ def sin_confirmar(tenant_id: str) -> list[dict]:
     res = (_client.table("turnos").select("*").eq("tenant_id", tenant_id).eq("estado", "reservado")
            .gte("inicio", ahora.isoformat()).is_("confirmado_at", "null").order("inicio").execute())
     return [t for t in res.data if t.get("confirmacion_enviada_at")]
+
+
+def marcar_hueco(tenant_id: str, turno_id: str, valor: str | None) -> None:
+    """None = se ofrece normal; 'pendiente' = retenido esperando que el
+    profesional decida; 'propio' = se lo tomó. Sólo sobre horarios libres."""
+    _client.table("turnos").update({"hueco": valor}).eq("tenant_id", tenant_id).eq("id", turno_id).eq(
+        "estado", "libre").execute()
+
+
+def huecos(tenant_id: str) -> list[dict]:
+    """Horarios futuros retenidos o tomados por el profesional."""
+    ahora = datetime.now(timezone.utc)
+    res = (_client.table("turnos").select("*").eq("tenant_id", tenant_id).eq("estado", "libre")
+           .gte("inicio", ahora.isoformat()).order("inicio").execute())
+    return [t for t in res.data if t.get("hueco")]
+
+
+def huecos_pendientes(tenant_id: str) -> list[dict]:
+    return [t for t in huecos(tenant_id) if t["hueco"] == "pendiente"]
+
+
+def tenant_por_aviso(telefono: str) -> dict | None:
+    """El profesional activo cuyo WhatsApp de avisos es este (últimos 10
+    dígitos: el 9 y el 15 argentinos varían)."""
+    final = "".join(ch for ch in telefono or "" if ch.isdigit())[-10:]
+    if len(final) < 10:
+        return None
+    for t in tenants_activos():
+        if "".join(ch for ch in t.get("aviso_telefono") or "" if ch.isdigit())[-10:] == final:
+            return t
+    return None
+
+
+def registrar_evento_pagina(tenant_id: str, tipo: str) -> None:
+    _client.table("eventos_pagina").insert({"tenant_id": tenant_id, "tipo": tipo,
+                                            "cuando": datetime.now(timezone.utc).isoformat()}).execute()
+
+
+def eventos_pagina_desde(tenant_id: str, desde: datetime) -> dict[str, int]:
+    res = (_client.table("eventos_pagina").select("tipo").eq("tenant_id", tenant_id)
+           .gte("cuando", desde.isoformat()).limit(20000).execute())
+    cuenta: dict[str, int] = {}
+    for f in res.data:
+        cuenta[f["tipo"]] = cuenta.get(f["tipo"], 0) + 1
+    return cuenta

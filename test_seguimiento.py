@@ -139,7 +139,7 @@ class _Query:
         filas = TABLAS["turnos"] if self.tabla == "turnos_disponibles" else TABLAS[self.tabla]
         if self.tabla == "turnos_disponibles":
             reservados = [r for r in filas if r["estado"] == "reservado"]
-            filas = [t for t in filas if t["estado"] == "libre" and not any(
+            filas = [t for t in filas if t["estado"] == "libre" and not t.get("hueco") and not any(
                 r["tenant_id"] == t["tenant_id"] and _norm(r["inicio"]) < _norm(t["fin"])
                 and _norm(r["fin"]) > _norm(t["inicio"]) for r in reservados)
                 and not any(b["tenant_id"] == t["tenant_id"] and _norm(b["desde"]) < _norm(t["fin"])
@@ -239,6 +239,7 @@ def reset():
     TABLAS["ajustes_plataforma"] = []
     TABLAS["plantillas_meta"] = []
     TABLAS["mensajes_sin_destino"] = []
+    TABLAS["eventos_pagina"] = []
     TABLAS["login_intentos"] = []
     TABLAS.setdefault("sesiones", [])  # sobreviven a reset(): los clientes de prueba siguen logueados
     TABLAS["actividad"] = []
@@ -3151,7 +3152,7 @@ chequear("política: 0 = hasta que empieza", "Cancelar el turno" in web2.get("/a
 _t1["cancelar_hasta_horas"] = 24
 _avisos_prof.clear()
 web2.post("/agendar/tok-p2/cancelar")
-chequear("cancelar web: avisa al profesional con la lista de espera", _avisos_prof and "canceló desde la web" in _avisos_prof[-1]
+chequear("cancelar web: avisa al profesional con la lista de espera", _avisos_prof and "canceló por la web" in _avisos_prof[-1]
          and "1 en lista de espera" in _avisos_prof[-1])
 
 panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "presencial", "en_directorio": "1",
@@ -3161,6 +3162,74 @@ panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas"
 chequear("panel: política inválida no cambia", TABLAS["tenants"][0]["cancelar_hasta_horas"] == 48)
 app.scheduler.avisar_profesional = _viejo_avisar
 db.get_tenant_by_slug, db.get_tenant_by_id = _por_slug, _por_id2
+
+# --- «Preguntarme antes de liberar», lista de espera automática y estadísticas ---
+import cancelaciones as _canc  # noqa: E402
+
+reset()
+TABLAS["lista_espera"] = []
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "aviso_telefono": "5491122223333", "cancelar_hasta_horas": 24, "al_cancelar": "preguntar"})
+_avisos_p, _ofrecidos = [], []
+_viejo_av = scheduler.avisar_profesional
+scheduler.avisar_profesional = lambda tenant, texto: _avisos_p.append(texto) or True
+_viejo_of = _canc.ofrecer_horario
+_canc.ofrecer_horario = lambda tenant, tel, cuando, link: _ofrecidos.append((tel, link)) or True
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+_a = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+TABLAS["turnos"] = [turno("h1", "t1", _a + timedelta(days=3), estado="reservado", paciente_telefono="5491166667777",
+                          token_calendario="tok-h1"),
+                    turno("h2", "t1", _a + timedelta(days=5), estado="reservado", paciente_telefono="5491188889999",
+                          token_calendario="tok-h2")]
+web3 = app.app.test_client()
+web3.post("/agendar/tok-h1/cancelar")
+h1 = TABLAS["turnos"][0]
+chequear("preguntar: el horario cancelado queda retenido", h1["estado"] == "libre" and h1["hueco"] == "pendiente")
+chequear("preguntar: nadie lo ve", not any(t["id"] == "h1" for t in db.turnos_libres("t1", _a, limite=50)))
+chequear("preguntar: tampoco reservándolo por id", web3.post("/marcos/reservar/h1", data={
+    "nombre": "X", "telefono": "5491100002222", "confirmado": "1"}).status_code == 302 and h1["estado"] == "libre")
+chequear("preguntar: le avisa al profesional cómo decidir", _avisos_p and "LIBERAR" in _avisos_p[-1] and "ME LO TOMO" in _avisos_p[-1])
+html = panel_c.get("/agenda").data.decode()
+chequear("preguntar: el panel lo muestra para decidir", "Horarios que te cancelaron" in html and "esperando que decidas" in html)
+
+# el profesional contesta por WhatsApp
+r = _canc.respuesta_del_profesional("5491122223333", "Me lo tomo")
+chequear("whatsapp profesional: me lo tomo", "es tuyo" in r and h1["hueco"] == "propio")
+chequear("whatsapp profesional: sin retenidos lo dice", "No tenés ningún horario retenido" in _canc.respuesta_del_profesional("5491122223333", "liberar"))
+chequear("whatsapp profesional: un paciente que escribe «liberar» sigue normal", _canc.respuesta_del_profesional("5491166667777", "liberar") is None)
+chequear("whatsapp profesional: otro texto sigue normal", _canc.respuesta_del_profesional("5491122223333", "hola") is None)
+
+# liberar desde el panel, con lista de espera automática
+_t1["ofrecer_espera_auto"] = True
+TABLAS["lista_espera"] = [{"id": "e1", "tenant_id": "t1", "nombre": "Nora", "telefono": "5491144445555", "preferencia": None,
+                           "ofrecido_en": None, "origen": "web", "created_at": _a.isoformat()}]
+panel_c.post("/agenda/hueco/h1/liberar", data={"csrf_token": "tok"})
+chequear("liberar: vuelve a ofrecerse y va a la lista de espera", h1["hueco"] is None and _ofrecidos
+         and _ofrecidos[-1][0] == "5491144445555" and _ofrecidos[-1][1].endswith("/marcos")
+         and TABLAS["lista_espera"][0]["ofrecido_en"])
+chequear("liberar: aparece de nuevo", any(t["id"] == "h1" for t in db.turnos_libres("t1", _a, limite=50)))
+
+# modo liberar: va directo a la lista (pero no al mismo dos veces el mismo día)
+_t1["al_cancelar"] = "liberar"
+_ofrecidos.clear()
+web3.post("/agendar/tok-h2/cancelar")
+chequear("liberar enseguida: no retiene", TABLAS["turnos"][1]["hueco"] is None)
+chequear("lista automática: no le ofrece dos veces el mismo día", not _ofrecidos and "1 en lista de espera" in _avisos_p[-1])
+
+# estadísticas
+_t1["al_cancelar"] = "liberar"
+TABLAS["eventos_pagina"] = []
+web3.get("/marcos")
+web3.get("/marcos", headers={"User-Agent": "Googlebot/2.1"})
+web3.post("/marcos/lista-espera", data={"nombre": "Ana", "telefono": "5491177776666"})
+html = panel_c.get("/agenda").data.decode()
+chequear("estadísticas: cuenta visitas (sin bots) y anotados", "</strong> 1 visita\n" in html and "1 a lista de espera" in html)
+panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "presencial", "al_cancelar": "preguntar",
+                                     "ofrecer_espera_auto": "1", "cancelar_hasta_horas": "24"})
+chequear("panel: guarda qué hacer al cancelar", TABLAS["tenants"][0]["al_cancelar"] == "preguntar"
+         and TABLAS["tenants"][0]["ofrecer_espera_auto"] is True)
+scheduler.avisar_profesional, _canc.ofrecer_horario = _viejo_av, _viejo_of
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
