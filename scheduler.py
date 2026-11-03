@@ -4,7 +4,7 @@ este hilo correría dos veces y mandaría el recordatorio duplicado."""
 import logging
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import config
@@ -67,6 +67,9 @@ def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
     if abiertas:
         partes.append(f"{abiertas} ficha{'s' if abiertas > 1 else ''} entregada{'s' if abiertas > 1 else ''} "
                       f"se abri{'eron' if abiertas > 1 else 'ó'} en las últimas 24 horas")
+    sin_confirmar = len(db.sin_confirmar(tenant["id"]))
+    if sin_confirmar:
+        partes.append(f"{sin_confirmar} reserva{'s' if sin_confirmar > 1 else ''} web sin confirmar por WhatsApp")
     if rubros.de(tenant)["tests"]:
         por_ficha: dict[str, list[dict]] = {}
         for x in db.tests_tomados(tenant["id"]):
@@ -160,6 +163,10 @@ def _tick() -> None:
         except Exception:
             logger.exception("Fallo avisando reservas de tenant %s", tenant["id"])
         try:
+            _recordar_confirmaciones(tenant, tz)
+        except Exception:
+            logger.exception("Fallo recordando confirmaciones de tenant %s", tenant["id"])
+        try:
             pendientes = db.turnos_para_recordar(tenant["id"], horas_antes)
         except Exception:
             logger.exception("Fallo consultando recordatorios de tenant %s", tenant["id"])
@@ -219,6 +226,47 @@ def vista_previa(tenant: dict, momento: datetime) -> dict:
     ]
     return {"resumen": resumen, "recordatorios": recordatorios, "horas_antes": horas_antes,
             "plantilla": config.RECORDATORIO_TEMPLATE or None}
+
+
+# Segundo aviso de confirmación: a las cuántas horas del primero, y en qué
+# horario (no se le escribe a nadie de noche).
+HORAS_PARA_RECORDAR = 6
+HORARIO_AVISOS = range(9, 21)
+
+
+def mandar_confirmacion(tenant: dict, turno: dict, tz: ZoneInfo) -> bool:
+    """WhatsApp al paciente para que confirme una reserva web (y así saber que
+    el número está bien). Plantilla con botones; sin plantilla no se manda."""
+    if not config.CONFIRMACION_TEMPLATE:
+        return False
+    numero = whatsapp.numero_de(tenant)
+    if not numero:
+        return False
+    try:
+        return whatsapp.enviar_plantilla(numero, turno["paciente_telefono"], config.CONFIRMACION_TEMPLATE,
+                                         config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], cuando_de(turno, tenant, tz)])
+    except Exception:
+        logger.warning("No se pudo mandar la confirmación del turno %s", turno.get("id"), exc_info=True)
+        return False
+
+
+def _recordar_confirmaciones(tenant: dict, tz: ZoneInfo, ahora: datetime | None = None) -> None:
+    """Una sola vez: si a las HORAS_PARA_RECORDAR del primer aviso no
+    confirmó, se le vuelve a mandar. Se marca antes de mandar (como el
+    resumen): si falla, no se reintenta cada 10 minutos."""
+    ahora = ahora or datetime.now(timezone.utc)
+    if ahora.astimezone(tz).hour not in HORARIO_AVISOS:
+        return
+    for t in db.sin_confirmar(tenant["id"]):
+        if t.get("confirmacion_recordada_at"):
+            continue
+        enviada = datetime.fromisoformat(t["confirmacion_enviada_at"])
+        if ahora - enviada < timedelta(hours=HORAS_PARA_RECORDAR):
+            continue
+        if datetime.fromisoformat(t["inicio"]) - ahora < timedelta(hours=1):
+            continue
+        db.actualizar_reserva(tenant["id"], t["id"], {"confirmacion_recordada_at": ahora.isoformat()})
+        mandar_confirmacion(tenant, t, tz)
 
 
 def _loop() -> None:

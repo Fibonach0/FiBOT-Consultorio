@@ -376,6 +376,7 @@ _LIBERADO = {
     "confirmacion_enviada_at": None,
     "confirmado_at": None,
     "token_calendario": None,
+    "confirmacion_recordada_at": None,
 }
 
 
@@ -1301,3 +1302,12 @@ def confirmar_proximo(tenant_id: str, telefono: str) -> dict | None:
     _client.table("turnos").update({"confirmado_at": ahora.isoformat()}).eq("tenant_id", tenant_id).eq(
         "id", turno["id"]).execute()
     return {**turno, "confirmado_at": ahora.isoformat()}
+
+
+def sin_confirmar(tenant_id: str) -> list[dict]:
+    """Reservas web futuras a las que se les mandó la confirmación y todavía no
+    confirmaron."""
+    ahora = datetime.now(timezone.utc)
+    res = (_client.table("turnos").select("*").eq("tenant_id", tenant_id).eq("estado", "reservado")
+           .gte("inicio", ahora.isoformat()).is_("confirmado_at", "null").order("inicio").execute())
+    return [t for t in res.data if t.get("confirmacion_enviada_at")]

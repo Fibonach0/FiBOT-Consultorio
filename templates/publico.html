@@ -1,6 +1,8 @@
 {% extends "base.html" %}
 {% block titulo %}Turnos — {{ tenant.nombre }}{% endblock %}
 {% block cuerpo %}
+{% macro url_semana(sem) %}{% if cambiar %}{{ url_for('agendar_cambiar', token=cambiar, semana=sem) }}{% else %}{{ url_for('publico', slug=tenant.slug, semana=sem) }}{% endif %}{% endmacro %}
+{% macro url_hora(t) %}{% if cambiar %}{{ url_for('agendar_cambiar_a', token=cambiar, turno_id=t.id) }}{% else %}{{ url_for('publico_reservar_form', slug=tenant.slug, turno_id=t.id) }}{% endif %}{% endmacro %}
 <style>
   .semana-nav { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
   .semana { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:8px; }
@@ -21,7 +23,7 @@
 </style>
 <header>
   <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
-  {% if hay_directorio %}<a href="{{ url_for('turnos_directorio') }}">Otros profesionales</a>{% endif %}
+  {% if hay_directorio and not cambiar %}<a href="{{ url_for('turnos_directorio') }}">Otros profesionales</a>{% endif %}
 </header>
 <main>
   <div class="card">
@@ -33,7 +35,11 @@
       </div>
     </div>
     {% if tenant.descripcion %}<p style="margin-bottom:0">{{ tenant.descripcion }}</p>{% endif %}
+    {% if cambiar %}
+    <p style="margin-bottom:0">Tu turno de ahora es el <strong>{{ actual._dia }} a las {{ actual._hora }}</strong>. Tocá el horario nuevo. <a href="{{ url_for('agendar', token=cambiar) }}">Volver sin cambiar</a></p>
+    {% else %}
     <p style="margin-bottom:0">Tocá un horario libre para reservar tu turno.</p>
+    {% endif %}
   </div>
 
   {% with mensajes = get_flashed_messages() %}
@@ -42,9 +48,9 @@
 
   <div class="card">
     <div class="semana-nav">
-      {% if anterior %}<a class="btn secundario" href="{{ url_for('publico', slug=tenant.slug, semana=anterior) }}" style="text-decoration:none">‹ Anterior</a>{% else %}<span></span>{% endif %}
+      {% if anterior %}<a class="btn secundario" href="{{ url_semana(anterior) }}" style="text-decoration:none">‹ Anterior</a>{% else %}<span></span>{% endif %}
       <strong>Semana del {{ titulo_semana }}</strong>
-      <a class="btn secundario" href="{{ url_for('publico', slug=tenant.slug, semana=siguiente) }}" style="text-decoration:none">Siguiente ›</a>
+      <a class="btn secundario" href="{{ url_semana(siguiente) }}" style="text-decoration:none">Siguiente ›</a>
     </div>
     <div class="semana" style="margin-top:12px">
       {% for d in dias %}
@@ -52,7 +58,7 @@
         <h4>{{ d.nombre }} <span>{{ d.numero }}</span></h4>
         <div class="horas">
         {% for t in d.turnos %}
-          <a class="hora" href="{{ url_for('publico_reservar_form', slug=tenant.slug, turno_id=t.id) }}">{{ t._hora }}</a>
+          <a class="hora" href="{{ url_hora(t) }}">{{ t._hora }}</a>
         {% else %}
           <span class="nada">—</span>
         {% endfor %}
@@ -63,7 +69,7 @@
     {% if not hay %}
     <p style="color:var(--muted);margin-bottom:0">
       No hay horarios libres esta semana.
-      {% if proximo_despues %}El próximo es el <a href="{{ url_for('publico', slug=tenant.slug, semana=proximo_despues._semana) }}">{{ proximo_despues._dia }} a las {{ proximo_despues._hora }}</a>.{% else %}Volvé a pasar más tarde.{% endif %}
+      {% if proximo_despues %}El próximo es el <a href="{{ url_semana(proximo_despues._semana) }}">{{ proximo_despues._dia }} a las {{ proximo_despues._hora }}</a>.{% else %}Volvé a pasar más tarde.{% endif %}
     </p>
     {% endif %}
   </div>

@@ -8,6 +8,7 @@
       <h2>Este link ya no sirve</h2>
       <p style="color:var(--muted)">El turno pasó, se canceló o el link está incompleto.</p>
     {% else %}
+      {% if cambiado %}<div class="aviso" style="margin-bottom:10px"><strong>Listo, cambiaste el horario.</strong> Si ya lo tenías agendado, borrá el anterior y agregá este.</div>{% endif %}
       <h2>Agendá tu turno</h2>
       <p>Con <strong>{{ tenant.nombre }}</strong>{% if tenant.rubro %} <span style="color:var(--muted)">({{ tenant.rubro }})</span>{% endif %}</p>
       <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}{% if virtual %} · por videollamada{% endif %}</p>
@@ -16,7 +17,16 @@
         <a class="btn" style="text-decoration:none;text-align:center" href="{{ google }}" target="_blank" rel="noopener">Agregar a Google Calendar</a>
         <a class="btn secundario" style="text-decoration:none;text-align:center" href="{{ url_for('agendar_ics', token=request.view_args.token) }}">iPhone, Outlook u otro calendario</a>
       </div>
-      <p style="color:var(--muted);margin-bottom:0;margin-top:14px">Te avisa 2 horas antes. Si no podés ir, escribí <strong>cancelar</strong> por WhatsApp.</p>
+      <p style="color:var(--muted);margin-top:14px">Te avisa 2 horas antes.</p>
+      {% if futuro %}
+      <div style="border-top:1px solid var(--rule);padding-top:12px;margin-top:6px">
+        <strong>¿No podés ir?</strong>
+        <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
+          <a class="btn secundario" style="text-decoration:none" href="{{ url_for('agendar_cambiar', token=request.view_args.token) }}">Cambiar el horario</a>
+          <a class="btn secundario" style="text-decoration:none" href="{{ url_for('agendar_cancelar', token=request.view_args.token) }}">Cancelar el turno</a>
+        </div>
+      </div>
+      {% endif %}
     {% endif %}
   </div>
 </main>

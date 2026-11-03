@@ -193,6 +193,16 @@ el botón confirman la próxima reserva que esperaba confirmación
 Google Calendar o `.ics`, sin datos del paciente, `noindex`. El token es la
 credencial. Los tres campos van en `db._LIBERADO` y no viajan al reprogramar.
 En el panel, la sesión muestra «✓ confirmó» o «sin confirmar».
+Si a las `scheduler.HORAS_PARA_RECORDAR` (6) no confirmó, `_recordar_confirmaciones`
+manda la misma plantilla UNA vez más (`confirmacion_recordada_at`, `migrations/048`),
+sólo entre las 9 y las 21 y si falta más de 1 hora; el resumen diario cuenta las
+reservas web sin confirmar. Desde `/agendar/<token>` el paciente cancela
+(`/cancelar`, queda como cancelación del paciente) o cambia el horario
+(`/cambiar`: el mismo calendario semanal, sólo horarios libres, con
+`db.reprogramar_turno`); el turno nuevo se lleva el token, queda confirmado y
+marcado `reserva_nueva` para que el profesional se entere. Esas rutas no piden
+CSRF (no hay sesión; el token es la credencial): ojo, `/agendar` empieza con
+`/agenda` y `verificar_csrf` lo excluye a propósito.
 
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin

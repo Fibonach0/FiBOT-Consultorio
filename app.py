@@ -249,8 +249,10 @@ def verificar_csrf():
     otra página no pueda disparar un POST con la cookie del profesional. El
     webhook tiene su firma y la reserva pública no usa sesión."""
     # /login/qr/<token> es la aprobación desde el celular (con sesión): necesita token.
+    # /agendar/<token>/… es del paciente, sin sesión: el token es la credencial
+    # (como en la reserva pública). Ojo: "/agendar" empieza con "/agenda".
     if request.method != "POST" or not request.path.startswith(("/agenda", "/admin", "/login/qr/")) \
-            or request.path.startswith("/admin/login"):
+            or request.path.startswith(("/admin/login", "/agendar/")):
         return None
     esperado = session.get("csrf_token")
     recibido = request.form.get("csrf_token") or ""
@@ -3366,26 +3368,21 @@ def turnos_directorio():
     return render_template("turnos.html", profesionales=profesionales)
 
 
-@app.get("/<slug>")
-def publico(slug):
-    """Calendario de UN profesional, de a una semana (lunes a domingo, en su
-    zona horaria), sólo con los horarios libres."""
-    tenant = db.get_tenant_by_slug(slug)
-    if not tenant:
-        return "No encontrado.", 404
+def _semana_libre(tenant: dict, semana: str | None) -> dict:
+    """Una semana (lunes a domingo, en la zona del profesional) con sus
+    horarios libres. Sin semana elegida: la del próximo horario libre."""
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     ahora = datetime.now(ZoneInfo("UTC"))
     esta_semana = ahora.astimezone(tz).date() - timedelta(days=ahora.astimezone(tz).weekday())
     try:
-        lunes = date.fromisoformat(request.args.get("semana") or "")
+        lunes = date.fromisoformat(semana or "")
         lunes -= timedelta(days=lunes.weekday())
     except ValueError:
         lunes = None
     if not lunes or lunes < esta_semana:
-        # Sin semana elegida: la del próximo horario libre (si esta no tiene).
         proximo = db.turnos_libres(tenant["id"], ahora, limite=1)
         lunes = esta_semana
-        if proximo and request.args.get("semana") is None:
+        if proximo and semana is None:
             dia = datetime.fromisoformat(proximo[0]["inicio"]).astimezone(tz).date()
             lunes = dia - timedelta(days=dia.weekday())
     desde = max(ahora, datetime.combine(lunes, dtime(0), tz))
@@ -3399,12 +3396,22 @@ def publico(slug):
             por_dia[dia].append(t)
     dias = [{"fecha": d, "nombre": DIAS_LABEL[d.weekday()], "numero": f"{d.day}/{d.month:02d}",
              "pasado": d < ahora.astimezone(tz).date(), "turnos": ts} for d, ts in por_dia.items()]
-    siguiente = db.turnos_libres(tenant["id"], hasta, limite=1)
-    return render_template("publico.html", tenant=tenant, dias=dias, hay=bool(libres),
-                           anterior=(lunes - timedelta(days=7)).isoformat() if lunes > esta_semana else None,
-                           siguiente=(lunes + timedelta(days=7)).isoformat(),
-                           proximo_despues=_proximo_con_semana(siguiente, tz),
-                           titulo_semana=f"{lunes.day}/{lunes.month:02d} al {(lunes + timedelta(days=6)).day}/{(lunes + timedelta(days=6)).month:02d}",
+    domingo = lunes + timedelta(days=6)
+    return {"dias": dias, "hay": bool(libres),
+            "anterior": (lunes - timedelta(days=7)).isoformat() if lunes > esta_semana else None,
+            "siguiente": (lunes + timedelta(days=7)).isoformat(),
+            "proximo_despues": _proximo_con_semana(db.turnos_libres(tenant["id"], hasta, limite=1), tz),
+            "titulo_semana": f"{lunes.day}/{lunes.month:02d} al {domingo.day}/{domingo.month:02d}"}
+
+
+@app.get("/<slug>")
+def publico(slug):
+    """Calendario de UN profesional, de a una semana, sólo con los horarios
+    libres."""
+    tenant = db.get_tenant_by_slug(slug)
+    if not tenant:
+        return "No encontrado.", 404
+    return render_template("publico.html", tenant=tenant, cambiar=None, **_semana_libre(tenant, request.args.get("semana")),
                            hay_directorio=sum(1 for t in db.tenants_activos()
                                               if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
 
@@ -3459,7 +3466,7 @@ def publico_reservar(slug, turno_id):
     token = secrets.token_urlsafe(16)
     campos = {"token_calendario": token, "modalidad": None if modalidad == "presencial" else modalidad}
     turno = db.turno_por_id(tenant["id"], turno_id)
-    enviada = _mandar_confirmacion(tenant, {**turno, **campos}, tz) if turno else False
+    enviada = scheduler.mandar_confirmacion(tenant, {**turno, **campos}, tz) if turno else False
     if enviada:
         campos["confirmacion_enviada_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
     db.actualizar_reserva(tenant["id"], turno_id, campos)
@@ -3477,23 +3484,6 @@ def _modalidad_publica(tenant: dict, pedida: str | None) -> str:
     if ofrece == "ambas":
         return "virtual" if pedida == "virtual" else "presencial"
     return ofrece
-
-
-def _mandar_confirmacion(tenant: dict, turno: dict, tz: ZoneInfo) -> bool:
-    """WhatsApp al paciente para que confirme la reserva web (y así saber que
-    el número está bien). Plantilla con botones; sin plantilla no se manda."""
-    if not config.CONFIRMACION_TEMPLATE:
-        return False
-    numero = whatsapp.numero_de(tenant)
-    if not numero:
-        return False
-    try:
-        return whatsapp.enviar_plantilla(numero, turno["paciente_telefono"], config.CONFIRMACION_TEMPLATE,
-                                         config.RECORDATORIO_TEMPLATE_LANG,
-                                         [tenant["nombre"], scheduler.cuando_de(turno, tenant, tz)])
-    except Exception:
-        logger.warning("No se pudo mandar la confirmación del turno %s", turno.get("id"), exc_info=True)
-        return False
 
 
 def _turno_para_agendar(token: str):
@@ -3526,7 +3516,82 @@ def agendar(token):
         "action": "TEMPLATE", "text": f"Turno con {tenant['nombre']}",
         "dates": f"{inicio:%Y%m%dT%H%M%SZ}/{fin:%Y%m%dT%H%M%SZ}", "details": detalle})
     return _sin_indexar(app.make_response(render_template(
-        "agendar.html", turno=_con_hora_local([turno], tz)[0], tenant=tenant, google=google, virtual=virtual)))
+        "agendar.html", turno=_con_hora_local([turno], tz)[0], tenant=tenant, google=google, virtual=virtual,
+        futuro=datetime.fromisoformat(turno["inicio"]) > datetime.now(ZoneInfo("UTC")),
+        cambiado=request.args.get("cambiado") == "1")))
+
+
+def _turno_futuro_de_token(token: str):
+    """Para cancelar o cambiar desde la web: sólo turnos que todavía no
+    empezaron."""
+    turno, tenant = _turno_para_agendar(token)
+    if not turno or datetime.fromisoformat(turno["inicio"]) <= datetime.now(ZoneInfo("UTC")):
+        return None, None
+    return turno, tenant
+
+
+def _ya_no_sirve():
+    return _sin_indexar(app.make_response((render_template("agendar.html", turno=None, tenant=None), 404)))
+
+
+@app.route("/agendar/<token>/cancelar", methods=["GET", "POST"])
+def agendar_cancelar(token):
+    """El paciente cancela desde la web. GET pregunta, POST cancela (queda
+    registrada como cancelación del paciente, igual que por WhatsApp)."""
+    turno, tenant = _turno_futuro_de_token(token)
+    if not turno:
+        return _ya_no_sirve()
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    if request.method == "POST":
+        db.cancelar_turno(tenant["id"], turno["id"], "paciente")
+        db.registrar_actividad("paciente (web)", f"canceló un turno desde el link de agendar", tenant["id"])
+        return _sin_indexar(app.make_response(render_template(
+            "agendar_listo.html", tenant=tenant, accion="cancelado", turno=_con_hora_local([turno], tz)[0])))
+    return _sin_indexar(app.make_response(render_template(
+        "agendar_accion.html", tenant=tenant, accion="cancelar", turno=_con_hora_local([turno], tz)[0], token=token)))
+
+
+@app.get("/agendar/<token>/cambiar")
+def agendar_cambiar(token):
+    """El calendario del profesional para elegir otro horario."""
+    turno, tenant = _turno_futuro_de_token(token)
+    if not turno:
+        return _ya_no_sirve()
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    return _sin_indexar(app.make_response(render_template(
+        "publico.html", tenant=tenant, cambiar=token, actual=_con_hora_local([turno], tz)[0], hay_directorio=False,
+        **_semana_libre(tenant, request.args.get("semana")))))
+
+
+@app.route("/agendar/<token>/cambiar/<turno_id>", methods=["GET", "POST"])
+def agendar_cambiar_a(token, turno_id):
+    """GET muestra «de tal día a tal otro»; POST lo pasa. Usa el mismo
+    reprogramar_turno del panel, pero sólo a horarios que estén libres. El
+    turno nuevo se lleva el link de agendar y queda confirmado (lo eligió el
+    paciente) y marcado como reserva nueva, para que el profesional lo vea."""
+    turno, tenant = _turno_futuro_de_token(token)
+    if not turno:
+        return _ya_no_sirve()
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    nuevo = db.turno_por_id(tenant["id"], turno_id)
+    if not nuevo or nuevo["estado"] != "libre" or datetime.fromisoformat(nuevo["inicio"]) <= datetime.now(ZoneInfo("UTC")):
+        flash("Ese horario ya no está disponible — elegí otro.")
+        return redirect(url_for("agendar_cambiar", token=token))
+    if request.method == "GET":
+        return _sin_indexar(app.make_response(render_template(
+            "agendar_accion.html", tenant=tenant, accion="cambiar", turno=_con_hora_local([turno], tz)[0],
+            nuevo=_con_hora_local([nuevo], tz)[0], token=token)))
+    duracion = int((datetime.fromisoformat(nuevo["fin"]) - datetime.fromisoformat(nuevo["inicio"])).total_seconds() // 60) \
+        if nuevo.get("fin") else tenant.get("duracion_turno_minutos") or 50
+    error = db.reprogramar_turno(tenant["id"], turno["id"], datetime.fromisoformat(nuevo["inicio"]), duracion)
+    if error:
+        flash("Ese horario ya no está disponible — elegí otro.")
+        return redirect(url_for("agendar_cambiar", token=token))
+    db.actualizar_reserva(tenant["id"], nuevo["id"], {
+        "token_calendario": token, "confirmado_at": datetime.now(ZoneInfo("UTC")).isoformat(),
+        "confirmacion_enviada_at": turno.get("confirmacion_enviada_at"), "reserva_nueva": True, "reserva_avisada": False})
+    db.registrar_actividad("paciente (web)", "cambió el horario de un turno desde el link de agendar", tenant["id"])
+    return redirect(url_for("agendar", token=token, cambiado=1))
 
 
 @app.get("/agendar/<token>.ics")

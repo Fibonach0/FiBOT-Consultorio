@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block titulo %}{{ 'Cancelar' if accion == 'cancelar' else 'Cambiar' }} turno — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<header><span>FiBOT Consultorio · {{ tenant.nombre }}</span></header>
+<main>
+  <div class="card" style="max-width:520px;margin:30px auto">
+    {% if accion == 'cancelar' %}
+      <h2>¿Cancelás tu turno?</h2>
+      <p>Con <strong>{{ tenant.nombre }}</strong> el <strong>{{ turno._dia }} a las {{ turno._hora }}</strong>.</p>
+      <p style="color:var(--muted)">El horario queda libre para otra persona.</p>
+      <form method="post" action="{{ url_for('agendar_cancelar', token=token) }}">
+        <button class="btn" type="submit">Sí, cancelar el turno</button>
+        <a class="btn secundario" style="text-decoration:none;display:inline-block;margin-left:8px" href="{{ url_for('agendar', token=token) }}">No, volver</a>
+      </form>
+    {% else %}
+      <h2>¿Cambiás el horario?</h2>
+      <div class="turno"><span>Con</span><strong>{{ tenant.nombre }}</strong></div>
+      <div class="turno"><span>Antes</span><strong style="text-decoration:line-through;color:var(--muted)">{{ turno._dia }} — {{ turno._hora }}</strong></div>
+      <div class="turno"><span>Ahora</span><strong>{{ nuevo._dia }} — {{ nuevo._hora }}</strong></div>
+      <form method="post" action="{{ url_for('agendar_cambiar_a', token=token, turno_id=nuevo.id) }}" style="margin-top:14px">
+        <button class="btn" type="submit">Sí, pasarlo a este horario</button>
+        <a class="btn secundario" style="text-decoration:none;display:inline-block;margin-left:8px" href="{{ url_for('agendar_cambiar', token=token) }}">Elegir otro</a>
+      </form>
+    {% endif %}
+  </div>
+</main>
+{% endblock %}

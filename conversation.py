@@ -123,7 +123,9 @@ def _confirmar(tenant: dict, telefono: str) -> str | None:
     if turno.get("modalidad") == "virtual" and tenant.get("link_videollamada"):
         texto += f"\n\nEs por videollamada: {tenant['link_videollamada']}"
     if turno.get("token_calendario"):
-        texto += f"\n\nAgendalo en tu calendario: {_base_url()}/agendar/{turno['token_calendario']}"
+        texto += (f"\n\nAgendalo en tu calendario (y desde ahí podés cambiarlo o cancelarlo): "
+                  f"{_base_url()}/agendar/{turno['token_calendario']}")
+        return texto
     return texto + "\n\nSi no podés ir, escribí *cancelar*."
 
 

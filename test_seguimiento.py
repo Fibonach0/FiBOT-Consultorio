@@ -3053,6 +3053,67 @@ chequear("perfil: rechaza lo que no es PNG/JPG", t1["foto"].startswith("data:ima
 panel_c.post("/agenda/foto/borrar", data={"csrf_token": "tok"})
 chequear("perfil: quita la foto", t1["foto"] is None)
 
+# --- Segundo aviso de confirmación, cancelar y cambiar desde la web ---
+reset()
+TZ_AR = app.ZoneInfo(TZ)
+_hoy10 = datetime.now(TZ_AR).replace(hour=10, minute=0, second=0, microsecond=0)
+_en3dias = (_hoy10 + timedelta(days=3)).astimezone(timezone.utc)
+TABLAS["turnos"] = [
+    turno("w1", "t1", _en3dias, estado="reservado", paciente_telefono="5491166667777", paciente_nombre="Lola",
+          confirmacion_enviada_at=(_hoy10 - timedelta(hours=7)).isoformat(), token_calendario="tok-w1"),
+    turno("w2", "t1", _en3dias + timedelta(hours=1), estado="reservado", paciente_telefono="5491188889999",
+          confirmacion_enviada_at=(_hoy10 - timedelta(hours=2)).isoformat()),
+    turno("l1", "t1", _en3dias + timedelta(days=1)),
+]
+_plantillas = []
+_viejo_tpl = scheduler.whatsapp.enviar_plantilla
+scheduler.whatsapp.enviar_plantilla = lambda n, to, tpl, lang, params: _plantillas.append((to, tpl, params)) or True
+_viejo_conf = scheduler.config.CONFIRMACION_TEMPLATE
+scheduler.config.CONFIRMACION_TEMPLATE = "confirmar_turno"
+_viejo_pn = scheduler.config.PLATAFORMA_PHONE_NUMBER_ID
+scheduler.config.PLATAFORMA_PHONE_NUMBER_ID = "PN1"
+scheduler._recordar_confirmaciones(dict(TENANT), TZ_AR, _hoy10.astimezone(timezone.utc))
+chequear("segundo aviso: sólo a quien pasaron 6 h sin confirmar", [p[0] for p in _plantillas] == ["5491166667777"]
+         and TABLAS["turnos"][0]["confirmacion_recordada_at"] and not TABLAS["turnos"][1].get("confirmacion_recordada_at"))
+scheduler._recordar_confirmaciones(dict(TENANT), TZ_AR, (_hoy10 + timedelta(hours=1)).astimezone(timezone.utc))
+chequear("segundo aviso: una sola vez", len(_plantillas) == 1)
+TABLAS["turnos"][1]["confirmacion_enviada_at"] = (_hoy10 - timedelta(hours=12)).isoformat()
+scheduler._recordar_confirmaciones(dict(TENANT), TZ_AR, _hoy10.replace(hour=23).astimezone(timezone.utc))
+chequear("segundo aviso: de noche no", len(_plantillas) == 1)
+chequear("resumen: cuenta las reservas sin confirmar", "2 reservas web sin confirmar por WhatsApp" in scheduler._partes_del_resumen(dict(TENANT), _hoy10.date()))
+scheduler.whatsapp.enviar_plantilla, scheduler.config.CONFIRMACION_TEMPLATE = _viejo_tpl, _viejo_conf
+scheduler.config.PLATAFORMA_PHONE_NUMBER_ID = _viejo_pn
+
+web = app.app.test_client()
+_por_id = db.get_tenant_by_id
+db.get_tenant_by_id = lambda tid: dict(TENANT, slug="marcos") if tid == "t1" else None
+html = web.get("/agendar/tok-w1").data.decode()
+chequear("csrf: el panel lo sigue pidiendo", web.post("/agenda/perfil", data={}).status_code in (302, 403))
+chequear("agendar: ofrece cambiar y cancelar", "Cambiar el horario" in html and "Cancelar el turno" in html)
+html = web.get("/agendar/tok-w1/cambiar").data.decode()
+chequear("cambiar: muestra el calendario con su turno actual", "Tu turno de ahora es el" in html and "/agendar/tok-w1/cambiar/l1" in html
+         and "reservar/l1" not in html)
+html = web.get("/agendar/tok-w1/cambiar/l1").data.decode()
+chequear("cambiar: pregunta antes", "¿Cambiás el horario?" in html and TABLAS["turnos"][0]["estado"] == "reservado")
+r = web.post("/agendar/tok-w1/cambiar/l1")
+nuevo = next(t for t in TABLAS["turnos"] if t["id"] == "l1")
+viejo = next(t for t in TABLAS["turnos"] if t["id"] == "w1")
+chequear("cambiar: pasa el turno y se lleva el link", nuevo["estado"] == "reservado" and nuevo["paciente_telefono"] == "5491166667777"
+         and nuevo["token_calendario"] == "tok-w1" and nuevo["confirmado_at"] and nuevo["reserva_nueva"]
+         and viejo["estado"] == "libre" and viejo["token_calendario"] is None)
+chequear("cambiar: vuelve a agendar con aviso", "cambiado=1" in r.headers.get("Location", "")
+         and "Listo, cambiaste el horario" in web.get("/agendar/tok-w1?cambiado=1").data.decode())
+chequear("cambiar: un horario ocupado no", web.get("/agendar/tok-w1/cambiar/w2").status_code == 302)
+html = web.get("/agendar/tok-w1/cancelar").data.decode()
+chequear("cancelar: pregunta antes", "¿Cancelás tu turno?" in html and nuevo["estado"] == "reservado")
+_cancel_antes = len(TABLAS.get("cancelaciones", []))
+html = web.post("/agendar/tok-w1/cancelar").data.decode()
+chequear("cancelar: libera y lo registra como del paciente", "Listo, se canceló" in html and nuevo["estado"] == "libre"
+         and len(TABLAS.get("cancelaciones", [])) == _cancel_antes + 1 and TABLAS["cancelaciones"][-1]["origen"] == "paciente")
+chequear("cancelar: el link ya no sirve", web.get("/agendar/tok-w1").status_code == 404
+         and web.post("/agendar/tok-w1/cancelar").status_code == 404)
+db.get_tenant_by_id = _por_id
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")
