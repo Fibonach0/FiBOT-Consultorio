@@ -30,12 +30,43 @@
       {% endif %}
     </div>
     {% endfor %}
-    <p style="margin-bottom:0"><a href="{{ url_for('admin_whatsapp') }}">Revisar de nuevo</a></p>
+    <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:12px">
+      <form method="post" action="{{ url_for('admin_whatsapp_suscribir') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn chico secundario" type="submit">Suscribir la app</button>
+      </form>
+      <a href="{{ url_for('admin_whatsapp') }}">Revisar de nuevo</a>
+    </div>
+  </div>
+
+  {% if resultado %}<div class="resultado {{ 'bien' if resultado.ok else 'mal' }}">{{ resultado.texto }}</div>{% endif %}
+
+  <div class="card">
+    <h3>Ajustes</h3>
+    <p class="tenue" style="margin-top:0">Se aplican en el momento, sin deploy. Un campo vacío vuelve a lo que esté cargado en Railway.</p>
+    <form method="post" action="{{ url_for('admin_whatsapp_ajustes') }}" class="fila">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% for a in ajustes %}
+      <div><label>{% if a.clave == 'phone_number_id' %}Phone Number ID del número de la plataforma{% elif a.clave == 'waba_id' %}Identificador de la cuenta de WhatsApp{% elif a.clave == 'solo_a' %}Freno de envíos: sólo a estos teléfonos (separados por coma){% else %}Tu teléfono para avisos (plantillas aprobadas o rechazadas){% endif %}
+        {% if a.origen %}<span class="tenue">· hoy viene de {{ a.origen }}</span>{% endif %}</label>
+        <input type="text" name="{{ a.clave }}" value="{{ a.valor if a.origen == 'administración' else '' }}" placeholder="{{ a.valor or '' }}" autocomplete="off" inputmode="numeric"></div>
+      {% endfor %}
+      <div class="al-pie"><button class="btn" type="submit">Guardar</button></div>
+    </form>
+    <div class="tenue" style="margin-top:6px">El gris es lo que se está usando hoy desde Railway. Para cambiar de número: Phone Number ID y cuenta nuevos, Guardar, y revisá los pasos de arriba.</div>
+  </div>
+
+  <div class="card">
+    <h3>Avisos de Meta sobre plantillas</h3>
+    {% for a in avisos %}
+    <div class="ficha-item"><span><strong>{{ a.nombre }}</strong> <span class="tenue">{{ a.idioma }}</span> · {{ a.estado }}{% if a.motivo %} <span class="tenue">({{ a.motivo }})</span>{% endif %}</span><span class="tenue">{{ a._cuando }}</span></div>
+    {% else %}
+    <p class="tenue" style="margin:0">Todavía no llegó ninguno. Llegan cuando Meta aprueba, rechaza o recategoriza una plantilla, con la app suscripta a la cuenta.</p>
+    {% endfor %}
   </div>
 
   <div class="card">
     <h3>Mandarme un WhatsApp de prueba</h3>
-    {% if resultado %}<div class="resultado {{ 'bien' if resultado.ok else 'mal' }}">{{ resultado.texto }}</div>{% endif %}
     <form method="post" action="{{ url_for('admin_whatsapp_prueba') }}" class="fila">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div><label>Tu teléfono, con código de país</label><input type="tel" name="telefono" placeholder="5491122223333" required></div>

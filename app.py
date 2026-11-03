@@ -98,6 +98,10 @@ def webhook_receive():
     for entry in body.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {})
+            aviso = whatsapp.aviso_de_plantilla(change.get("field") or "", value)
+            if aviso:
+                _aviso_de_plantilla(aviso)
+                continue
             phone_number_id = value.get("metadata", {}).get("phone_number_id")
             if not phone_number_id:
                 continue
@@ -133,6 +137,21 @@ def webhook_receive():
                 whatsapp.enviar_texto(whatsapp.numero_de(tenant), telefono, respuesta)
 
     return jsonify(ok=True), 200
+
+
+def _aviso_de_plantilla(aviso: dict) -> None:
+    """Meta avisó que una plantilla cambió: se guarda y se avisa a
+    administración por WhatsApp. Si algo falla, el webhook contesta 200 igual
+    (si no, Meta reintenta el mismo aviso durante horas)."""
+    try:
+        db.guardar_aviso_plantilla(aviso)
+        db.registrar_actividad("Meta", f"plantilla {aviso['nombre']}: {aviso['estado']}"
+                                       + (f" ({aviso['motivo']})" if aviso.get("motivo") else ""))
+        whatsapp.avisar_admin(f"Meta dice que la plantilla {aviso['nombre']} está {aviso['estado']}"
+                              if not aviso["estado"].startswith("pasó") else
+                              f"Meta cambió la categoría de la plantilla {aviso['nombre']}: {aviso['estado']}")
+    except Exception:
+        logger.warning("No se pudo procesar el aviso de la plantilla %s", aviso.get("nombre"), exc_info=True)
 
 
 def _marcar(clave: str, detalle: str | None) -> None:
@@ -791,8 +810,55 @@ def admin_whatsapp():
     plantillas = [("hello_world", "hello_world (en_US, la trae toda cuenta nueva)")]
     if config.RECORDATORIO_TEMPLATE:
         plantillas.append((config.RECORDATORIO_TEMPLATE, f"{config.RECORDATORIO_TEMPLATE} (el recordatorio, con datos de ejemplo)"))
-    return render_template("admin_whatsapp.html", pasos=pasos, plantillas=plantillas,
+    try:
+        avisos = db.avisos_plantillas()
+    except Exception:
+        avisos = []
+    for a in avisos:
+        a["_cuando"] = datetime.fromisoformat(a["cuando"]).astimezone(tz).strftime("%d/%m %H:%M")
+    ajustes = [{"clave": c, "nombre": n, "valor": {"phone_number_id": config.PLATAFORMA_PHONE_NUMBER_ID,
+                                                   "waba_id": config.META_WABA_ID,
+                                                   "solo_a": ", ".join(config.WHATSAPP_SOLO_A),
+                                                   "aviso_admin": whatsapp.aviso_admin}[c],
+                "origen": whatsapp.origen(c)} for c, n in whatsapp.AJUSTES.items()]
+    return render_template("admin_whatsapp.html", pasos=pasos, plantillas=plantillas, avisos=avisos, ajustes=ajustes,
                            resultado=session.pop("prueba_whatsapp", None))
+
+
+@app.post("/admin/whatsapp/suscribir")
+@admin_requerido
+def admin_whatsapp_suscribir():
+    ok, texto = whatsapp.suscribir_app()
+    db.registrar_actividad(_actor_admin(), "suscribió la app a la cuenta de WhatsApp" if ok
+                           else "intentó suscribir la app a la cuenta de WhatsApp (Meta lo rechazó)")
+    session["prueba_whatsapp"] = {"ok": ok, "texto": texto if ok else f"Meta no la suscribió: {texto}"}
+    return redirect(url_for("admin_whatsapp"))
+
+
+@app.post("/admin/whatsapp/ajustes")
+@admin_requerido
+def admin_whatsapp_ajustes():
+    """Número, cuenta, freno y teléfono de avisos. Vacío = vuelve a lo de
+    Railway. Se aplican en el momento, sin deploy."""
+    f = request.form
+    solo_digitos = lambda v: "".join(ch for ch in v or "" if ch.isdigit())
+    valores = {
+        "phone_number_id": solo_digitos(f.get("phone_number_id")),
+        "waba_id": solo_digitos(f.get("waba_id")),
+        "solo_a": ",".join(n for n in (solo_digitos(x) for x in (f.get("solo_a") or "").split(",")) if n),
+        "aviso_admin": solo_digitos(f.get("aviso_admin")),
+    }
+    malos = [n for n in valores["solo_a"].split(",") if n and len(n) < 10]
+    if malos or (valores["aviso_admin"] and len(valores["aviso_admin"]) < 10):
+        session["prueba_whatsapp"] = {"ok": False, "texto": "Los teléfonos van completos, con código de país (ej. 5491122223333)."}
+        return redirect(url_for("admin_whatsapp"))
+    antes = {c: whatsapp.origen(c) for c in whatsapp.AJUSTES}
+    db.guardar_ajustes_plataforma(valores)
+    whatsapp.aplicar_ajustes(valores)
+    cambios = [whatsapp.AJUSTES[c] for c in valores if valores[c] or antes[c] == "administración"]
+    db.registrar_actividad(_actor_admin(), "cambió los ajustes de WhatsApp" + (f" ({', '.join(cambios)})" if cambios else ""))
+    session["prueba_whatsapp"] = {"ok": True, "texto": "Ajustes guardados: ya están en uso, sin deploy."}
+    return redirect(url_for("admin_whatsapp"))
 
 
 @app.post("/admin/whatsapp/prueba")
@@ -805,7 +871,7 @@ def admin_whatsapp_prueba():
     if len(telefono) < 10:
         resultado = {"ok": False, "texto": "Escribí el teléfono completo, con código de país (ej. 5491122223333)."}
     elif not config.PLATAFORMA_PHONE_NUMBER_ID:
-        resultado = {"ok": False, "texto": "Falta PLATAFORMA_PHONE_NUMBER_ID en Railway."}
+        resultado = {"ok": False, "texto": "Falta el número de la plataforma: cargalo en Ajustes."}
     else:
         if plantilla == "hello_world":
             lang, params = "en_US", []
@@ -814,7 +880,7 @@ def admin_whatsapp_prueba():
         ok, detalle = whatsapp.enviar_plantilla_detalle(config.PLATAFORMA_PHONE_NUMBER_ID, telefono, plantilla, lang, params)
         final = "…" + telefono[-4:]
         if detalle == "frenado":
-            resultado = {"ok": False, "texto": f"No salió: el teléfono terminado en {final} no está en WHATSAPP_SOLO_A. Agregalo en Railway para probar."}
+            resultado = {"ok": False, "texto": f"No salió: el teléfono terminado en {final} no está en el freno de envíos. Agregalo en Ajustes para probar."}
         elif ok:
             resultado = {"ok": True, "texto": f"Meta aceptó «{plantilla}» para el teléfono terminado en {final}. Tiene que llegar en unos segundos."}
         else:

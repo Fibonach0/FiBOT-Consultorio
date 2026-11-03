@@ -202,8 +202,8 @@ def diagnostico(ultimo_webhook: str | None = None, ultimo_mensaje: str | None = 
 
     numero_id = config.PLATAFORMA_PHONE_NUMBER_ID
     if not numero_id:
-        pasos.append(paso("Número de la plataforma", False, "Falta PLATAFORMA_PHONE_NUMBER_ID.",
-                          "Meta for Developers → WhatsApp → Configuración de la API → «Phone Number ID»."))
+        pasos.append(paso("Número de la plataforma", False, "Falta el Phone Number ID.",
+                          "Cargalo abajo, en Ajustes. Está en Meta for Developers → WhatsApp → Configuración de la API."))
     elif real:
         ok, d = consultar(numero_id, {"fields": "display_phone_number,verified_name,quality_rating,code_verification_status"})
         if ok:
@@ -217,8 +217,8 @@ def diagnostico(ultimo_webhook: str | None = None, ultimo_mensaje: str | None = 
 
     waba = config.META_WABA_ID
     if not waba:
-        pasos.append(paso("Cuenta de WhatsApp", None, "Sin META_WABA_ID: no se pueden revisar la suscripción ni las plantillas.",
-                          "Meta for Developers → WhatsApp → Configuración de la API → «Identificador de la cuenta»."))
+        pasos.append(paso("Cuenta de WhatsApp", None, "Sin el identificador de la cuenta: no se pueden revisar la suscripción ni las plantillas.",
+                          "Cargalo abajo, en Ajustes. Está en Meta for Developers → WhatsApp → Configuración de la API."))
     elif real:
         ok, d = consultar(f"{waba}/subscribed_apps")
         if ok:
@@ -237,7 +237,7 @@ def diagnostico(ultimo_webhook: str | None = None, ultimo_mensaje: str | None = 
                 suscripta = None if apps else False
                 detalle = f"Suscriptas: {', '.join(apps)}. Fijate que esté la de FiBOT." if apps else "Ninguna app suscripta: los mensajes que escriben los pacientes no llegan."
             pasos.append(paso("App suscripta a la cuenta", suscripta, detalle,
-                              "" if suscripta else f"railway run sh -c 'curl -s -X POST \"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{waba}/subscribed_apps\" -H \"Authorization: Bearer $META_ACCESS_TOKEN\"'"))
+                              "" if suscripta else "Tocá «Suscribir la app» acá abajo."))
         else:
             pasos.append(paso("App suscripta a la cuenta", False, f"No se pudo revisar: {d}",
                               "Generá de nuevo el token del usuario del sistema DESPUÉS de asignarle la cuenta."))
@@ -279,11 +279,106 @@ def diagnostico(ultimo_webhook: str | None = None, ultimo_mensaje: str | None = 
     if config.WHATSAPP_SOLO_A:
         finales = ", ".join("…" + _ultimos10(n)[-4:] for n in config.WHATSAPP_SOLO_A)
         pasos.append(paso("Freno de envíos", None, f"Activo: sólo salen mensajes a los teléfonos terminados en {finales}.",
-                          "Para el uso real con pacientes, vaciá WHATSAPP_SOLO_A en Railway."))
+                          "Para el uso real con pacientes, vacialo abajo y en Railway."))
     else:
         pasos.append(paso("Freno de envíos", None, "Apagado: los mensajes salen a todos los pacientes.",
-                          "Para probar sin riesgo con datos de demo, cargá WHATSAPP_SOLO_A en Railway."))
+                          "Para probar sin riesgo con datos de demo, cargalo abajo, en Ajustes."))
     return pasos
+
+
+# --- Ajustes cargados desde administración (pisan a los de Railway) ---
+
+# Lo que vino de Railway al arrancar: si en administración se vacía un ajuste,
+# se vuelve a esto.
+_DE_RAILWAY = {
+    "phone_number_id": config.PLATAFORMA_PHONE_NUMBER_ID,
+    "waba_id": config.META_WABA_ID,
+    "solo_a": ",".join(config.WHATSAPP_SOLO_A),
+    "aviso_admin": "",
+}
+AJUSTES = {"phone_number_id": "PLATAFORMA_PHONE_NUMBER_ID", "waba_id": "META_WABA_ID",
+           "solo_a": "WHATSAPP_SOLO_A", "aviso_admin": "teléfono para avisos de administración"}
+_origen: dict[str, str] = {}
+aviso_admin = ""
+
+
+def aplicar_ajustes(guardados: dict[str, str]) -> None:
+    """Pone en `config` lo guardado en administración, o lo de Railway si el
+    ajuste está vacío. Hay un solo worker (ver CLAUDE.md), así que cambiar
+    `config` en memoria alcanza para todo el proceso."""
+    global aviso_admin
+    valores = {}
+    for clave in AJUSTES:
+        propio = (guardados.get(clave) or "").strip()
+        valores[clave] = propio or _DE_RAILWAY[clave]
+        _origen[clave] = "administración" if propio else ("Railway" if _DE_RAILWAY[clave] else "")
+    config.PLATAFORMA_PHONE_NUMBER_ID = valores["phone_number_id"]
+    config.META_WABA_ID = valores["waba_id"]
+    config.WHATSAPP_SOLO_A = [n.strip() for n in valores["solo_a"].split(",") if n.strip()]
+    aviso_admin = valores["aviso_admin"]
+
+
+def origen(clave: str) -> str:
+    return _origen.get(clave) or ("Railway" if _DE_RAILWAY.get(clave) else "")
+
+
+def cargar_ajustes() -> None:
+    """Al arrancar. Si la base no responde, quedan los de Railway."""
+    import db
+    try:
+        aplicar_ajustes(db.ajustes_plataforma())
+    except Exception as e:
+        logger.warning("No se pudieron leer los ajustes de WhatsApp (quedan los de Railway): %s", e)
+
+
+def suscribir_app() -> tuple[bool, str]:
+    """Suscribe la app del token a la cuenta de WhatsApp: sin esto Meta no
+    manda al webhook los mensajes que escriben los pacientes."""
+    if not config.META_WABA_ID:
+        return False, "Falta el identificador de la cuenta de WhatsApp."
+    url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{config.META_WABA_ID}/subscribed_apps"
+    try:
+        r = requests.post(url, headers={"Authorization": f"Bearer {config.META_ACCESS_TOKEN}"}, timeout=15)
+    except requests.RequestException:
+        return False, "No se pudo conectar con Meta."
+    if r.status_code >= 300:
+        return False, _error_de_meta(r)
+    return True, "Listo: Meta confirmó la suscripción."
+
+
+ESTADOS_PLANTILLA = {"APPROVED": "aprobada", "REJECTED": "rechazada", "PENDING": "en revisión",
+                     "PAUSED": "pausada", "DISABLED": "deshabilitada", "FLAGGED": "marcada por baja calidad",
+                     "IN_APPEAL": "en apelación", "PENDING_DELETION": "por borrarse", "REINSTATED": "rehabilitada"}
+
+
+def aviso_de_plantilla(campo: str, valor: dict) -> dict | None:
+    """Lo que importa de un aviso de Meta sobre una plantilla, o None si no es
+    uno. `campo` es el `field` del webhook."""
+    nombre = valor.get("message_template_name")
+    if not nombre:
+        return None
+    if campo == "message_template_status_update":
+        estado = ESTADOS_PLANTILLA.get(valor.get("event"), (valor.get("event") or "").lower())
+        motivo = valor.get("reason")
+        motivo = None if not motivo or motivo == "NONE" else motivo.replace("_", " ").lower()
+        return {"nombre": nombre, "idioma": valor.get("message_template_language") or "",
+                "estado": estado, "motivo": motivo}
+    if campo == "template_category_update":
+        nueva = (valor.get("new_category") or "").lower()
+        return {"nombre": nombre, "idioma": valor.get("message_template_language") or "",
+                "estado": f"pasó a {nueva}" if nueva else "cambió de categoría",
+                "motivo": f"antes era {(valor.get('previous_category') or '').lower()}" if valor.get("previous_category") else None}
+    return None
+
+
+def avisar_admin(texto: str) -> bool:
+    """WhatsApp al teléfono de avisos de administración, si está cargado."""
+    if not aviso_admin or not config.PLATAFORMA_PHONE_NUMBER_ID:
+        return False
+    if config.AVISO_TEMPLATE:
+        return enviar_plantilla(config.PLATAFORMA_PHONE_NUMBER_ID, aviso_admin, config.AVISO_TEMPLATE,
+                                config.RECORDATORIO_TEMPLATE_LANG, [texto])
+    return enviar_texto(config.PLATAFORMA_PHONE_NUMBER_ID, aviso_admin, f"FiBOT Consultorio: {texto}.")
 
 
 def firma_valida(payload_bytes: bytes, firma_header: str | None) -> bool:

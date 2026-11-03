@@ -58,6 +58,17 @@ necesitan `META_WABA_ID`). Es la lista a seguir al cambiar de número. La prueba
 de envío manda `hello_world` o el recordatorio con datos de ejemplo, respeta el
 freno y queda en la actividad. Nunca se muestra el token.
 
+**Ajustes de WhatsApp desde administración (`migrations/045`)**: número de la
+plataforma, cuenta (WABA), freno y teléfono de avisos se guardan en
+`ajustes_plataforma` y **pisan** a los de Railway (`whatsapp.aplicar_ajustes`
+cambia `config` en memoria: anda porque hay un solo worker). Vacío = vuelve a
+Railway. Se cargan al arrancar desde `scheduler.iniciar()` (los tests la apagan).
+«Suscribir la app» hace el POST a `/{WABA}/subscribed_apps` con el token del
+servidor. Los avisos de Meta sobre plantillas (`message_template_status_update`,
+`template_category_update`) se guardan en `plantillas_meta`, van a la actividad
+como «Meta» y le llegan por WhatsApp al teléfono de avisos (con `AVISO_TEMPLATE`).
+Hay que tener esos campos suscriptos en el webhook de la app en Meta.
+
 **Celulares argentinos y el 131030**: se manda con el 9 (549…), que es lo
 normal. Si Meta contesta 131030 («no está en la lista de autorizados»),
 `whatsapp._mandar` reintenta una vez con `con_15` (54 + característica + 15 +
