@@ -35,7 +35,7 @@
     <ol>
       <li>En «Generar horarios disponibles», cargá los días y horas en que atendés.</li>
       <li>En «Ajustes» cargá tu matrícula, tu link de videollamada y tu WhatsApp para avisos, y cambiá la clave que te dieron por una tuya («Cambiar la clave»).</li>
-      {% if tenant.slug %}<li>Pasale a tus pacientes tu página de reservas: <code>{{ url_for('publico', slug=tenant.slug, _external=True) }}</code></li>{% endif %}
+      {% if tenant.slug %}<li>Pasale a tus pacientes tu página de turnos: <code>{{ url_for('publico', slug=tenant.slug, _external=True) }}</code>. Es un calendario con tus horarios libres: eligen día y hora, revisan los datos y reservan solos, sin escribirte. En el panel, «Tu página de turnos» la copia, la manda por WhatsApp o te da un QR para imprimir. También apareces en <code>{{ url_for('turnos_directorio', _external=True) }}</code>, la lista de profesionales.</li>{% endif %}
     </ol>
   </div>
 

@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block titulo %}Sacar turno — FiBOT Consultorio{% endblock %}
+{% block cuerpo %}
+<style>
+  .profesionales { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; }
+  .profesional { display:flex; flex-direction:column; gap:6px; text-decoration:none; color:inherit; }
+  .profesional:hover { border-color:var(--green); }
+  .profesional .rubro { color:var(--muted); font-size:.9rem; text-transform:capitalize; }
+</style>
+<header>
+  <span>FiBOT Consultorio · Turnos</span>
+</header>
+<main>
+  <div class="card">
+    <h1 style="margin-bottom:4px">Sacá tu turno</h1>
+    <p style="color:var(--muted);margin-top:0">Elegí con quién y después el día y la hora. No hace falta escribir por WhatsApp.</p>
+  </div>
+  {% if profesionales %}
+  <div class="profesionales">
+    {% for t in profesionales %}
+    <a class="card profesional" href="{{ url_for('publico', slug=t.slug) }}">
+      <strong style="font-size:1.1rem">{{ t.nombre }}</strong>
+      {% if t.rubro %}<span class="rubro">{{ t.rubro }}</span>{% endif %}
+      <span class="btn" style="align-self:flex-start;margin-top:6px">Ver calendario</span>
+    </a>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="card"><p style="color:var(--muted)">Todavía no hay profesionales con turnos online.</p></div>
+  {% endif %}
+</main>
+{% endblock %}

@@ -171,6 +171,13 @@ pública no es un camino paralelo, es la misma operación atómica (filtra por
 `slug` cargado simplemente no tiene página pública; sigue andando por
 WhatsApp y panel como siempre.
 
+`/turnos` es la puerta de entrada para pacientes: lista los profesionales
+activos con `slug` y cada uno lleva a su calendario. `/<slug>` muestra una
+semana (lunes a domingo, en la zona del profesional, `?semana=AAAA-MM-DD`) con
+los horarios libres; sin semana elegida abre la del próximo horario libre. En el
+panel, «Tu página de turnos» copia el link, lo comparte por WhatsApp y da un QR
+(`/agenda/mi-pagina-qr.svg`). `turnos` está en `SLUGS_RESERVADOS`.
+
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin
 tomar el horario; el segundo reserva. Todas las pantallas dicen con quién es el
