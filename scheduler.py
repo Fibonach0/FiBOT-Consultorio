@@ -57,6 +57,13 @@ def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
     renovar = sum(sesiones_que_quedan(s, ahora) is not None for clave, s in por_paciente.items() if not cerrado(clave))
     if renovar:
         partes.append(f"{renovar} paciente{'s' if renovar > 1 else ''} por renovar")
+    # Entregas abiertas desde el resumen anterior (sale una vez por día).
+    hace_un_dia = datetime.now(timezone.utc).timestamp() - 24 * 3600
+    abiertas = sum(1 for e in db.entregas(tenant["id"])
+                   if e.get("abierta_at") and datetime.fromisoformat(e["abierta_at"]).timestamp() > hace_un_dia)
+    if abiertas:
+        partes.append(f"{abiertas} ficha{'s' if abiertas > 1 else ''} entregada{'s' if abiertas > 1 else ''} "
+                      f"se abri{'eron' if abiertas > 1 else 'ó'} en las últimas 24 horas")
     if rubros.de(tenant)["tests"]:
         por_ficha: dict[str, list[dict]] = {}
         for x in db.tests_tomados(tenant["id"]):

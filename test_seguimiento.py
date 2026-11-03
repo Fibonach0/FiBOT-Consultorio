@@ -215,6 +215,7 @@ def reset():
     TABLAS["plantillas_informe"] = []
     TABLAS["biblioteca_cuestionarios"] = []
     TABLAS["entregas"] = []
+    TABLAS["admins"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -2028,6 +2029,96 @@ client.post("/agenda/biblioteca/b1/moderar/mostrar", data={})
 chequear("mostrar lo devuelve", not TABLAS["biblioteca_cuestionarios"][0]["oculto"] and TABLAS["biblioteca_cuestionarios"][0]["oculto_por"] is None)
 chequear("acción inventada", client.post("/agenda/biblioteca/b1/moderar/borrar", data={}).status_code == 403)
 TABLAS["tenants"][0]["moderador"] = False
+
+# --- Administración, aviso de entregas y DNI ---
+import bcrypt as _bcrypt  # noqa: E402
+
+reset()
+TABLAS["admins"].append({"id": "a1", "usuario": "igna", "pass_hash": _bcrypt.hashpw(b"clave-larga-de-prueba", _bcrypt.gensalt(4)).decode()})
+TABLAS["tenants"][1]["panel_user"] = "otra"
+TABLAS["turnos"].append(turno("ad1", "t1", ahora - timedelta(days=2), estado="reservado", paciente_nombre="Paciente Secreto", paciente_telefono="5491100000001"))
+chequear("el panel de admin pide login", client.get("/admin").status_code == 302 and "/admin/login" in client.get("/admin").headers["Location"])
+with client.session_transaction() as ses:
+    ses.clear()
+r = _post_sin_token("/admin/login", data={"usuario": "igna", "clave": "mala"})
+chequear("clave mala no entra", r.status_code == 401)
+r = _post_sin_token("/admin/login", data={"usuario": "igna", "clave": "clave-larga-de-prueba"})
+chequear("entra y marca el ingreso", r.status_code == 302 and TABLAS["admins"][0].get("ultimo_ingreso"))
+with client.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+    chequear("la sesión de admin no es de un profesional", "tenant_id" not in ses)
+html = client.get("/admin").data.decode()
+chequear("lista profesionales con su uso", "Lic. Marcos" in html and "Dra. Otra" in html and "Alta de profesional" in html)
+chequear("no muestra pacientes", "Paciente Secreto" not in html and "5491100000001" not in html)
+chequear("el admin no entra al panel de un profesional", client.get("/agenda").status_code == 302)
+html = client.post("/admin/profesionales", data={"nombre": "Lic. Nueva", "rubro": "psicopedagogía", "slug": "nueva", "panel_user": "nueva",
+                                                 "clave": "una-clave-larga"}, follow_redirects=True).data.decode()
+nueva = next((t for t in TABLAS["tenants"] if t.get("panel_user") == "nueva"), None)
+chequear("da de alta", "Se creó la cuenta de Lic. Nueva" in html and nueva and nueva["rubro"] == "psicopedagogía"
+         and _bcrypt.checkpw(b"una-clave-larga", nueva["panel_pass_hash"].encode()) and "una-clave-larga" not in str(nueva))
+for datos, motivo in [({"slug": "admin"}, "ruta del sistema"), ({"slug": "Con Espacios"}, "ruta del sistema"),
+                      ({"panel_user": "nueva", "slug": "otra-cosa"}, "Ya existe"), ({"clave": "corta"}, "al menos 10"),
+                      ({"rubro": "astrología"}, "obligatorios")]:
+    base = {"nombre": "X", "rubro": "psicología", "slug": "", "panel_user": "x" + str(len(TABLAS["tenants"])), "clave": "otra-clave-larga"}
+    html = client.post("/admin/profesionales", data={**base, **datos}, follow_redirects=True).data.decode()
+    chequear(f"alta rechazada: {motivo}", motivo in html)
+r = _post_sin_token("/admin/profesionales", data={"nombre": "Y", "rubro": "psicología", "panel_user": "y", "clave": "otra-clave-larga"})
+chequear("el admin también pide el token", r.status_code == 403)
+client.post("/admin/profesionales/t2/desactivar", data={})
+chequear("desactiva", TABLAS["tenants"][1]["activo"] is False)
+TABLAS["biblioteca_cuestionarios"].append({"id": "bx", "autor_tenant_id": "t1", "autor": "Lic. Marcos", "contenido": {"nombre": "Algo", "items": ["a"]},
+                                           "con_preguntas": False, "oculto": False, "created_at": "1"})
+client.post("/admin/biblioteca/bx/ocultar", data={})
+chequear("el admin modera", TABLAS["biblioteca_cuestionarios"][0]["oculto"] and TABLAS["biblioteca_cuestionarios"][0]["oculto_por"] == "administración (igna)")
+r = client.get("/logout")
+chequear("salir vuelve al login de admin", "/admin/login" in r.headers["Location"])
+# la cuenta desactivada pierde la sesión
+with client.session_transaction() as ses:
+    ses["tenant_id"] = "t2"
+    ses["csrf_token"] = "tok"
+chequear("cuenta desactivada no entra aunque tenga sesión", client.get("/agenda").status_code == 302)
+with client.session_transaction() as ses:
+    ses["tenant_id"] = "t1"
+    ses["csrf_token"] = "tok"
+TABLAS["tenants"][1]["activo"] = True
+
+# aviso de entregas abiertas en el resumen
+TABLAS["entregas"] = [
+    {"id": "e1", "tenant_id": "t1", "paciente_telefono": "1", "ficha": "", "token": "x1", "vence": "2099-01-01T00:00:00+00:00",
+     "abierta_at": (datetime.now(timezone.utc) - timedelta(hours=3)).isoformat(), "created_at": "1", "html": ""},
+    {"id": "e2", "tenant_id": "t1", "paciente_telefono": "2", "ficha": "", "token": "x2", "vence": "2099-01-01T00:00:00+00:00",
+     "abierta_at": (datetime.now(timezone.utc) - timedelta(days=3)).isoformat(), "created_at": "2", "html": ""},
+    {"id": "e3", "tenant_id": "t2", "paciente_telefono": "3", "ficha": "", "token": "x3", "vence": "2099-01-01T00:00:00+00:00",
+     "abierta_at": datetime.now(timezone.utc).isoformat(), "created_at": "3", "html": ""}]
+partes = ", ".join(scheduler._partes_del_resumen(TABLAS["tenants"][0], datetime.now(zona).date()))
+chequear("el resumen avisa la entrega abierta, sin nombres", "1 ficha entregada se abrió en las últimas 24 horas" in partes)
+
+# DNI como segunda llave
+reset()
+TELD = "5491119998887"
+TABLAS["turnos"].append(turno("d1", "t1", manana, estado="reservado", paciente_nombre="Dani Vera", paciente_telefono=TELD))
+html = client.post("/agenda/paciente/ficha-completa/link", data={"telefono": TELD, "dni": "30.123.456"}, follow_redirects=True).data.decode()
+e = TABLAS["entregas"][0]
+chequear("guarda sólo el hash del DNI", "van a pedir el DNI" in html and e["dni_hash"] and "30123456" not in str(e))
+chequear("la ficha dice que pide DNI", "pide DNI" in html)
+chequear("el aviso pide el DNI", 'name="dni"' in client.get(f"/entrega/{e['token']}").data.decode())
+r = _post_sin_token(f"/entrega/{e['token']}", data={"dni": "11111111"}).data.decode()
+chequear("DNI equivocado no abre", "no coincide" in r and "Te quedan 4" in r and "Dani Vera" not in r and not TABLAS["entregas"][0].get("abierta_at"))
+r = _post_sin_token(f"/entrega/{e['token']}", data={"dni": "30123456"}).data.decode()
+chequear("con el DNI correcto abre", "Ficha de Dani Vera" in r and TABLAS["entregas"][0].get("abierta_at"))
+client.post("/agenda/paciente/ficha-completa/link", data={"telefono": TELD, "dni": "301"})
+chequear("DNI muy corto no crea link", len(TABLAS["entregas"]) == 1)
+client.post("/agenda/paciente/ficha-completa/link", data={"telefono": TELD, "dni": "22333444"})
+e2 = TABLAS["entregas"][1]
+chequear("el mismo DNI da otro hash en otra entrega", e2["dni_hash"] != app._hash_dni(e["token"], "22333444"))
+for _ in range(5):
+    r = _post_sin_token(f"/entrega/{e2['token']}", data={"dni": "1"}).data.decode()
+chequear("a los 5 intentos se bloquea", "se bloqueó" in r and TABLAS["entregas"][1]["intentos"] == 5)
+r = _post_sin_token(f"/entrega/{e2['token']}", data={"dni": "22333444"}).data.decode()
+chequear("bloqueado no abre ni con el DNI correcto", "se bloqueó" in r and "Ficha de Dani" not in r)
+chequear("la ficha lo muestra bloqueado", "bloqueado por DNI equivocado" in client.get("/agenda").data.decode())
+client.post("/agenda/paciente/ficha-completa/link", data={"telefono": TELD})
+chequear("sin DNI abre directo", "Ficha de Dani Vera" in _post_sin_token(f"/entrega/{TABLAS['entregas'][2]['token']}", data={}).data.decode())
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

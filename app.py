@@ -9,6 +9,7 @@ scripts/crear_tenant.py, nunca hardcodeado acá."""
 import base64
 import copy
 import functools
+import hashlib
 import hmac
 import io
 import json
@@ -140,7 +141,7 @@ def verificar_csrf():
     """Toda acción del panel tiene que traer el token de la sesión, para que
     otra página no pueda disparar un POST con la cookie del profesional. El
     webhook tiene su firma y la reserva pública no usa sesión."""
-    if request.method != "POST" or not request.path.startswith("/agenda"):
+    if request.method != "POST" or not request.path.startswith(("/agenda", "/admin")) or request.path == "/admin/login":
         return None
     esperado = session.get("csrf_token")
     recibido = request.form.get("csrf_token") or ""
@@ -153,6 +154,11 @@ def login_required(vista):
     @functools.wraps(vista)
     def envoltorio(*args, **kwargs):
         if not session.get("tenant_id"):
+            return redirect(url_for("login"))
+        # Una cuenta desactivada desde /admin pierde también la sesión abierta.
+        tenant = db.get_tenant_by_id(session["tenant_id"])
+        if not tenant or tenant.get("activo") is False:
+            session.clear()
             return redirect(url_for("login"))
         return vista(*args, **kwargs)
 
@@ -173,13 +179,110 @@ def login_post():
         return render_template("login.html", error="Usuario o clave incorrectos."), 401
     session.clear()
     session["tenant_id"] = tenant["id"]
+    db.marcar_ingreso("tenants", tenant["id"], datetime.now(ZoneInfo("UTC")).isoformat())
     return redirect(url_for("agenda"))
+
+
+def admin_requerido(vista):
+    @functools.wraps(vista)
+    def envoltorio(*args, **kwargs):
+        if not session.get("admin_id") or not db.admin_por_id(session["admin_id"]):
+            return redirect(url_for("admin_login"))
+        return vista(*args, **kwargs)
+
+    return envoltorio
+
+
+@app.get("/admin/login")
+def admin_login():
+    return render_template("admin_login.html", error=None)
+
+
+@app.post("/admin/login")
+def admin_login_post():
+    admin = db.admin_por_usuario((request.form.get("usuario") or "").strip())
+    if not admin or not bcrypt.checkpw((request.form.get("clave") or "").encode(), admin["pass_hash"].encode()):
+        return render_template("admin_login.html", error="Usuario o clave incorrectos."), 401
+    session.clear()
+    session["admin_id"] = admin["id"]
+    db.marcar_ingreso("admins", admin["id"], datetime.now(ZoneInfo("UTC")).isoformat())
+    return redirect(url_for("admin_panel"))
+
+
+SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario"}
+RUBROS_ALTA = ["psicología", "psicopedagogía"]
+
+
+@app.get("/admin")
+@admin_requerido
+def admin_panel():
+    """Cuentas, uso y biblioteca. Nunca datos de pacientes: sólo cuentas."""
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+    ahora = datetime.now(ZoneInfo("UTC"))
+    uso = db.uso_de_tenants((ahora - timedelta(days=30)).isoformat())
+    tenants = db.todos_los_tenants()
+    for t in tenants:
+        t["uso"] = uso.get(t["id"], {"sesiones": 0, "pacientes": 0, "cuestionarios": 0, "entregas": 0})
+        t["_ingreso"] = datetime.fromisoformat(t["ultimo_ingreso"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if t.get("ultimo_ingreso") else "nunca"
+    biblioteca = [dict(e, titulo=e["contenido"]["nombre"] + (f" · {e['contenido']['version']}" if e["contenido"].get("version") else ""))
+                  for e in db.biblioteca()]
+    return render_template("admin.html", admin=db.admin_por_id(session["admin_id"]), tenants=tenants,
+                           biblioteca=biblioteca, rubros=RUBROS_ALTA)
+
+
+@app.post("/admin/profesionales")
+@admin_requerido
+def admin_alta():
+    f = request.form
+    nombre, panel_user, clave = (f.get("nombre") or "").strip(), (f.get("panel_user") or "").strip(), f.get("clave") or ""
+    slug = (f.get("slug") or "").strip().lower() or None
+    rubro = f.get("rubro") if f.get("rubro") in RUBROS_ALTA else None
+    error = None
+    if not (nombre and panel_user and rubro):
+        error = "Nombre, rubro y usuario son obligatorios."
+    elif len(clave) < 10:
+        error = "La clave inicial tiene que tener al menos 10 caracteres."
+    elif slug and (not re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug) or slug in SLUGS_RESERVADOS):
+        error = "Página pública inválida: minúsculas, números y guiones, y no puede ser una ruta del sistema."
+    elif db.tenant_por_slug_o_usuario(slug, panel_user):
+        error = "Ya existe una cuenta con ese usuario o esa página pública."
+    if error:
+        flash(error)
+        return redirect(url_for("admin_panel"))
+    db.crear_tenant({"nombre": nombre, "rubro": rubro, "slug": slug, "panel_user": panel_user,
+                     "panel_pass_hash": bcrypt.hashpw(clave.encode(), bcrypt.gensalt()).decode(),
+                     "timezone": "America/Argentina/Buenos_Aires", "duracion_turno_minutos": 50,
+                     "recordatorio_horas_antes": 24})
+    flash(f"Se creó la cuenta de {nombre}. Pasale el usuario y la clave por un canal seguro.")
+    return redirect(url_for("admin_panel"))
+
+
+@app.post("/admin/profesionales/<tenant_id>/<accion>")
+@admin_requerido
+def admin_activar(tenant_id, accion):
+    if accion not in ("activar", "desactivar"):
+        return "No encontrado.", 404
+    db.activar_tenant(tenant_id, accion == "activar")
+    flash("Cuenta activada." if accion == "activar" else "Cuenta desactivada: ya no puede entrar al panel.")
+    return redirect(url_for("admin_panel"))
+
+
+@app.post("/admin/biblioteca/<entrada_id>/<accion>")
+@admin_requerido
+def admin_moderar(entrada_id, accion):
+    if accion not in ("ocultar", "mostrar"):
+        return "No encontrado.", 404
+    admin = db.admin_por_id(session["admin_id"])
+    db.moderar_biblioteca(entrada_id, accion == "ocultar", f"administración ({admin['usuario']})" if accion == "ocultar" else None)
+    flash("Se ocultó de la biblioteca." if accion == "ocultar" else "Volvió a la biblioteca.")
+    return redirect(url_for("admin_panel"))
 
 
 @app.get("/logout")
 def logout():
+    era_admin = "admin_id" in session
     session.clear()
-    return redirect(url_for("login"))
+    return redirect(url_for("admin_login" if era_admin else "login"))
 
 
 def _tz_de(tenant: dict) -> ZoneInfo:
@@ -1757,11 +1860,25 @@ def agenda_ficha_link():
     if not contexto:
         flash("No se encontró la ficha.")
         return _volver_a_agenda()
+    dni = "".join(ch for ch in request.form.get("dni") or "" if ch.isdigit())
+    if dni and not 6 <= len(dni) <= 9:
+        flash("El DNI tiene que tener entre 6 y 9 números.")
+        return redirect(url_for("agenda"))
     html = render_template("ficha_completa.html", **contexto, entrega=True)
     vence = datetime.now(ZoneInfo("UTC")) + timedelta(days=DIAS_ENTREGA)
-    db.crear_entrega(tenant["id"], clave, cuestionarios.nuevo_token(), vence.isoformat(), html)
-    flash("Listo el link para entregar la ficha: copialo desde la pestaña Sesiones. Se abre una sola vez y vence en 7 días.")
+    token = cuestionarios.nuevo_token()
+    db.crear_entrega(tenant["id"], clave, token, vence.isoformat(), html, _hash_dni(token, dni) if dni else None)
+    flash("Listo el link para entregar la ficha: copialo desde la pestaña Sesiones. Se abre una sola vez y vence en 7 días."
+          + (" Para abrirlo van a pedir el DNI que cargaste." if dni else ""))
     return redirect(url_for("agenda"))
+
+
+MAX_INTENTOS_DNI = 5
+
+
+def _hash_dni(token: str, dni: str) -> str:
+    """El token hace de sal: el mismo DNI da otro hash en cada entrega."""
+    return hashlib.sha256(f"{token}:{dni}".encode()).hexdigest()
 
 
 @app.post("/agenda/entrega/<entrega_id>/borrar")
@@ -1786,7 +1903,9 @@ def entrega_publica(token):
     e = db.entrega_por_token(token)
     estado = _estado_entrega(e)
     tenant = db.get_tenant_by_id(e["tenant_id"]) if e else None
-    return _sin_cache(app.make_response((render_template("entrega.html", tenant=tenant, estado=estado), 404 if not e else 200)))
+    return _sin_cache(app.make_response((render_template("entrega.html", tenant=tenant, estado=estado,
+                                                         pide_dni=bool(e and e.get("dni_hash")), error=None),
+                                         404 if not e else 200)))
 
 
 @app.post("/entrega/<token>")
@@ -1794,6 +1913,15 @@ def entrega_abrir(token):
     e = db.entrega_por_token(token)
     estado = _estado_entrega(e)
     tenant = db.get_tenant_by_id(e["tenant_id"]) if e else None
+    if estado == "lista" and e.get("dni_hash"):
+        dni = "".join(ch for ch in request.form.get("dni") or "" if ch.isdigit())
+        if not hmac.compare_digest(_hash_dni(token, dni), e["dni_hash"]):
+            intentos = (e.get("intentos") or 0) + 1
+            db.registrar_intento_entrega(e["id"], intentos)
+            estado = "bloqueada" if intentos >= MAX_INTENTOS_DNI else "lista"
+            return _sin_cache(app.make_response((render_template(
+                "entrega.html", tenant=tenant, estado=estado, pide_dni=True,
+                error=None if estado == "bloqueada" else f"El DNI no coincide. Te quedan {MAX_INTENTOS_DNI - intentos} intentos."), 200)))
     if estado != "lista" or not db.abrir_entrega(e["id"], datetime.now(ZoneInfo("UTC")).isoformat()):
         return _sin_cache(app.make_response((render_template("entrega.html", tenant=tenant, estado=estado if estado != "lista" else "abierta"),
                                              404 if not e else 200)))
@@ -1805,6 +1933,8 @@ def _estado_entrega(e: dict | None) -> str:
         return "no_existe"
     if e.get("abierta_at"):
         return "abierta"
+    if (e.get("intentos") or 0) >= MAX_INTENTOS_DNI:
+        return "bloqueada"
     if datetime.fromisoformat(e["vence"]) <= datetime.now(ZoneInfo("UTC")):
         return "vencida"
     return "lista"
