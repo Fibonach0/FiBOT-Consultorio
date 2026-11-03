@@ -1,8 +1,8 @@
 {% extends "base.html" %}
 {% block titulo %}Turnos — {{ tenant.nombre }}{% endblock %}
 {% block cuerpo %}
-{% macro url_semana(sem) %}{% if cambiar %}{{ url_for('agendar_cambiar', token=cambiar, semana=sem) }}{% else %}{{ url_for('publico', slug=tenant.slug, semana=sem) }}{% endif %}{% endmacro %}
-{% macro url_hora(t) %}{% if cambiar %}{{ url_for('agendar_cambiar_a', token=cambiar, turno_id=t.id) }}{% else %}{{ url_for('publico_reservar_form', slug=tenant.slug, turno_id=t.id) }}{% endif %}{% endmacro %}
+{% macro url_semana(sem) %}{% if cambiar %}{{ url_for('agendar_cambiar', token=cambiar, semana=sem) }}{% else %}{{ url_for('publico', slug=tenant.slug, semana=sem, tipo=i_tipo) }}{% endif %}{% endmacro %}
+{% macro url_hora(t) %}{% if cambiar %}{{ url_for('agendar_cambiar_a', token=cambiar, turno_id=t.id) }}{% else %}{{ url_for('publico_reservar_form', slug=tenant.slug, turno_id=t.id, tipo=i_tipo) }}{% endif %}{% endmacro %}
 <style>
   .semana-nav { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
   .semana { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:8px; }
@@ -46,9 +46,21 @@
     {% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}
   {% endwith %}
 
-  {% if pausado %}
+  {% if tipos and tipos|length > 1 and not cambiar and not pausado %}
+  <div class="card" id="tipos">
+    <strong>{{ '¿Qué turno querés?' if elegir_tipo else 'Tipo de turno' }}</strong>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
+      {% for x in tipos %}
+      <a class="btn {{ '' if (i_tipo is not none and i_tipo == loop.index0) else 'secundario' }}" style="text-decoration:none"
+         href="{{ url_for('publico', slug=tenant.slug, tipo=loop.index0) }}">{{ x.nombre }} · {{ x.minutos }} min</a>
+      {% endfor %}
+    </div>
+  </div>
+  {% endif %}
+  {% if elegir_tipo and not pausado %}{# todavía no eligió: no se muestra el calendario #}
+  {% elif pausado %}
   <div class="card">
-    <h3 style="margin-top:0">Por ahora no toma turnos nuevos</h3>
+    <h3 style="margin-top:0">Por ahora no toma turnos nuevos{% if tenant.pausado_hasta %}: vuelve el {{ tenant.pausado_hasta[8:10] }}/{{ tenant.pausado_hasta[5:7] }}{% endif %}</h3>
     {% if tenant.mensaje_pausa %}<p>{{ tenant.mensaje_pausa }}</p>{% endif %}
     <p style="color:var(--muted);margin-bottom:0">Si ya tenés un turno, sigue en pie. Anotate abajo y te avisamos cuando vuelva a haber horarios.</p>
   </div>

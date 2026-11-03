@@ -167,6 +167,16 @@ def _tick() -> None:
         except Exception:
             logger.exception("Fallo recordando confirmaciones de tenant %s", tenant["id"])
         try:
+            _generar_una_vez_por_dia(tenant, tz)
+        except Exception:
+            logger.exception("Fallo generando horarios de tenant %s", tenant["id"])
+        try:
+            import cancelaciones  # acá: cancelaciones importa este módulo
+            if cancelaciones.reactivar_si_toca(tenant, datetime.now(tz).date()):
+                tenant = {**tenant, "pausado": False}
+        except Exception:
+            logger.exception("Fallo reactivando la pausa de tenant %s", tenant["id"])
+        try:
             import cancelaciones  # acá: cancelaciones importa este módulo
             cancelaciones.vencer_huecos(tenant)
         except Exception:
@@ -289,6 +299,60 @@ def avisar_profesional(tenant: dict, texto: str) -> bool:
     except Exception:
         logger.warning("No se pudo avisar al tenant %s", tenant.get("id"), exc_info=True)
         return False
+
+
+def rangos_horario(tenant: dict) -> list[tuple[int, str, str]]:
+    """(día 0-6, desde, hasta) válidos del horario semanal guardado."""
+    salida = []
+    for r in tenant.get("horario_semanal") or []:
+        try:
+            dia, desde, hasta = int(r["dia"]), str(r["desde"]), str(r["hasta"])
+            from datetime import time as _t
+            if 0 <= dia <= 6 and _t.fromisoformat(desde) < _t.fromisoformat(hasta):
+                salida.append((dia, desde, hasta))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return salida
+
+
+def generar_desde_horario(tenant: dict, ahora: datetime | None = None) -> int:
+    """Crea los horarios libres de las próximas `horario_semanas` según el
+    horario de atención. Es idempotente (crear_turnos_libres no pisa nada que
+    ya exista): lo que el profesional reservó, se tomó o bloqueó sigue igual."""
+    rangos = rangos_horario(tenant)
+    if not rangos:
+        return 0
+    from datetime import time as _t
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    ahora = ahora or datetime.now(timezone.utc)
+    duracion = tenant.get("duracion_turno_minutos") or 50
+    hoy = ahora.astimezone(tz).date()
+    inicios = []
+    for i in range(7 * (tenant.get("horario_semanas") or 4)):
+        dia = hoy + timedelta(days=i)
+        for d, desde, hasta in rangos:
+            if dia.weekday() != d:
+                continue
+            paso = datetime.combine(dia, _t.fromisoformat(desde), tzinfo=tz)
+            fin = datetime.combine(dia, _t.fromisoformat(hasta), tzinfo=tz)
+            while paso + timedelta(minutes=duracion) <= fin:
+                if paso > ahora:
+                    inicios.append(paso.astimezone(timezone.utc))
+                paso += timedelta(minutes=duracion)
+    return db.crear_turnos_libres(tenant["id"], inicios, duracion) if inicios else 0
+
+
+_generado: dict[str, object] = {}
+
+
+def _generar_una_vez_por_dia(tenant: dict, tz: ZoneInfo) -> None:
+    hoy = datetime.now(tz).date()
+    if _generado.get(tenant["id"]) == hoy:
+        return
+    _generado[tenant["id"]] = hoy
+    creados = generar_desde_horario(tenant)
+    if creados:
+        logger.info("Tenant %s: %s horarios nuevos desde su horario de atención", tenant["id"], creados)
 
 
 def _loop() -> None:

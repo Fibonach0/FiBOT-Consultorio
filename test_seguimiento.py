@@ -3297,6 +3297,82 @@ chequear("pausa: /turnos lo muestra pausado", "Por ahora no toma turnos nuevos" 
 panel_c.post("/agenda/pausa", data={"csrf_token": "tok", "pausar": "0"})
 chequear("pausa: se reactiva", _t1["pausado"] is False and "reservar/z1" in web4.get("/marcos").data.decode())
 
+# --- Pausa con fecha, horario semanal y tipos de turno ---
+import cancelaciones as _canc3  # noqa: E402
+
+reset()
+TABLAS["lista_espera"] = []
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "activo": True, "aviso_telefono": "5491122223333"})
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+_hoy_ar = datetime.now(app.ZoneInfo(TZ)).date()
+panel_c.post("/agenda/pausa", data={"csrf_token": "tok", "pausar": "1", "pausado_hasta": _hoy_ar.isoformat()})
+chequear("pausa con fecha: hoy o antes no", not _t1.get("pausado"))
+panel_c.post("/agenda/pausa", data={"csrf_token": "tok", "pausar": "1", "pausado_hasta": (_hoy_ar + timedelta(days=10)).isoformat()})
+chequear("pausa con fecha: se guarda", _t1["pausado"] and _t1["pausado_hasta"] == (_hoy_ar + timedelta(days=10)).isoformat())
+chequear("pausa con fecha: la página dice cuándo vuelve", "vuelve el" in app.app.test_client().get("/marcos").data.decode())
+TABLAS["turnos"] = [turno("r1", "t1", datetime.now(timezone.utc) + timedelta(days=12))]
+TABLAS["lista_espera"] = [{"id": "e1", "tenant_id": "t1", "nombre": "Nora", "telefono": "5491144445555", "ofrecido_en": None,
+                           "origen": "web", "created_at": _b.isoformat()}]
+_ofr, _avs = [], []
+_vo, _va = _canc3.ofrecer_horario, scheduler.avisar_profesional
+_canc3.ofrecer_horario = lambda tenant, tel, cuando, link: _ofr.append(tel) or True
+scheduler.avisar_profesional = lambda tenant, texto: _avs.append(texto) or True
+chequear("pausa con fecha: antes no se reactiva", not _canc3.reactivar_si_toca(dict(_t1), _hoy_ar + timedelta(days=9)))
+chequear("pausa con fecha: ese día se reactiva", _canc3.reactivar_si_toca(dict(_t1), _hoy_ar + timedelta(days=10))
+         and _t1["pausado"] is False and _t1["pausado_hasta"] is None)
+chequear("pausa con fecha: avisa a la lista y al profesional", _ofr == ["5491144445555"] and "le avisamos a 1" in _avs[-1])
+_canc3.ofrecer_horario, scheduler.avisar_profesional = _vo, _va
+
+# horario semanal
+reset()
+_t1 = TABLAS["tenants"][0]
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+panel_c.post("/agenda/horario", data={"csrf_token": "tok", "dia0_desde1": "09:00", "dia0_hasta1": "11:00",
+                                      "dia2_desde1": "15:00", "dia2_hasta1": "14:00"})
+chequear("horario: rango al revés no se guarda", not _t1.get("horario_semanal"))
+_previos = {t["id"] for t in TABLAS["turnos"]}
+panel_c.post("/agenda/horario", data={"csrf_token": "tok", "dia0_desde1": "09:00", "dia0_hasta1": "11:00",
+                                      "dia0_desde2": "15:00", "dia0_hasta2": "16:00", "horario_semanas": "2"})
+_lunes = [t for t in TABLAS["turnos"] if t["id"] not in _previos]
+_horas = sorted({datetime.fromisoformat(t["inicio"]).astimezone(app.ZoneInfo(TZ)).strftime("%H:%M") for t in _lunes})
+# 9 a 11 con turnos de 50: 9:00 y 9:50 (el de 10:40 no entra); 15 a 16: 15:00. Dos lunes (o tres si hoy es lunes temprano).
+chequear("horario: genera las franjas de los lunes", _horas == ["09:00", "09:50", "15:00"]
+         and all(datetime.fromisoformat(t["inicio"]).astimezone(app.ZoneInfo(TZ)).weekday() == 0 for t in _lunes)
+         and len(_lunes) in (5, 6, 7, 8, 9))
+_antes = len(TABLAS["turnos"])
+chequear("horario: generar de nuevo no duplica", scheduler.generar_desde_horario(dict(_t1)) == 0 and len(TABLAS["turnos"]) == _antes)
+chequear("horario: el panel lo muestra", 'value="09:00"' in panel_c.get("/agenda").data.decode())
+
+# tipos de turno
+reset()
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "activo": True})
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+panel_c.post("/agenda/tipos", data={"csrf_token": "tok", "tipo1_nombre": "Primera entrevista", "tipo1_minutos": "100",
+                                    "tipo2_nombre": "Sesión", "tipo2_minutos": "50"})
+chequear("tipos: se guardan", [x["minutos"] for x in _t1["tipos_turno"]] == [100, 50])
+_c = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(days=3)
+TABLAS["turnos"] = [turno("k1", "t1", _c), turno("k2", "t1", _c + timedelta(minutes=50)),
+                    turno("k3", "t1", _c + timedelta(minutes=200))]
+web5 = app.app.test_client()
+html = web5.get("/marcos").data.decode()
+chequear("tipos: primero pide elegir", "¿Qué turno querés?" in html and "reservar/k1" not in html)
+html = web5.get("/marcos?tipo=0").data.decode()
+chequear("tipos: el largo sólo donde entra", "reservar/k1" in html and "reservar/k2" not in html and "reservar/k3" not in html)
+html = web5.get("/marcos?tipo=1").data.decode()
+chequear("tipos: el corto en todos", all(f"reservar/{k}" in html for k in ("k1", "k2", "k3")))
+r = web5.post("/marcos/reservar/k2", data={"nombre": "Ana", "telefono": "5491100003333", "tipo": "0", "confirmado": "1"})
+chequear("tipos: el servidor no deja reservar el largo donde no entra", r.status_code == 302 and TABLAS["turnos"][1]["estado"] == "libre")
+web5.post("/marcos/reservar/k1", data={"nombre": "Ana", "telefono": "5491100003333", "tipo": "0", "confirmado": "1"})
+k1 = TABLAS["turnos"][0]
+chequear("tipos: reserva con su duración", k1["estado"] == "reservado" and k1["tipo"] == "Primera entrevista"
+         and datetime.fromisoformat(k1["fin"]) - datetime.fromisoformat(k1["inicio"]) == timedelta(minutes=100))
+chequear("tipos: tapa el horario siguiente", "reservar/k2" not in web5.get("/marcos?tipo=1").data.decode())
+chequear("tipos: el panel lo muestra", "Primera entrevista" in panel_c.get(f"/agenda?semana={_c.date().isoformat()}").data.decode())
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

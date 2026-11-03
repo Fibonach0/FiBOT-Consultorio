@@ -234,6 +234,18 @@ lista de espera queda abierta), reservar por id y cambiar de horario se
 rechazan, el bot no lista ni reserva, y /turnos lo muestra pausado. Lo ya
 reservado no se toca. Los bloqueos aceptan horas (`hora_desde`/`hora_hasta`):
 mismo `bloqueos.desde/hasta`, sólo cambia cómo se cargan y se muestran.
+`migrations/052`: `pausado_hasta` (la pausa se levanta sola ese día desde el
+scheduler, `cancelaciones.reactivar_si_toca`, y se le ofrece el próximo horario a
+la lista de espera). `horario_semanal` (lista de {dia 0-6, desde, hasta}, hasta
+dos franjas por día) + `horario_semanas`: `scheduler.generar_desde_horario` crea
+los libres con `crear_turnos_libres` (idempotente) al guardar y una vez por día.
+`tipos_turno` (lista de {nombre, minutos}): con más de uno el paciente elige en
+la página; el calendario sólo muestra horarios donde entra (`app._cabe`: si dura
+más que el horario, tiene que seguir en libres consecutivos), el servidor lo
+vuelve a chequear (`_entra`), y la reserva guarda `turnos.tipo` y alarga `fin`
+(la vista ya oculta los libres que se pisan). Cambiar de horario conserva la
+duración y el tipo (`reprogramar_turno` copia `tipo`). El bot reserva el tipo
+de siempre.
 
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin
