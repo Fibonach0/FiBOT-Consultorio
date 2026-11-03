@@ -908,25 +908,48 @@ def marcar_ingreso(tabla: str, fila_id: str, cuando: str) -> None:
     _client.table(tabla).update({"ultimo_ingreso": cuando}).eq("id", fila_id).execute()
 
 
+def intentos_login(claves: list[str]) -> list[dict]:
+    res = _client.table("login_intentos").select("*").in_("clave", claves).execute()
+    return res.data
+
+
+def guardar_intento_login(clave: str, datos: dict) -> None:
+    _client.table("login_intentos").upsert({"clave": clave, **datos}, on_conflict="clave").execute()
+
+
+def borrar_intentos_login(clave: str) -> None:
+    _client.table("login_intentos").delete().eq("clave", clave).execute()
+
+
+def admin_completo(admin_id: str) -> dict | None:
+    res = _client.table("admins").select("*").eq("id", admin_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def guardar_totp(admin_id: str, campos: dict) -> None:
+    _client.table("admins").update(campos).eq("id", admin_id).execute()
+
+
 def todos_los_tenants() -> list[dict]:
     res = (_client.table("tenants").select("id,nombre,rubro,slug,panel_user,activo,moderador,ultimo_ingreso,created_at")
            .order("nombre").execute())
     return res.data
 
 
-def uso_de_tenants(desde: str) -> dict[str, dict]:
+def uso_de_tenants(desde: str, hasta: str | None = None) -> dict[str, dict]:
     """Sólo cuentas, nunca datos de pacientes: sesiones reservadas desde
     `desde`, pacientes distintos en ellas, cuestionarios y entregas."""
     uso: dict[str, dict] = {}
     vacio = lambda: {"sesiones": 0, "pacientes": set(), "cuestionarios": 0, "entregas": 0}
-    turnos = (_client.table("turnos").select("tenant_id,paciente_telefono,ficha").eq("estado", "reservado")
-              .gte("inicio", desde).execute().data)
+    q = _client.table("turnos").select("tenant_id,paciente_telefono,ficha").eq("estado", "reservado").gte("inicio", desde)
+    turnos = (q.lt("inicio", hasta) if hasta else q).execute().data
     for t in turnos:
         u = uso.setdefault(t["tenant_id"], vacio())
         u["sesiones"] += 1
         u["pacientes"].add((t["paciente_telefono"], t.get("ficha") or ""))
     for tabla, campo in (("cuestionarios", "cuestionarios"), ("entregas", "entregas")):
-        for x in _client.table(tabla).select("tenant_id").gte("created_at", desde).execute().data:
+        q = _client.table(tabla).select("tenant_id").gte("created_at", desde)
+        for x in (q.lt("created_at", hasta) if hasta else q).execute().data:
             uso.setdefault(x["tenant_id"], vacio())[campo] += 1
     return {k: {**v, "pacientes": len(v["pacientes"])} for k, v in uso.items()}
 

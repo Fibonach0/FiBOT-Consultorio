@@ -8,6 +8,7 @@ particular — lo particular vive en la tabla `tenants` y se carga con
 scripts/crear_tenant.py, nunca hardcodeado acá."""
 import base64
 import copy
+import csv
 import functools
 import hashlib
 import hmac
@@ -37,6 +38,7 @@ import resultados_tests
 import tests_sugeridos
 from fechas import alerta_de_seguimiento, proxima_vez, sesiones_que_quedan
 import scheduler
+import seguridad
 import whatsapp
 
 logging.basicConfig(level=logging.INFO)
@@ -45,7 +47,9 @@ logger = logging.getLogger("app")
 app = Flask(__name__)
 # Railway termina TLS en su proxy: sin esto, los links absolutos (el del
 # cuestionario, el de reservas en la guía) salen con http://.
-app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1)
+# x_for=1: la IP del cliente es la que agrega el proxy de Railway (la última),
+# no lo que mande el cliente; la usa el límite de intentos de login.
+app.wsgi_app = ProxyFix(app.wsgi_app, x_proto=1, x_for=1)
 app.secret_key = config.FLASK_SECRET_KEY
 # Secure sólo en Railway: en local el panel corre por http y no habría login.
 app.config.update(
@@ -170,13 +174,39 @@ def login():
     return render_template("login.html", error=None)
 
 
+def _claves_de_intento(clave_usuario: str) -> list[str]:
+    return [clave_usuario, f"ip:{request.remote_addr or 'desconocida'}"]
+
+
+def _bloqueo_login(claves: list[str]) -> str | None:
+    ahora = seguridad.ahora_utc()
+    hasta = seguridad.bloqueado_hasta(db.intentos_login(claves), ahora)
+    if hasta:
+        return f"Demasiados intentos. Probá de nuevo en {seguridad.minutos_restantes(hasta, ahora)} minutos."
+    return None
+
+
+def _registrar_fallo(claves: list[str]) -> None:
+    ahora = seguridad.ahora_utc()
+    filas = {f["clave"]: f for f in db.intentos_login(claves)}
+    for clave in claves:
+        maximo = seguridad.MAX_FALLOS_IP if clave.startswith("ip:") else seguridad.MAX_FALLOS
+        db.guardar_intento_login(clave, seguridad.tras_fallo(filas.get(clave), ahora, maximo))
+
+
 @app.post("/login")
 def login_post():
     usuario = (request.form.get("usuario") or "").strip()
     clave = request.form.get("clave") or ""
+    claves = _claves_de_intento(f"panel:{usuario.casefold()}")
+    bloqueo = _bloqueo_login(claves)
+    if bloqueo:
+        return render_template("login.html", error=bloqueo), 429
     tenant = db.get_tenant_by_panel_user(usuario)
     if not tenant or not bcrypt.checkpw(clave.encode(), tenant["panel_pass_hash"].encode()):
+        _registrar_fallo(claves)
         return render_template("login.html", error="Usuario o clave incorrectos."), 401
+    db.borrar_intentos_login(claves[0])
     session.clear()
     session["tenant_id"] = tenant["id"]
     db.marcar_ingreso("tenants", tenant["id"], datetime.now(ZoneInfo("UTC")).isoformat())
@@ -184,10 +214,15 @@ def login_post():
 
 
 def admin_requerido(vista):
+    """Sesión de admin con el doble factor ya configurado: sin él, sólo se
+    puede entrar a configurarlo."""
     @functools.wraps(vista)
     def envoltorio(*args, **kwargs):
-        if not session.get("admin_id") or not db.admin_por_id(session["admin_id"]):
+        admin = db.admin_completo(session["admin_id"]) if session.get("admin_id") else None
+        if not admin:
             return redirect(url_for("admin_login"))
+        if not admin.get("totp_secreto"):
+            return redirect(url_for("admin_doble_factor"))
         return vista(*args, **kwargs)
 
     return envoltorio
@@ -200,13 +235,97 @@ def admin_login():
 
 @app.post("/admin/login")
 def admin_login_post():
-    admin = db.admin_por_usuario((request.form.get("usuario") or "").strip())
+    usuario = (request.form.get("usuario") or "").strip()
+    claves = _claves_de_intento(f"admin:{usuario.casefold()}")
+    bloqueo = _bloqueo_login(claves)
+    if bloqueo:
+        return render_template("admin_login.html", error=bloqueo), 429
+    admin = db.admin_por_usuario(usuario)
     if not admin or not bcrypt.checkpw((request.form.get("clave") or "").encode(), admin["pass_hash"].encode()):
+        _registrar_fallo(claves)
         return render_template("admin_login.html", error="Usuario o clave incorrectos."), 401
+    db.borrar_intentos_login(claves[0])
+    session.clear()
+    if admin.get("totp_secreto"):
+        # Falta el código: todavía no es una sesión de admin.
+        session["admin_pendiente"] = admin["id"]
+        return redirect(url_for("admin_codigo"))
+    session["admin_id"] = admin["id"]
+    db.marcar_ingreso("admins", admin["id"], datetime.now(ZoneInfo("UTC")).isoformat())
+    return redirect(url_for("admin_doble_factor"))
+
+
+@app.route("/admin/codigo", methods=["GET", "POST"])
+def admin_codigo():
+    admin = db.admin_completo(session["admin_pendiente"]) if session.get("admin_pendiente") else None
+    if not admin or not admin.get("totp_secreto"):
+        return redirect(url_for("admin_login"))
+    if request.method == "GET":
+        return render_template("admin_codigo.html", error=None)
+    claves = _claves_de_intento(f"totp:{admin['id']}")
+    bloqueo = _bloqueo_login(claves)
+    if bloqueo:
+        return render_template("admin_codigo.html", error=bloqueo), 429
+    paso = seguridad.verificar(admin["totp_secreto"], request.form.get("codigo") or "", admin.get("totp_ultimo_paso"))
+    if paso is None:
+        _registrar_fallo(claves)
+        return render_template("admin_codigo.html", error="Código incorrecto o ya usado."), 401
+    db.borrar_intentos_login(claves[0])
+    db.guardar_totp(admin["id"], {"totp_ultimo_paso": paso})
     session.clear()
     session["admin_id"] = admin["id"]
     db.marcar_ingreso("admins", admin["id"], datetime.now(ZoneInfo("UTC")).isoformat())
     return redirect(url_for("admin_panel"))
+
+
+@app.route("/admin/doble-factor", methods=["GET", "POST"])
+def admin_doble_factor():
+    """Configuración obligatoria del doble factor. El secreto vive en la
+    sesión hasta que un código lo confirma: recién ahí se guarda."""
+    admin = db.admin_completo(session["admin_id"]) if session.get("admin_id") else None
+    if not admin:
+        return redirect(url_for("admin_login"))
+    if admin.get("totp_secreto"):
+        return redirect(url_for("admin_panel"))
+    secreto = session.get("totp_nuevo") or seguridad.nuevo_secreto()
+    session["totp_nuevo"] = secreto
+    error = None
+    if request.method == "POST":
+        paso = seguridad.verificar(secreto, request.form.get("codigo") or "")
+        if paso is not None:
+            db.guardar_totp(admin["id"], {"totp_secreto": secreto, "totp_ultimo_paso": paso})
+            session.pop("totp_nuevo", None)
+            flash("Doble factor activado. Desde ahora, al entrar te va a pedir el código de la app.")
+            return redirect(url_for("admin_panel"))
+        error = "Ese código no coincide. Fijate que la hora del celular esté bien y probá con el próximo."
+    return render_template("admin_doble_factor.html", admin=admin, clave=seguridad.agrupado(secreto),
+                           uri=seguridad.uri(secreto, admin["usuario"]), error=error)
+
+
+@app.get("/admin/uso.csv")
+@admin_requerido
+def admin_uso_csv():
+    """Uso por profesional de un mes, para facturar. Sólo cuentas."""
+    hoy = datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).date()
+    try:
+        primero = datetime.strptime(request.args.get("mes") or "", "%Y-%m").date()
+    except ValueError:
+        primero = hoy.replace(day=1)
+    siguiente = (primero.replace(day=28) + timedelta(days=4)).replace(day=1)
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+    desde = datetime.combine(primero, dtime(), tz).isoformat()
+    hasta = datetime.combine(siguiente, dtime(), tz).isoformat()
+    uso = db.uso_de_tenants(desde, hasta)
+    salida = io.StringIO()
+    escritor = csv.writer(salida, delimiter=";")
+    escritor.writerow(["Profesional", "Usuario", "Rubro", "Activa", "Mes", "Sesiones", "Pacientes", "Cuestionarios", "Entregas"])
+    for t in db.todos_los_tenants():
+        u = uso.get(t["id"], {"sesiones": 0, "pacientes": 0, "cuestionarios": 0, "entregas": 0})
+        escritor.writerow([t["nombre"], t["panel_user"], t.get("rubro") or "", "no" if t.get("activo") is False else "sí",
+                           primero.strftime("%Y-%m"), u["sesiones"], u["pacientes"], u["cuestionarios"], u["entregas"]])
+    # BOM: Excel en castellano abre bien acentos y el «;».
+    return app.response_class("\ufeff" + salida.getvalue(), mimetype="text/csv",
+                              headers={"Content-Disposition": f'attachment; filename="uso-{primero:%Y-%m}.csv"'})
 
 
 SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario"}
@@ -227,7 +346,8 @@ def admin_panel():
     biblioteca = [dict(e, titulo=e["contenido"]["nombre"] + (f" · {e['contenido']['version']}" if e["contenido"].get("version") else ""))
                   for e in db.biblioteca()]
     return render_template("admin.html", admin=db.admin_por_id(session["admin_id"]), tenants=tenants,
-                           biblioteca=biblioteca, rubros=RUBROS_ALTA)
+                           biblioteca=biblioteca, rubros=RUBROS_ALTA,
+                           mes_actual=datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%Y-%m"))
 
 
 @app.post("/admin/profesionales")
@@ -280,7 +400,7 @@ def admin_moderar(entrada_id, accion):
 
 @app.get("/logout")
 def logout():
-    era_admin = "admin_id" in session
+    era_admin = "admin_id" in session or "admin_pendiente" in session
     session.clear()
     return redirect(url_for("admin_login" if era_admin else "login"))
 
