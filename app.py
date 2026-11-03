@@ -4141,7 +4141,7 @@ def webhook_mercadopago():
     try:
         # `t` viene en la URL del aviso: si falta o no es un id válido, la base
         # rechaza la consulta; igual hay que contestar 200.
-        tenant = db.get_tenant_by_id(request.args["t"]) if re.fullmatch(r"[0-9a-f-]{36}", request.args.get("t") or "") else None
+        tenant = db.get_tenant_by_id(request.args["t"]) if request.args.get("t") else None
     except Exception:
         tenant = None
     cuerpo = request.get_json(silent=True) or {}
