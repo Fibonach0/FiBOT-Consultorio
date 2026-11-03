@@ -125,8 +125,7 @@ def webhook_receive():
                 _marcar("mensaje", phone_number_id)
                 tenant = tenant_del_numero or db.tenant_por_paciente(telefono)
                 if not tenant:
-                    logger.warning(
-                        "Mensaje al número compartido de un teléfono sin turnos: %s", telefono)
+                    _sin_destino(phone_number_id, telefono)
                     continue
                 texto = msg.get("text", {}).get("body", "")
                 try:
@@ -137,6 +136,29 @@ def webhook_receive():
                 whatsapp.enviar_texto(whatsapp.numero_de(tenant), telefono, respuesta)
 
     return jsonify(ok=True), 200
+
+
+RESPUESTA_SIN_DESTINO = (
+    "Hola. Este es el WhatsApp de turnos de FiBOT Consultorio. No encontramos un turno con este número.\n\n"
+    "Para reservar, entrá a la página que te pasó tu profesional. Si ya reservaste, escribinos desde el "
+    "mismo número que dejaste al reservar.")
+
+
+def _sin_destino(phone_number_id: str, telefono: str) -> None:
+    """Alguien sin turno le escribió al número compartido: no hay a qué
+    profesional mandarlo. Se le contesta una vez por día (está dentro de las
+    24 h, así que va texto libre) y queda en la bandeja de administración,
+    sólo con los últimos 4 dígitos."""
+    clave = hashlib.sha256(f"sin-destino:{telefono}".encode()).hexdigest()
+    final = "".join(ch for ch in telefono or "" if ch.isdigit())[-4:]
+    logger.info("Mensaje al número compartido de un teléfono sin turnos (…%s)", final)
+    try:
+        desde = (datetime.now(ZoneInfo("UTC")) - timedelta(hours=24)).isoformat()
+        ya = db.respondido_sin_destino_desde(clave, desde)
+        respondido = False if ya else whatsapp.enviar_texto(phone_number_id, telefono, RESPUESTA_SIN_DESTINO)
+        db.registrar_sin_destino(final, clave, bool(respondido))
+    except Exception:
+        logger.warning("No se pudo registrar el mensaje sin destino (…%s)", final, exc_info=True)
 
 
 def _aviso_de_plantilla(aviso: dict) -> None:
@@ -821,8 +843,67 @@ def admin_whatsapp():
                                                    "solo_a": ", ".join(config.WHATSAPP_SOLO_A),
                                                    "aviso_admin": whatsapp.aviso_admin}[c],
                 "origen": whatsapp.origen(c)} for c, n in whatsapp.AJUSTES.items()]
+    try:
+        bandeja = db.mensajes_sin_destino()
+    except Exception:
+        bandeja = []
+    for m in bandeja:
+        m["_cuando"] = datetime.fromisoformat(m["cuando"]).astimezone(tz).strftime("%d/%m %H:%M")
+    simulacion = session.get("simulacion") or {}
+    cuentas = [t for t in db.todos_los_tenants() if t.get("activo") is not False]
     return render_template("admin_whatsapp.html", pasos=pasos, plantillas=plantillas, avisos=avisos, ajustes=ajustes,
+                           bandeja=bandeja, cuentas=cuentas, simulacion=simulacion, simulado=SIMULADO[-4:],
+                           respuesta_sin_destino=RESPUESTA_SIN_DESTINO,
                            resultado=session.pop("prueba_whatsapp", None))
+
+
+# El «paciente» del simulador. Nunca recibe nada: el simulador no manda
+# WhatsApp, y si el bot le reserva un turno, el recordatorio lo para el freno
+# o Meta (no es un número real).
+SIMULADO = "5490000000000"
+
+
+@app.post("/admin/whatsapp/simular")
+@admin_requerido
+def admin_whatsapp_simular():
+    """Le escribe al bot como si fuera un paciente y muestra qué contesta, sin
+    mandar nada por WhatsApp. Lo que hace el bot es de verdad (si reserva, el
+    turno queda reservado a nombre del simulador): para eso está «Deshacer»."""
+    tenant = db.get_tenant_by_id(request.form.get("tenant_id") or "")
+    texto = (request.form.get("texto") or "").strip()[:500]
+    if not tenant or not texto:
+        session["prueba_whatsapp"] = {"ok": False, "texto": "Elegí una cuenta y escribí un mensaje."}
+        return redirect(url_for("admin_whatsapp") + "#simulador")
+    simulacion = session.get("simulacion") or {}
+    if simulacion.get("tenant_id") != tenant["id"]:
+        simulacion = {"tenant_id": tenant["id"], "nombre": tenant["nombre"], "chat": []}
+    try:
+        respuesta = conversation.responder(tenant, SIMULADO, texto)
+    except Exception:
+        logger.exception("Falló el simulador con el tenant %s", tenant["id"])
+        respuesta = "(El bot falló procesando esto: mirá los registros del servidor.)"
+    simulacion["chat"] = (simulacion["chat"] + [{"de": "paciente", "texto": texto}, {"de": "bot", "texto": respuesta}])[-20:]
+    session["simulacion"] = simulacion
+    db.registrar_actividad(_actor_admin(), f"probó el bot de {tenant['nombre']} con el simulador")
+    return redirect(url_for("admin_whatsapp") + "#simulador")
+
+
+@app.post("/admin/whatsapp/simular/deshacer")
+@admin_requerido
+def admin_whatsapp_simular_deshacer():
+    """Libera los turnos futuros que reservó el simulador y borra la charla."""
+    simulacion = session.pop("simulacion", None) or {}
+    liberados = 0
+    if simulacion.get("tenant_id"):
+        for _ in range(50):
+            turnos = db.proximos_turnos_de(simulacion["tenant_id"], SIMULADO)
+            if not turnos:
+                break
+            for t in turnos:
+                db.cancelar_turno(simulacion["tenant_id"], t["id"])
+                liberados += 1
+    session["prueba_whatsapp"] = {"ok": True, "texto": "Charla borrada" + (f" y {liberados} turno(s) del simulador liberados." if liberados else ".")}
+    return redirect(url_for("admin_whatsapp") + "#simulador")
 
 
 @app.post("/admin/whatsapp/suscribir")
