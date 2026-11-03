@@ -145,6 +145,7 @@
       <h3>Semana {{ semana_titulo }}</h3>
       <a class="btn secundario chico" href="{{ url_for('agenda', semana=semana_siguiente) }}">›</a>
       <a class="tenue" href="{{ url_for('agenda') }}">Mes</a>
+      <a class="tenue" href="{{ url_for('agenda_imprimir', semana=semana) }}" target="_blank" rel="noopener">Imprimir</a>
     </div>
     <div class="resumen">
       <span><strong>{{ resumen.sesiones }}</strong> sesiones</span>
@@ -396,6 +397,22 @@
     </form>
   </div>
 
+  <div class="card" id="sedes">
+    <h3>Tus consultorios</h3>
+    <p class="tenue" style="margin-top:0">Si atendés en más de un lugar, cargalos y elegí en tu horario dónde es cada franja: se muestra al reservar y en el recordatorio.</p>
+    <form method="post" action="{{ url_for('agenda_sedes') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% set ss = tenant.sedes or [] %}
+      {% for n in range(1, 4) %}
+      <div class="fila" style="margin-bottom:4px">
+        <div><input type="text" name="sede{{ n }}_nombre" maxlength="40" placeholder="{{ 'Palermo' if n == 1 else 'Belgrano' if n == 2 else '' }}" value="{{ ss[n-1].nombre if ss|length >= n else '' }}" aria-label="Nombre del consultorio {{ n }}"></div>
+        <div style="flex:2"><input type="text" name="sede{{ n }}_direccion" maxlength="120" placeholder="Dirección" value="{{ ss[n-1].direccion or '' if ss|length >= n else '' }}" aria-label="Dirección del consultorio {{ n }}"></div>
+      </div>
+      {% endfor %}
+      <div class="al-pie"><button class="btn chico" type="submit">Guardar consultorios</button></div>
+    </form>
+  </div>
+
   <div class="card" id="horario">
     <h3>Tu horario de atención</h3>
     <p class="tenue" style="margin-top:0">Cargalo una vez y los horarios libres se generan solos, semana a semana. Hasta dos franjas por día. Ejemplo: sesiones de 45 con 15 de descanso y la franja de 9:15 a 13:00 dan 9:15, 10:15, 11:15 y 12:15. Cada franja puede ser sólo presencial o sólo por videollamada.</p>
@@ -418,10 +435,20 @@
           <option value="presencial"{% if r and r[3] == 'presencial' %} selected{% endif %}>Presencial</option>
           <option value="virtual"{% if r and r[3] == 'virtual' %} selected{% endif %}>Videollamada</option>
         </select></div>
+        {% if tenant.sedes and tenant.sedes|length > 1 %}
+        <div><select name="dia{{ d }}_sede{{ n }}" aria-label="{{ dias_label[d] }} consultorio ({{ n }})">
+          <option value="">Consultorio…</option>
+          {% for x in tenant.sedes %}<option value="{{ x.nombre }}"{% if r and r[4] == x.nombre %} selected{% endif %}>{{ x.nombre }}</option>{% endfor %}
+        </select></div>
+        {% endif %}
         {% endfor %}
       </div>
       {% endfor %}
       <div class="fila">
+        <div><label>Feriados nacionales</label><select name="feriados">
+          <option value="bloquear"{% if tenant.feriados != 'atender' %} selected{% endif %}>No atiendo (se bloquean solos)</option>
+          <option value="atender"{% if tenant.feriados == 'atender' %} selected{% endif %}>Atiendo igual</option>
+        </select></div>
         <div><label>Generar con anticipación</label><select name="horario_semanas">
           {% for x in range(1, 13) %}<option value="{{ x }}"{% if (tenant.horario_semanas or 4) == x %} selected{% endif %}>{{ x }} semana{{ 's' if x > 1 }}</option>{% endfor %}
         </select></div>

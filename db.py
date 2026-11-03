@@ -549,7 +549,7 @@ def pendientes_de_pago(tenant_id: str, hasta: datetime, limite: int = 50) -> lis
 
 
 def crear_turnos_libres(tenant_id: str, inicios: list[datetime], duracion_minutos: int,
-                        solo_modalidad: str | None = None) -> int:
+                        solo_modalidad: str | None = None, sede: str | None = None) -> int:
     """Alta en lote de horarios disponibles. `inicios` ya viene con timezone.
     Usa upsert por (tenant_id, inicio) para que correr esto dos veces con el
     mismo rango no duplique turnos.
@@ -564,6 +564,7 @@ def crear_turnos_libres(tenant_id: str, inicios: list[datetime], duracion_minuto
             "fin": (ini + timedelta(minutes=duracion_minutos)).isoformat(),
             "estado": "libre",
             **({"solo_modalidad": solo_modalidad} if solo_modalidad else {}),
+            **({"sede": sede} if sede else {}),
         }
         for ini in inicios
     ]

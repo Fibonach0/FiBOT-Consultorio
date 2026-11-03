@@ -3024,6 +3024,56 @@ def agenda_hueco(turno_id, accion):
     return _volver_a_agenda()
 
 
+@app.get("/agenda/imprimir")
+@login_required
+def agenda_imprimir():
+    """Hoja de la semana para imprimir: hora, paciente, tipo, modalidad y
+    consultorio. Sin notas ni teléfonos (es un papel que queda en el
+    escritorio)."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    try:
+        lunes = date.fromisoformat(request.args.get("semana") or "")
+    except ValueError:
+        lunes = datetime.now(tz).date()
+    lunes -= timedelta(days=lunes.weekday())
+    desde = datetime.combine(lunes, dtime.min, tzinfo=tz)
+    hasta = desde + timedelta(days=7)
+    sesiones = [t for t in db.sesiones_reservadas(tenant["id"])
+                if desde <= datetime.fromisoformat(t["inicio"]) < hasta]
+    dias = []
+    for i in range(7):
+        dia = lunes + timedelta(days=i)
+        del_dia = sorted((t for t in sesiones if datetime.fromisoformat(t["inicio"]).astimezone(tz).date() == dia),
+                         key=lambda t: t["inicio"])
+        if del_dia:
+            dias.append({"titulo": f"{DIAS_LABEL[dia.weekday()]} {dia.strftime('%d/%m')}", "sesiones": [
+                {**t, "_hora": datetime.fromisoformat(t["inicio"]).astimezone(tz).strftime("%H:%M"),
+                 "_fin": datetime.fromisoformat(t["fin"]).astimezone(tz).strftime("%H:%M") if t.get("fin") else ""}
+                for t in del_dia]})
+    return render_template("imprimir_semana.html", tenant=tenant, dias=dias, total=len(sesiones),
+                           titulo=f"{lunes.strftime('%d/%m')} al {(lunes + timedelta(days=6)).strftime('%d/%m/%Y')}")
+
+
+@app.post("/agenda/sedes")
+@login_required
+def agenda_sedes():
+    """Hasta 3 consultorios (nombre y dirección). Después, en el horario se
+    elige en cuál es cada franja."""
+    f = request.form
+    sedes = []
+    for n in range(1, 4):
+        nombre = (f.get(f"sede{n}_nombre") or "").strip()[:40]
+        if nombre:
+            sedes.append({"nombre": nombre, "direccion": (f.get(f"sede{n}_direccion") or "").strip()[:120] or None})
+    if len({x["nombre"].casefold() for x in sedes}) != len(sedes):
+        flash("Dos consultorios no pueden llamarse igual.")
+        return _volver_a_agenda()
+    db.guardar_ajustes(session["tenant_id"], {"sedes": sedes or None})
+    flash("Guardado. Ahora elegí en tu horario en qué consultorio es cada franja." if len(sedes) > 1 else "Guardado.")
+    return _volver_a_agenda()
+
+
 @app.post("/agenda/tipos")
 @login_required
 def agenda_tipos():
@@ -3068,10 +3118,13 @@ def agenda_horario():
                 flash(f"Revisá el horario del {DIAS_LABEL[d].lower()}: falta una hora o termina antes de empezar.")
                 return _volver_a_agenda()
             modalidad = f.get(f"dia{d}_mod{n}")
+            sede = (f.get(f"dia{d}_sede{n}") or "").strip()
             rangos.append({"dia": d, "desde": desde[:5], "hasta": hasta[:5],
-                           **({"modalidad": modalidad} if modalidad in ("presencial", "virtual") else {})})
+                           **({"modalidad": modalidad} if modalidad in ("presencial", "virtual") else {}),
+                           **({"sede": sede} if sede else {})})
     semanas = int(f.get("horario_semanas")) if (f.get("horario_semanas") or "") in {str(x) for x in range(1, 13)} else 4
-    campos = {"horario_semanal": rangos or None, "horario_semanas": semanas}
+    campos = {"horario_semanal": rangos or None, "horario_semanas": semanas,
+              "feriados": "atender" if f.get("feriados") == "atender" else "bloquear"}
     duracion, descanso = f.get("duracion_turno_minutos") or "", f.get("descanso_minutos") or ""
     if duracion:
         if not duracion.isdigit() or not 10 <= int(duracion) <= 240:
@@ -3088,6 +3141,10 @@ def agenda_horario():
         flash("Borraste tu horario de atención: los horarios ya generados siguen, pero no se crean nuevos solos.")
         return _volver_a_agenda()
     tenant = db.get_tenant_by_id(session["tenant_id"])
+    try:
+        scheduler.sincronizar_feriados(tenant, datetime.now(_tz_de(tenant)).date())
+    except Exception:
+        logger.exception("Fallo sincronizando feriados")
     creados = scheduler.generar_desde_horario(tenant)
     flash(f"Guardado. Se crearon {creados} horario{'s' if creados != 1 else ''} libre{'s' if creados != 1 else ''} "
           f"para las próximas {semanas} semanas; desde ahora se van completando solos cada día.")
@@ -3710,7 +3767,8 @@ def publico_reservar_form(slug, turno_id):
     if tipos_de(tenant) and tipo is None:
         return redirect(url_for("publico", slug=slug))
     turno = _con_hora_local([turno], tz)[0]
-    return render_template("publico_reservar.html", tenant=tenant, turno=turno, tipo=tipo, i_tipo=i_tipo)
+    return render_template("publico_reservar.html", tenant=tenant, turno=turno, tipo=tipo, i_tipo=i_tipo,
+                           serie_posible=pagos.activo(tenant))
 
 
 @app.post("/<slug>/reservar/<turno_id>")
@@ -3736,6 +3794,10 @@ def publico_reservar(slug, turno_id):
     if tipo and not _entra(tenant, turno_id, tipo["minutos"]):
         flash(f"En ese horario no entra un turno de {tipo['minutos']} minutos — elegí otro.")
         return redirect(url_for("publico", slug=slug, tipo=i_tipo))
+    # Varias sesiones (mismo día y hora, semanas seguidas): sólo pagando por
+    # adelantado. Se reservan las que estén libres; las que no, se avisan.
+    sesiones = int(request.form.get("sesiones")) if request.form.get("sesiones") in ("4", "8") and pagos.activo(tenant) else 1
+    serie, faltan = _serie(tenant, turno_id, sesiones, tipo["minutos"] if tipo else None) if sesiones > 1 else ([], [])
     if request.form.get("confirmado") != "1":
         # Doble confirmación: primero se muestra todo junto (con quién, cuándo
         # y a qué WhatsApp) y recién el segundo POST reserva. No se toma el
@@ -3749,7 +3811,8 @@ def publico_reservar(slug, turno_id):
             return redirect(url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
         return render_template("publico_revisar.html", tenant=tenant, turno=_con_hora_local([turno], tz)[0],
                                nombre=nombre, telefono=telefono, modalidad=modalidad, tipo=tipo, i_tipo=i_tipo,
-                               a_pagar=pagos.monto_de(tenant, (tipo or {}).get("precio")) if pagos.activo(tenant) else None,
+                               a_pagar=pagos.monto_de(tenant, (tipo or {}).get("precio"), 1 + len(serie)) if pagos.activo(tenant) else None,
+                               sesiones=sesiones, serie=_con_hora_local(serie, tz), faltan=faltan,
                                confirma_por_whatsapp=bool(config.CONFIRMACION_TEMPLATE))
     previo = db.turno_por_id(tenant["id"], turno_id)
     if tenant.get("pausado") or (previo or {}).get("hueco") or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre):
@@ -3766,12 +3829,22 @@ def publico_reservar(slug, turno_id):
         campos["fin"] = (datetime.fromisoformat(turno["inicio"]) + timedelta(minutes=tipo["minutos"])).isoformat()
     if turno and not campos.get("valor") and tenant.get("precio_sesion"):
         campos["valor"] = tenant["precio_sesion"]
+    if turno and serie:
+        campos["frecuencia"] = "semanal"
     monto = pagos.monto_de(tenant, (tipo or {}).get("precio")) if pagos.activo(tenant) else None
     if turno and monto:
         # Se cobra: la reserva queda apartada hasta que pague (no se confirma
         # todavía ni le llega el WhatsApp de confirmación).
         db.actualizar_reserva(tenant["id"], turno_id, campos)
-        pago = pagos.iniciar(tenant, [{**turno, **campos}], monto)
+        reservados = [{**turno, **campos}]
+        for t in serie:
+            if db.reservar_turno(tenant["id"], t["id"], telefono, nombre, ficha=turno.get("ficha")):
+                extra = {k: v for k, v in campos.items() if k in ("modalidad", "tipo", "valor", "frecuencia")}
+                if tipo:
+                    extra["fin"] = (datetime.fromisoformat(t["inicio"]) + timedelta(minutes=tipo["minutos"])).isoformat()
+                db.actualizar_reserva(tenant["id"], t["id"], extra)
+                reservados.append({**t, **extra})
+        pago = pagos.iniciar(tenant, reservados, monto * len(reservados))
         return redirect(url_for("pago_paciente", token=pago["token"]))
     enviada = scheduler.mandar_confirmacion(tenant, {**turno, **campos}, tz) if turno else False
     if enviada:
@@ -3779,6 +3852,27 @@ def publico_reservar(slug, turno_id):
     db.actualizar_reserva(tenant["id"], turno_id, campos)
     turno = _con_hora_local([{**turno, **campos}], tz)[0]
     return render_template("publico_confirmado.html", tenant=tenant, turno=turno, enviada=enviada, token=token)
+
+
+def _serie(tenant: dict, turno_id: str, sesiones: int, minutos: int | None) -> tuple[list[dict], list[str]]:
+    """Los horarios libres de las próximas `sesiones - 1` semanas, el mismo
+    día y hora que `turno_id` (donde entre el tipo). Devuelve (libres, fechas
+    que no están libres)."""
+    turno = db.turno_por_id(tenant["id"], turno_id)
+    if not turno:
+        return [], []
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    inicio = datetime.fromisoformat(turno["inicio"])
+    libres, faltan = [], []
+    for k in range(1, sesiones):
+        cuando = inicio + timedelta(days=7 * k)
+        candidato = next((t for t in db.turnos_libres(tenant["id"], cuando, limite=1)
+                          if datetime.fromisoformat(t["inicio"]) == cuando), None)
+        if candidato and (not minutos or _entra(tenant, candidato["id"], minutos)):
+            libres.append(candidato)
+        else:
+            faltan.append(cuando.astimezone(tz).strftime("%d/%m"))
+    return libres, faltan
 
 
 def _entra(tenant: dict, turno_id: str, minutos: int) -> bool:

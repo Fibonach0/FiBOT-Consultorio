@@ -107,7 +107,7 @@
         <h4>{{ d.nombre }} <span>{{ d.numero }}</span></h4>
         <div class="horas">
         {% for t in d.turnos %}
-          <a class="hora" href="{{ url_hora(t) }}"{% if t.solo_modalidad %} title="{{ 'Por videollamada' if t.solo_modalidad == 'virtual' else 'En el consultorio' }}"{% endif %}>{{ t._hora }}{% if t.solo_modalidad == 'virtual' %} <small>· video</small>{% elif t.solo_modalidad == 'presencial' and tenant.modalidades_publicas in ('ambas', 'virtual') %} <small>· consultorio</small>{% endif %}</a>
+          <a class="hora" href="{{ url_hora(t) }}"{% if t.solo_modalidad %} title="{{ 'Por videollamada' if t.solo_modalidad == 'virtual' else 'En el consultorio' }}"{% endif %}>{{ t._hora }}{% if t.solo_modalidad == 'virtual' %} <small>· video</small>{% elif t.solo_modalidad == 'presencial' and tenant.modalidades_publicas in ('ambas', 'virtual') %} <small>· consultorio</small>{% endif %}{% if t.sede and tenant.sedes and tenant.sedes|length > 1 %} <small>· {{ t.sede }}</small>{% endif %}</a>
         {% else %}
           <span class="nada">—</span>
         {% endfor %}

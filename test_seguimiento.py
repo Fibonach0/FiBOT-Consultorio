@@ -3538,6 +3538,84 @@ chequear("seña: cobra la seña por sesión", _pg.monto_de({"cobro_modo": "sena"
 _pg.config.MP_CLIENT_ID, _pg.config.MP_CLIENT_SECRET = _vc
 scheduler.avisar_profesional = _va3
 
+# --- Varias sesiones pagas, feriados, consultorios e imprimir ---
+import feriados as _fer  # noqa: E402
+
+reset()
+TABLAS["pagos"] = []
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "activo": True, "cobro_web": "transferencia", "precio_sesion": 20000,
+            "transferencia_datos": "Alias: x", "aviso_telefono": "5491122223333"})
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+_va4 = scheduler.avisar_profesional
+scheduler.avisar_profesional = lambda tenant, texto: True
+_s = datetime.now(timezone.utc).replace(second=0, microsecond=0, minute=0) + timedelta(days=2)
+TABLAS["turnos"] = [turno(f"s{k}", "t1", _s + timedelta(days=7 * k)) for k in range(4)]
+TABLAS["turnos"][2]["estado"] = "reservado"
+TABLAS["turnos"][2]["paciente_telefono"] = "549110000999"
+w7 = app.app.test_client()
+chequear("serie: el formulario la ofrece sólo si se cobra", "4 semanas seguidas" in w7.get("/marcos/reservar/s0").data.decode())
+html = w7.post("/marcos/reservar/s0", data={"nombre": "Ana", "telefono": "5491100003333", "sesiones": "4"}).data.decode()
+chequear("serie: el resumen dice cuáles faltan y el total", "No están libres" in html and "$ 60.000" in html)
+w7.post("/marcos/reservar/s0", data={"nombre": "Ana", "telefono": "5491100003333", "sesiones": "4", "confirmado": "1"})
+_pago_s = TABLAS["pagos"][-1]
+chequear("serie: reserva las libres en un solo pago", sorted(_pago_s["turnos"]) == ["s0", "s1", "s3"] and _pago_s["monto"] == 60000
+         and all(t["pago_web"] == "esperando" and t["frecuencia"] == "semanal" for t in TABLAS["turnos"] if t["id"] in ("s0", "s1", "s3")))
+_t1["cobro_web"] = "no"
+chequear("serie: sin cobro no se ofrece", "4 semanas seguidas" not in w7.get("/marcos/reservar/s1").data.decode())
+scheduler.avisar_profesional = _va4
+
+# feriados
+reset()
+TABLAS["bloqueos"] = []
+_t1 = TABLAS["tenants"][0]
+_hoy = _date(2026, 11, 3)
+_viejo_fer = dict(_fer._actualizados)
+_fer._actualizados.clear()
+scheduler.sincronizar_feriados(dict(_t1), _hoy)
+_motivos = sorted(b["motivo"] for b in TABLAS["bloqueos"])
+chequear("feriados: bloquea los próximos", "Feriado: Visita del papa León XIV" in _motivos and "Feriado: Navidad" in _motivos
+         and not any("Año nuevo" in m and "2026" in m for m in _motivos))
+_n = len(TABLAS["bloqueos"])
+scheduler.sincronizar_feriados(dict(_t1), _hoy)
+chequear("feriados: no duplica", len(TABLAS["bloqueos"]) == _n)
+scheduler.sincronizar_feriados(dict(_t1, feriados="atender"), _hoy)
+chequear("feriados: «atiendo igual» los saca", not any((b["motivo"] or "").startswith("Feriado") for b in TABLAS["bloqueos"]))
+_fer._actualizados.update(_viejo_fer)
+
+# consultorios
+reset()
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "activo": True})
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+panel_c.post("/agenda/sedes", data={"csrf_token": "tok", "sede1_nombre": "Palermo", "sede1_direccion": "Santa Fe 1234",
+                                    "sede2_nombre": "Belgrano", "sede2_direccion": "Cabildo 2000"})
+chequear("sedes: se guardan", [x["nombre"] for x in _t1["sedes"]] == ["Palermo", "Belgrano"])
+_prev = {t["id"] for t in TABLAS["turnos"]}
+panel_c.post("/agenda/horario", data={"csrf_token": "tok", "dia1_desde1": "09:00", "dia1_hasta1": "11:00", "dia1_sede1": "Palermo",
+                                      "dia1_desde2": "15:00", "dia1_hasta2": "17:00", "dia1_sede2": "Belgrano", "horario_semanas": "2"})
+_nv = [t for t in TABLAS["turnos"] if t["id"] not in _prev]
+chequear("sedes: cada franja en su consultorio", _nv and all(
+    (t["sede"] == "Palermo") == (datetime.fromisoformat(t["inicio"]).astimezone(app.ZoneInfo(TZ)).hour < 12) for t in _nv))
+_tb = next(t for t in _nv if t["sede"] == "Belgrano")
+chequear("sedes: el recordatorio dice dónde", "en Belgrano (Cabildo 2000)" in scheduler.cuando_de(_tb, dict(_t1), app.ZoneInfo(TZ)))
+chequear("sedes: el formulario muestra la dirección", "Cabildo 2000" in app.app.test_client().get(f"/marcos/reservar/{_tb['id']}").data.decode())
+
+# imprimir
+reset()
+_t1 = TABLAS["tenants"][0]
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+_lun = datetime.now(app.ZoneInfo(TZ)).date()
+_lun -= timedelta(days=_lun.weekday())
+_i10 = datetime.combine(_lun + timedelta(days=1), app.dtime(10, 0), tzinfo=app.ZoneInfo(TZ))
+TABLAS["turnos"] = [turno("i1", "t1", _i10.astimezone(timezone.utc), estado="reservado", paciente_nombre="Lola Pérez",
+                          paciente_telefono="5491166667777", tipo="Sesión", nota="Muy reservada")]
+html = panel_c.get(f"/agenda/imprimir?semana={_lun.isoformat()}").data.decode()
+chequear("imprimir: la semana con hora, paciente y tipo", "10:00" in html and "Lola Pérez" in html and "Sesión" in html)
+chequear("imprimir: sin notas ni teléfonos", "Muy reservada" not in html and "5491166667777" not in html)
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")
