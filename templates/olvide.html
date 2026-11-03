@@ -4,7 +4,19 @@
 <main style="max-width:420px; margin-top:60px;">
   <div class="card">
     <h2>¿Te olvidaste la clave?</h2>
+    {% if enviado %}
+    <p>Si hay una cuenta con ese dato y tiene un mail cargado, te mandamos un link para poner una clave nueva. Vence en una hora. Fijate también en correo no deseado.</p>
+    {% elif por_mail %}
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post">
+      <label for="dato">Tu usuario o tu mail</label>
+      <input type="text" id="dato" name="dato" autocomplete="username" required>
+      <button class="btn" type="submit" style="margin-top:12px">Mandarme un link</button>
+    </form>
+    <p class="tenue">Si no cargaste tu mail en «Ajustes», pedile el link a quien te dio la cuenta.</p>
+    {% else %}
     <p>Escribile a quien te dio la cuenta: te manda un link para poner una clave nueva. Sirve una sola vez y vence en 24 horas.</p>
+    {% endif %}
     <p class="tenue">Si tenés el panel abierto en el celular, también podés entrar con «Entrar con el celular» y cambiar la clave desde «Ajustes».</p>
     <a href="{{ url_for('login') }}">Volver</a>
   </div>

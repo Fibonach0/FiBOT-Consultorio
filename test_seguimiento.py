@@ -95,6 +95,10 @@ class _Query:
         self.filtros.append(lambda f: f.get(c) is None if v == "null" else f.get(c) == v)
         return self
 
+    def ilike(self, c, patron):
+        self.filtros.append(lambda f: (f.get(c) or "").casefold() == patron.casefold())
+        return self
+
     def in_(self, c, valores):
         self.filtros.append(lambda f: f.get(c) in valores)
         return self
@@ -236,6 +240,7 @@ def reset():
     TABLAS["actividad"] = []
     TABLAS["enlaces_clave"] = []
     TABLAS["qr_logins"] = []
+    TABLAS["llaves_acceso"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -2481,6 +2486,129 @@ for texto in ("generó un link para clave nueva de Lic. Marcos", "puso una clave
 html = adm.get("/admin?actividad_de=t2").data.decode()
 chequear("filtra por cuenta", "Lic. Marcos" not in html.split("<th>Qué</th>")[1].split("</table>")[0])
 chequear("la actividad no tiene datos de pacientes", all("Paciente" not in a["accion"] for a in TABLAS["actividad"]))
+
+# --- Recuperar la clave por mail, limpieza diaria y llaves de acceso ---
+import mail as _mail  # noqa: E402
+
+reset()
+TABLAS["login_intentos"] = []
+TABLAS["tenants"][0].update({"panel_user": "marcos", "email": "marcos@ejemplo.com", "activo": True,
+                             "panel_pass_hash": _bcrypt.hashpw(b"clave-de-marcos", _bcrypt.gensalt(4)).decode()})
+db.get_tenant_by_panel_user = lambda u: next((dict(t) for t in TABLAS["tenants"] if t.get("panel_user") == u and t.get("activo") is not False), None)
+anon = app.app.test_client()
+chequear("sin mail configurado, se pide a la administración", "Escribile a quien te dio la cuenta" in anon.get("/olvide-la-clave").data.decode())
+mails = []
+app.config.RESEND_API_KEY, app.config.MAIL_REMITENTE = "re_prueba", "FiBOT <avisos@ejemplo.com>"
+_mail.enviar = lambda para, asunto, texto: mails.append((para, asunto, texto)) or True
+chequear("con mail configurado ofrece el formulario", "Mandarme un link" in anon.get("/olvide-la-clave").data.decode())
+r1 = anon.post("/olvide-la-clave", data={"dato": "marcos"}).data.decode()
+r2 = anon.post("/olvide-la-clave", data={"dato": "nadie"}).data.decode()
+chequear("misma respuesta exista o no", "Si hay una cuenta con ese dato" in r1 and "Si hay una cuenta con ese dato" in r2)
+chequear("manda un solo mail, a su dirección", len(mails) == 1 and mails[0][0] == "marcos@ejemplo.com" and "/clave-nueva/" in mails[0][2])
+anon.post("/olvide-la-clave", data={"dato": "MARCOS@ejemplo.com"})
+chequear("también por mail, sin mayúsculas", len(mails) == 2)
+tok = mails[0][2].split("/clave-nueva/")[1].split()[0]
+chequear("el link del mail funciona", "Poné tu clave nueva" in anon.get(f"/clave-nueva/{tok}").data.decode())
+chequear("del token sólo se guarda el hash", tok not in str(TABLAS["enlaces_clave"]))
+chequear("el mail no lleva datos de pacientes ni la clave", "Paciente" not in mails[0][2] and "clave-de-marcos" not in mails[0][2])
+for _ in range(5):
+    anon.post("/olvide-la-clave", data={"dato": "marcos"})
+chequear("los pedidos tienen límite", anon.post("/olvide-la-clave", data={"dato": "marcos"}).status_code == 429)
+app.config.RESEND_API_KEY = ""
+with client.session_transaction() as ses:
+    ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
+    ses["csrf_token"] = "tok"
+html = client.post("/agenda/avisos", data={"email": "no-es-un-mail"}, follow_redirects=True).data.decode()
+chequear("valida el mail en Ajustes", "no parece válido" in html and TABLAS["tenants"][0]["email"] == "marcos@ejemplo.com")
+client.post("/agenda/avisos", data={"email": "nuevo@ejemplo.com"})
+chequear("guarda el mail", TABLAS["tenants"][0]["email"] == "nuevo@ejemplo.com")
+
+# limpieza diaria
+viejo, nuevo_ = "2025-01-01T00:00:00+00:00", datetime.now(timezone.utc).isoformat()
+TABLAS["qr_logins"] = [{"token_hash": "a", "vence": viejo}, {"token_hash": "b", "vence": "2099-01-01T00:00:00+00:00"}]
+TABLAS["enlaces_clave"] = [{"token_hash": "a", "vence": viejo}]
+TABLAS["sesiones"] = [x for x in TABLAS["sesiones"]] + [{"id": "vieja", "tenant_id": "t1", "ultima": viejo, "creada": viejo}]
+TABLAS["entregas"] = [{"id": "ev", "tenant_id": "t1", "vence": viejo, "html": "copia de la ficha"},
+                      {"id": "en", "tenant_id": "t1", "vence": "2099-01-01T00:00:00+00:00", "html": "copia nueva"}]
+TABLAS["cuestionarios"] = [{"id": "cv", "tenant_id": "t1", "vence": viejo, "respondido_at": None},
+                           {"id": "cr", "tenant_id": "t1", "vence": viejo, "respondido_at": viejo}]
+TABLAS["actividad"] = [{"id": 1, "cuando": viejo, "actor": "x", "accion": "vieja"}, {"id": 2, "cuando": nuevo_, "actor": "x", "accion": "nueva"}]
+scheduler._ultima_limpieza = None
+scheduler._limpiar()
+chequear("limpia QR, links y sesiones vencidas", [q["token_hash"] for q in TABLAS["qr_logins"]] == ["b"] and not TABLAS["enlaces_clave"]
+         and not any(x["id"] == "vieja" for x in TABLAS["sesiones"]))
+chequear("las entregas viejas pierden la copia pero quedan", [e["html"] for e in TABLAS["entregas"]] == ["", "copia nueva"])
+chequear("borra links de cuestionario sin responder, nunca respuestas", [c["id"] for c in TABLAS["cuestionarios"]] == ["cr"])
+chequear("la actividad de más de un año se va", [a["accion"] for a in TABLAS["actividad"]] == ["nueva"])
+TABLAS["qr_logins"].append({"token_hash": "c", "vence": viejo})
+scheduler._limpiar()
+chequear("una sola vez por día", any(q["token_hash"] == "c" for q in TABLAS["qr_logins"]))
+
+# llaves de acceso (la criptografía la verifica webauthn; acá, el flujo)
+from types import SimpleNamespace  # noqa: E402
+
+reset()
+TABLAS["tenants"][0].update({"panel_user": "marcos", "activo": True})
+celu = app.app.test_client()
+with celu.session_transaction() as ses:
+    ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
+    ses["csrf_token"] = "tok"
+o = celu.post("/agenda/llaves/opciones", data={"csrf_token": "tok"}).get_json()
+chequear("opciones de registro con verificación del usuario", o["rp"]["id"] == "localhost" and o["authenticatorSelection"]["userVerification"] == "required"
+         and o["authenticatorSelection"]["residentKey"] == "required" and o["user"]["name"] == "marcos")
+chequear("registrar pide sesión", app.app.test_client().post("/agenda/llaves/opciones").status_code in (302, 403))
+recibido = {}
+def _verif_reg(**k):
+    recibido.update(k)
+    return SimpleNamespace(credential_id=b"llave-1", credential_public_key=b"clave-publica", sign_count=0)
+app.webauthn.verify_registration_response = _verif_reg
+r = celu.post("/agenda/llaves/registrar", data={"csrf_token": "tok", "credencial": "{}"},
+              headers={"User-Agent": "Mozilla/5.0 (iPhone) Version/17 Safari/604"}).get_json()
+chequear("guarda la llave pública", r["ok"] and TABLAS["llaves_acceso"][0]["tenant_id"] == "t1" and TABLAS["llaves_acceso"][0]["nombre"] == "Safari en iPhone"
+         and recibido["require_user_verification"] and recibido["expected_origin"] == "http://localhost")
+chequear("el reto se usa una vez", celu.post("/agenda/llaves/registrar", data={"csrf_token": "tok", "credencial": "{}"}).status_code == 400
+         or len(TABLAS["llaves_acceso"]) == 1)
+app.webauthn.verify_registration_response = lambda **k: (_ for _ in ()).throw(ValueError("firma mala"))
+celu.post("/agenda/llaves/opciones", data={"csrf_token": "tok"})
+chequear("registro inválido no guarda", celu.post("/agenda/llaves/registrar", data={"csrf_token": "tok", "credencial": "{}"}).status_code == 400
+         and len(TABLAS["llaves_acceso"]) == 1)
+chequear("Ajustes lista la llave", "Llaves de acceso (1)" in celu.get("/agenda").data.decode())
+llave_id = TABLAS["llaves_acceso"][0]["id"]
+compu = app.app.test_client()
+o = compu.post("/login/llave/opciones").get_json()
+chequear("opciones de login sin pedir usuario", o["userVerification"] == "required" and not o.get("allowCredentials"))
+usadas = {}
+def _verif_auth(**k):
+    usadas.update(k)
+    return SimpleNamespace(new_sign_count=5)
+app.webauthn.verify_authentication_response = _verif_auth
+r = compu.post("/login/llave", data={"credencial": json.dumps({"id": llave_id})}, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/120"}).get_json()
+chequear("entra con la llave", r["ok"] and compu.get("/agenda").status_code == 200 and usadas["credential_current_sign_count"] == 0
+         and TABLAS["llaves_acceso"][0]["contador"] == 5 and any(x["origen"] == "llave de acceso" for x in TABLAS["sesiones"]))
+otro = app.app.test_client()
+chequear("sin reto no entra", otro.post("/login/llave", data={"credencial": json.dumps({"id": llave_id})}).status_code == 400)
+otro.post("/login/llave/opciones")
+chequear("llave desconocida no entra", otro.post("/login/llave", data={"credencial": json.dumps({"id": "inventada"})}).status_code == 400)
+otro.post("/login/llave/opciones")
+chequear("basura no entra", otro.post("/login/llave", data={"credencial": "no es json"}).status_code == 400)
+app.webauthn.verify_authentication_response = lambda **k: (_ for _ in ()).throw(ValueError("firma mala"))
+otro.post("/login/llave/opciones")
+chequear("firma mala no entra", otro.post("/login/llave", data={"credencial": json.dumps({"id": llave_id})}).status_code == 400
+         and otro.get("/agenda").status_code == 302)
+app.webauthn.verify_authentication_response = _verif_auth
+TABLAS["tenants"][0]["activo"] = False
+otro.post("/login/llave/opciones")
+chequear("cuenta desactivada no entra con llave", otro.post("/login/llave", data={"credencial": json.dumps({"id": llave_id})}).status_code == 400)
+TABLAS["tenants"][0]["activo"] = True
+TABLAS["llaves_acceso"].append({"id": "ajena", "tenant_id": "t2", "clave_publica": "x", "contador": 0})
+celu.post("/agenda/llaves/ajena/borrar", data={"csrf_token": "tok"})
+chequear("no borra llaves de otro", any(x["id"] == "ajena" for x in TABLAS["llaves_acceso"]))
+celu.post(f"/agenda/llaves/{llave_id}/borrar", data={"csrf_token": "tok"})
+chequear("borra la propia", not any(x["id"] == llave_id for x in TABLAS["llaves_acceso"]))
+chequear("la actividad registra las llaves", any("agregó una llave de acceso" in a["accion"] for a in TABLAS["actividad"])
+         and any("entró al panel (llave de acceso" in a["accion"] for a in TABLAS["actividad"]))
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

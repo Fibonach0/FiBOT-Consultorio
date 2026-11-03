@@ -112,6 +112,7 @@ marcados = []
 db.marcar_recordatorio_enviado = lambda tid: marcados.append(tid)
 db.turnos_para_recordar = lambda tenant_id, horas: [TURNO]
 db.reservas_sin_avisar = lambda tenant_id: []
+db.limpiar_vencidos = lambda *a: None  # la limpieza diaria va a la base real
 
 plantillas = []
 whatsapp.enviar_plantilla = lambda pid, to, tpl, lang, params: (

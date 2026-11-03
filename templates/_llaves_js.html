@@ -1,0 +1,42 @@
+<script>
+// Llaves de acceso: conversión entre las opciones JSON del servidor (base64url)
+// y lo que pide navigator.credentials. Sin librerías externas.
+window.fibotLlaves = (() => {
+  const aBytes = s => Uint8Array.from(atob(s.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - s.length % 4) % 4)), c => c.charCodeAt(0)).buffer;
+  const aTexto = b => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  const disponible = () => !!(window.PublicKeyCredential && navigator.credentials);
+  const enviar = async (url, datos) => {
+    const cuerpo = new FormData();
+    for (const [k, v] of Object.entries(datos)) cuerpo.append(k, v);
+    const r = await fetch(url, {method: 'POST', body: cuerpo, credentials: 'same-origin'});
+    return r.json().catch(() => ({ok: false}));
+  };
+  async function registrar(csrf) {
+    const o = await enviar('{{ url_for("agenda_llave_opciones") }}', {csrf_token: csrf}).catch(() => null);
+    if (!o || !o.challenge) return {ok: false, error: 'No se pudo empezar. Recargá la página.'};
+    o.challenge = aBytes(o.challenge);
+    o.user.id = aBytes(o.user.id);
+    (o.excludeCredentials || []).forEach(c => c.id = aBytes(c.id));
+    let c;
+    try { c = await navigator.credentials.create({publicKey: o}); } catch (e) { return {ok: false, error: 'Se canceló o este dispositivo ya tiene una llave.'}; }
+    const cred = {id: c.id, rawId: aTexto(c.rawId), type: c.type, authenticatorAttachment: c.authenticatorAttachment,
+      clientExtensionResults: c.getClientExtensionResults(),
+      response: {clientDataJSON: aTexto(c.response.clientDataJSON), attestationObject: aTexto(c.response.attestationObject),
+                 transports: c.response.getTransports ? c.response.getTransports() : []}};
+    return enviar('{{ url_for("agenda_llave_registrar") }}', {csrf_token: csrf, credencial: JSON.stringify(cred)});
+  }
+  async function entrar() {
+    const o = await enviar('{{ url_for("login_llave_opciones") }}', {}).catch(() => null);
+    if (!o || !o.challenge) return {ok: false, error: 'No se pudo empezar. Recargá la página.'};
+    o.challenge = aBytes(o.challenge);
+    (o.allowCredentials || []).forEach(c => c.id = aBytes(c.id));
+    let c;
+    try { c = await navigator.credentials.get({publicKey: o}); } catch (e) { return {ok: false, error: 'Se canceló.'}; }
+    const cred = {id: c.id, rawId: aTexto(c.rawId), type: c.type, clientExtensionResults: c.getClientExtensionResults(),
+      response: {clientDataJSON: aTexto(c.response.clientDataJSON), authenticatorData: aTexto(c.response.authenticatorData),
+                 signature: aTexto(c.response.signature), userHandle: c.response.userHandle ? aTexto(c.response.userHandle) : null}};
+    return enviar('{{ url_for("login_llave") }}', {credencial: JSON.stringify(cred)});
+  }
+  return {disponible, registrar, entrar};
+})();
+</script>

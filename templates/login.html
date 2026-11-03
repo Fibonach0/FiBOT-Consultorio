@@ -15,8 +15,22 @@
         <button class="btn" type="submit">Entrar</button>
       </div>
     </form>
+    <div id="llave-zona" hidden style="margin-top:12px">
+      <button class="btn secundario" type="button" id="llave-entrar">Entrar con llave de acceso</button>
+      <div class="tenue" id="llave-error" style="margin-top:6px"></div>
+    </div>
     <p style="margin:14px 0 0"><a href="{{ url_for('olvide_clave') }}">¿Te olvidaste la clave?</a></p>
   </div>
+  {% include "_llaves_js.html" %}
+  <script>
+  if (fibotLlaves.disponible()) {
+    document.getElementById('llave-zona').hidden = false;
+    document.getElementById('llave-entrar').addEventListener('click', async () => {
+      const r = await fibotLlaves.entrar();
+      if (r.ok) location.href = r.destino; else document.getElementById('llave-error').textContent = r.error || 'No se pudo.';
+    });
+  }
+  </script>
   {% if not request.args.get('siguiente') %}
   <div class="card" id="qr-card">
     <h3 style="margin-bottom:6px">Entrar con el celular</h3>

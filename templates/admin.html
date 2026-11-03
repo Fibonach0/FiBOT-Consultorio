@@ -58,6 +58,7 @@
       <div><label>Nombre para mostrar</label><input type="text" name="nombre" placeholder="Lic. Ana Pérez" required></div>
       <div><label>Rubro</label><select name="rubro">{% for r in rubros %}<option>{{ r }}</option>{% endfor %}</select></div>
       <div><label>Página pública (opcional)</label><input type="text" name="slug" placeholder="anaperez" pattern="[a-z0-9][a-z0-9-]*"></div>
+      <div><label>Mail (opcional, para recuperar la clave)</label><input type="email" name="email" autocomplete="off"></div>
       <div><label>Usuario</label><input type="text" name="panel_user" autocomplete="off" required></div>
       <div><label>Clave inicial (mínimo 10)</label><input type="password" name="clave" autocomplete="new-password" minlength="10" required></div>
       <div class="al-pie"><button class="btn" type="submit">Crear cuenta</button></div>

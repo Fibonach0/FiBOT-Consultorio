@@ -122,7 +122,27 @@ def _avisar_reservas(tenant: dict, tz: ZoneInfo) -> None:
         logger.error("No se pudo avisar la reserva al tenant %s", tenant["id"])
 
 
+_ultima_limpieza = None
+
+
+def _limpiar() -> None:
+    """Una vez por día (el scheduler es un solo hilo en un solo worker)."""
+    global _ultima_limpieza
+    hoy = datetime.now(timezone.utc).date()
+    if _ultima_limpieza == hoy:
+        return
+    _ultima_limpieza = hoy
+    from datetime import timedelta
+    ahora = datetime.now(timezone.utc)
+    hace = lambda dias: (ahora - timedelta(days=dias)).isoformat()
+    db.limpiar_vencidos(ahora.isoformat(), hace(1), hace(7), hace(30), hace(90), hace(365))
+
+
 def _tick() -> None:
+    try:
+        _limpiar()
+    except Exception:
+        logger.exception("Fallo la limpieza diaria")
     for tenant in db.tenants_activos():
         horas_antes = tenant.get("recordatorio_horas_antes") or 24
         tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")

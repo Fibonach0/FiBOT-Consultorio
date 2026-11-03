@@ -316,6 +316,22 @@ que admin. `enlaces_clave`: link de 24 h que genera admin (no hay mail todavía)
 `actividad` registra ingresos, bloqueos, claves, sesiones, altas y moderación:
 nunca datos de pacientes.
 
+### Mail, limpieza y llaves de acceso (`migrations/041`)
+
+`mail.py` manda por Resend (`RESEND_API_KEY` + `MAIL_REMITENTE` en Railway); sin
+ellas no se manda nada y «¿Te olvidaste la clave?» sólo explica que lo pida a
+admin. La respuesta del pedido es siempre la misma (no dice si la cuenta existe)
+y cada pedido cuenta en `login_intentos` (`olvido:`). Link de 1 hora.
+`scheduler._limpiar` corre una vez por día: QR, links y sesiones vencidas,
+intentos viejos, copias de entregas de más de 90 días, links de cuestionario sin
+responder y actividad de más de un año. Nunca borra respuestas ni fichas.
+Llaves de acceso con `webauthn` (py_webauthn): se guarda sólo la clave pública
+(`llaves_acceso`), se exige verificación del usuario (huella/cara/PIN), y la
+llave reemplaza clave + doble factor. rp_id = el host del pedido: si cambia el
+dominio, las llaves registradas dejan de servir. `templates/_llaves_js.html`
+convierte base64url sin librerías. Probado con firma real usando un
+autenticador de software (`soft-webauthn`, con la marca de verificación puesta).
+
 ### Límite de intentos de login (`migrations/038`)
 
 `login_intentos` cuenta fallos por usuario (`panel:`, `admin:`, `totp:`; 5) y por IP
