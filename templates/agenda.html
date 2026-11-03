@@ -10,6 +10,10 @@
     {% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}
   {% endwith %}
 
+  {% if bloqueo_reciente %}
+  <div class="error">El {{ bloqueo_reciente }} tu cuenta se bloqueó 15 minutos porque pusieron la clave mal varias veces. Si no fuiste vos, cambiá la clave en «Ajustes».</div>
+  {% endif %}
+
   {% if cuestionarios_nuevos %}
   <div class="card">
     <h3>Cuestionarios respondidos <span class="contador">{{ cuestionarios_nuevos|length }}</span></h3>
@@ -493,6 +497,18 @@
       <div><label>Matrícula</label><input type="text" name="matricula" value="{{ tenant.matricula or '' }}"></div>
       <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
     </form>
+    <details>
+      <summary class="tenue">Cambiar la clave ▾</summary>
+      <form method="post" action="{{ url_for('agenda_clave') }}" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div><label>Clave actual</label><input type="password" name="actual" autocomplete="current-password" required></div>
+        <div><label>Clave nueva (mínimo 10)</label><input type="password" name="nueva" autocomplete="new-password" minlength="10" required></div>
+        <div><label>Repetí la nueva</label><input type="password" name="repetir" autocomplete="new-password" minlength="10" required></div>
+        <div class="al-pie"><button class="btn chico" type="submit">Cambiar</button></div>
+      </form>
+      <div class="tenue">Cierra las sesiones abiertas en otros dispositivos.</div>
+    </details>
     <details>
       <summary class="tenue">Firma y sello para informes{% if tenant.firma_imagen %} (cargada){% endif %} ▾</summary>
       {% if tenant.firma_imagen %}

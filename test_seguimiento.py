@@ -2238,6 +2238,78 @@ for _ in range(5):
     r = client.post("/admin/codigo", data={"codigo": "123456"})
 chequear("el código también tiene límite", client.post("/admin/codigo", data={"codigo": "123456"}).status_code == 429)
 
+# --- Cambio de clave, aviso de bloqueo y cerrar sesiones ---
+reset()
+TABLAS["login_intentos"] = []
+TABLAS["tenants"][0]["panel_user"] = "marcos"
+TABLAS["tenants"][0]["panel_pass_hash"] = _bcrypt.hashpw(b"clave-vieja-1", _bcrypt.gensalt(4)).decode()
+otro_cliente = app.app.test_client()
+with otro_cliente.session_transaction() as ses:
+    ses["tenant_id"] = "t1"
+with client.session_transaction() as ses:
+    ses.clear()
+    ses["tenant_id"] = "t1"
+    ses["csrf_token"] = "tok"
+html = client.get("/agenda").data.decode()
+chequear("Ajustes ofrece cambiar la clave", "Cambiar la clave" in html)
+for datos, motivo in [({"actual": "mala", "nueva": "clave-nueva-1", "repetir": "clave-nueva-1"}, "no es correcta"),
+                      ({"actual": "clave-vieja-1", "nueva": "corta", "repetir": "corta"}, "al menos 10"),
+                      ({"actual": "clave-vieja-1", "nueva": "clave-nueva-1", "repetir": "otra-cosa-1"}, "no coinciden"),
+                      ({"actual": "clave-vieja-1", "nueva": "clave-vieja-1", "repetir": "clave-vieja-1"}, "distinta")]:
+    html = client.post("/agenda/clave", data=datos, follow_redirects=True).data.decode()
+    chequear(f"cambio de clave rechazado: {motivo}", motivo in html and _bcrypt.checkpw(b"clave-vieja-1", TABLAS["tenants"][0]["panel_pass_hash"].encode()))
+html = client.post("/agenda/clave", data={"actual": "clave-vieja-1", "nueva": "clave-nueva-1", "repetir": "clave-nueva-1"}, follow_redirects=True).data.decode()
+chequear("cambia la clave", "cambiaste la clave" in html and _bcrypt.checkpw(b"clave-nueva-1", TABLAS["tenants"][0]["panel_pass_hash"].encode()))
+chequear("esta sesión sigue", client.get("/agenda").status_code == 200)
+chequear("las otras se cierran", otro_cliente.get("/agenda").status_code == 302)
+TABLAS["login_intentos"] = []
+for _ in range(5):
+    client.post("/agenda/clave", data={"actual": "mala", "nueva": "clave-nueva-2", "repetir": "clave-nueva-2"})
+html = client.post("/agenda/clave", data={"actual": "clave-nueva-1", "nueva": "clave-nueva-2", "repetir": "clave-nueva-2"}, follow_redirects=True).data.decode()
+chequear("la clave actual tiene el mismo límite de intentos", "Demasiados intentos" in html)
+chequear("y el bloqueo se avisa", TABLAS["tenants"][0].get("ultimo_bloqueo"))
+html = client.get("/agenda").data.decode()
+chequear("aviso de bloqueo en el panel", "tu cuenta se bloqueó 15 minutos" in html)
+partes = ", ".join(scheduler._partes_del_resumen(TABLAS["tenants"][0], datetime.now(zona).date()))
+chequear("y en el resumen, sin IP ni detalles", "tu cuenta se bloqueó por claves equivocadas" in partes)
+TABLAS["tenants"][0]["ultimo_bloqueo"] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
+chequear("un bloqueo viejo ya no se muestra", "tu cuenta se bloqueó" not in client.get("/agenda").data.decode())
+TABLAS["login_intentos"] = []
+for _ in range(5):
+    _post_sin_token("/login", data={"usuario": "marcos", "clave": "mala"})
+chequear("el login también marca el bloqueo", datetime.fromisoformat(TABLAS["tenants"][0]["ultimo_bloqueo"]) > datetime.now(timezone.utc) - timedelta(minutes=1))
+
+# cerrar sesiones desde admin
+TABLAS["login_intentos"] = []
+SEC2 = seguridad.nuevo_secreto()
+TABLAS["admins"] = [{"id": "a3", "usuario": "jefe", "pass_hash": _bcrypt.hashpw(b"clave-admin-larga", _bcrypt.gensalt(4)).decode(), "totp_secreto": SEC2}]
+profesional = app.app.test_client()
+with profesional.session_transaction() as ses:
+    ses["tenant_id"] = "t2"
+chequear("la profesional está adentro", profesional.get("/agenda").status_code == 200)
+with client.session_transaction() as ses:
+    ses.clear()
+    ses["csrf_token"] = "tok"
+_post_sin_token("/admin/login", data={"usuario": "jefe", "clave": "clave-admin-larga"})
+with client.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+client.post("/admin/codigo", data={"codigo": seguridad._codigo(SEC2, int(_time.time() // 30))})
+with client.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+html = client.post("/admin/profesionales/t2/cerrar-sesiones", data={}, follow_redirects=True).data.decode()
+chequear("el admin cierra sus sesiones", "Se cerraron todas las sesiones de Dra. Otra" in html and TABLAS["tenants"][1]["sesion_version"] == 1)
+chequear("la profesional queda afuera", profesional.get("/agenda").status_code == 302)
+chequear("cuenta inexistente", client.post("/admin/profesionales/nada/cerrar-sesiones", data={}).status_code == 404)
+admin2 = app.app.test_client()
+with admin2.session_transaction() as ses:
+    ses["admin_id"] = "a3"
+html = client.post("/admin/clave", data={"actual": "clave-admin-larga", "nueva": "solo-diez-c", "repetir": "solo-diez-c"}, follow_redirects=True).data.decode()
+chequear("la clave de admin pide 12", "al menos 12" in html)
+html = client.post("/admin/clave", data={"actual": "clave-admin-larga", "nueva": "clave-admin-nueva", "repetir": "clave-admin-nueva"}, follow_redirects=True).data.decode()
+chequear("el admin cambia su clave", "cambiaste la clave" in html and _bcrypt.checkpw(b"clave-admin-nueva", TABLAS["admins"][0]["pass_hash"].encode()))
+chequear("y sigue adentro", client.get("/admin").status_code == 200)
+chequear("su otra sesión se cierra", admin2.get("/admin").status_code == 302)
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

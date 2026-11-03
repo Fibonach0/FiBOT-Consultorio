@@ -57,6 +57,9 @@ def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
     renovar = sum(sesiones_que_quedan(s, ahora) is not None for clave, s in por_paciente.items() if not cerrado(clave))
     if renovar:
         partes.append(f"{renovar} paciente{'s' if renovar > 1 else ''} por renovar")
+    if tenant.get("ultimo_bloqueo") and \
+            datetime.fromisoformat(tenant["ultimo_bloqueo"]).timestamp() > datetime.now(timezone.utc).timestamp() - 24 * 3600:
+        partes.append("tu cuenta se bloqueó por claves equivocadas en las últimas 24 horas: si no fuiste vos, cambiá la clave")
     # Entregas abiertas desde el resumen anterior (sale una vez por día).
     hace_un_dia = datetime.now(timezone.utc).timestamp() - 24 * 3600
     abiertas = sum(1 for e in db.entregas(tenant["id"])

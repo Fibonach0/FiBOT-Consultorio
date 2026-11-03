@@ -2,8 +2,9 @@
 """Alta de una cuenta de administración (/admin). La clave se escribe acá,
 no pasa por ningún chat ni archivo.
 
-Uso:
-    SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... python scripts/crear_admin.py
+Uso (con las variables de Railway, desde la carpeta del proyecto):
+    python3 -m venv .venv && .venv/bin/pip install -r requirements.txt   # una sola vez
+    railway run .venv/bin/python scripts/crear_admin.py
 """
 import getpass
 import os
