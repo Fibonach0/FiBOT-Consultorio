@@ -1,0 +1,27 @@
+{% extends "base.html" %}
+{% block titulo %}Doble factor — Administración{% endblock %}
+{% block cuerpo %}
+<header><span>FiBOT Consultorio · Administración · {{ admin.usuario }}</span><a href="{{ url_for('logout') }}">Salir</a></header>
+<main>
+  <div class="card" style="max-width:520px;margin:30px auto">
+    <h2>Activá el doble factor</h2>
+    <p>La cuenta de administración lo necesita: además de la clave, al entrar te va a pedir un código del celular.</p>
+    <ol>
+      <li>Instalá una app de autenticación (Google Authenticator, Microsoft Authenticator, Authy o la de tu gestor de claves).</li>
+      <li>Agregá una cuenta nueva con «Ingresar clave de configuración» (o «manual»):
+        <div style="margin:8px 0"><span class="tenue">Cuenta:</span> FiBOT Consultorio ({{ admin.usuario }})</div>
+        <div style="font-family:monospace;font-size:1.05rem;background:var(--cream);padding:8px 10px;border-radius:6px;word-break:break-all">{{ clave }}</div>
+        <div class="tenue" style="margin-top:4px">Tipo: basada en tiempo. Si estás en el celular, también podés tocar <a href="{{ uri }}">este link</a>.</div>
+      </li>
+      <li>Escribí el código de 6 números que te muestra la app.</li>
+    </ol>
+    {% if error %}<div class="error">{{ error }}</div>{% endif %}
+    <form method="post">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="text" name="codigo" inputmode="numeric" autocomplete="one-time-code" maxlength="7" required style="font-size:1.4rem;letter-spacing:.2em;max-width:180px">
+      <button class="btn" type="submit" style="margin-top:12px">Activar</button>
+    </form>
+    <p class="tenue" style="margin-top:12px">No compartas esta clave ni le saques captura: con ella se generan tus códigos.</p>
+  </div>
+</main>
+{% endblock %}

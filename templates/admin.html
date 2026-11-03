@@ -17,6 +17,10 @@
   <div class="card">
     <h3>Profesionales <span class="contador">{{ tenants|length }}</span></h3>
     <div class="tenue" style="margin-bottom:8px">Uso de los últimos 30 días. Desde acá no se ve ningún dato de pacientes: sólo cuentas.</div>
+    <form method="get" action="{{ url_for('admin_uso_csv') }}" class="fila" style="margin-bottom:10px">
+      <div><label>Uso de un mes, para facturar</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
+      <div class="al-pie"><button class="btn chico secundario" type="submit">Bajar CSV</button></div>
+    </form>
     <div class="envoltura">
     <table class="tabla">
       <tr><th>Profesional</th><th>Usuario</th><th>Último ingreso</th><th>Sesiones</th><th>Pacientes</th><th>Cuestionarios</th><th>Entregas</th><th></th></tr>

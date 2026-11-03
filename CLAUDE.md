@@ -290,6 +290,16 @@ la clave la escribe quien lo corre). `session["admin_id"]` nunca convive con
 da de alta profesionales, los activa/desactiva y modera la biblioteca. Una cuenta
 desactivada pierde también la sesión abierta (`login_required` lo chequea).
 `SLUGS_RESERVADOS` está en app.py y en `scripts/crear_tenant.py`: mantenerlos iguales.
+El doble factor (TOTP, `seguridad.py`, sin dependencias) es OBLIGATORIO para admin:
+sin `totp_secreto` sólo se puede entrar a `/admin/doble-factor`. Tras la clave, la
+sesión queda en `admin_pendiente` hasta el código; `totp_ultimo_paso` impide reusarlo.
+`/admin/uso.csv?mes=AAAA-MM` baja el uso del mes (con BOM y «;» para Excel).
+
+### Límite de intentos de login (`migrations/038`)
+
+`login_intentos` cuenta fallos por usuario (`panel:`, `admin:`, `totp:`; 5) y por IP
+(`ip:`; 20, porque un consultorio comparte IP): bloquea 15 minutos. La IP sale de
+ProxyFix `x_for=1` (la que agrega el proxy de Railway, no la del cliente).
 
 ### Hoja de registro, informe y retest
 

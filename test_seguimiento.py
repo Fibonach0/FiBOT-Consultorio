@@ -94,6 +94,10 @@ class _Query:
         self.filtros.append(lambda f: f.get(c) is None if v == "null" else f.get(c) == v)
         return self
 
+    def in_(self, c, valores):
+        self.filtros.append(lambda f: f.get(c) in valores)
+        return self
+
     def neq(self, c, v):
         self.filtros.append(lambda f: _norm(f.get(c)) != _norm(v))
         return self
@@ -216,6 +220,7 @@ def reset():
     TABLAS["biblioteca_cuestionarios"] = []
     TABLAS["entregas"] = []
     TABLAS["admins"] = []
+    TABLAS["login_intentos"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -2042,8 +2047,18 @@ with client.session_transaction() as ses:
     ses.clear()
 r = _post_sin_token("/admin/login", data={"usuario": "igna", "clave": "mala"})
 chequear("clave mala no entra", r.status_code == 401)
+import seguridad  # noqa: E402
+
+SECRETO = seguridad.nuevo_secreto()
+TABLAS["admins"][0]["totp_secreto"] = SECRETO
 r = _post_sin_token("/admin/login", data={"usuario": "igna", "clave": "clave-larga-de-prueba"})
-chequear("entra y marca el ingreso", r.status_code == 302 and TABLAS["admins"][0].get("ultimo_ingreso"))
+chequear("con la clave pide el código", r.status_code == 302 and "/admin/codigo" in r.headers["Location"])
+chequear("sin código no hay panel", client.get("/admin").status_code == 302)
+with client.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+import time as _time  # noqa: E402
+r = client.post("/admin/codigo", data={"codigo": seguridad._codigo(SECRETO, int(_time.time() // 30))})
+chequear("entra y marca el ingreso", r.status_code == 302 and "/admin" in r.headers["Location"] and TABLAS["admins"][0].get("ultimo_ingreso"))
 with client.session_transaction() as ses:
     ses["csrf_token"] = "tok"
     chequear("la sesión de admin no es de un profesional", "tenant_id" not in ses)
@@ -2119,6 +2134,109 @@ chequear("bloqueado no abre ni con el DNI correcto", "se bloqueó" in r and "Fic
 chequear("la ficha lo muestra bloqueado", "bloqueado por DNI equivocado" in client.get("/agenda").data.decode())
 client.post("/agenda/paciente/ficha-completa/link", data={"telefono": TELD})
 chequear("sin DNI abre directo", "Ficha de Dani Vera" in _post_sin_token(f"/entrega/{TABLAS['entregas'][2]['token']}", data={}).data.decode())
+
+# --- Límite de intentos, doble factor y CSV de uso ---
+chequear("TOTP: vector de la RFC 6238", seguridad._codigo("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 59 // 30) == "287082"
+         and seguridad._codigo("GEZDGNBVGY3TQOJQGEZDGNBVGY3TQOJQ", 1111111109 // 30) == "081804")
+sec = seguridad.nuevo_secreto()
+paso = seguridad.verificar(sec, seguridad._codigo(sec, 1000), cuando=1000 * 30 + 5)
+chequear("TOTP: acepta el código actual", paso == 1000)
+chequear("TOTP: un paso de margen", seguridad.verificar(sec, seguridad._codigo(sec, 999), cuando=1000 * 30 + 5) == 999)
+chequear("TOTP: no acepta viejos", seguridad.verificar(sec, seguridad._codigo(sec, 990), cuando=1000 * 30 + 5) is None)
+chequear("TOTP: no se reusa", seguridad.verificar(sec, seguridad._codigo(sec, 1000), ultimo_paso=1000, cuando=1000 * 30 + 5) is None)
+chequear("TOTP: basura", seguridad.verificar(sec, "abc") is None and seguridad.verificar(sec, "") is None)
+from datetime import datetime as _dt, timezone as _tz  # noqa: E402
+t0 = _dt(2026, 11, 2, 12, 0, tzinfo=_tz.utc)
+fila = None
+for i in range(4):
+    fila = seguridad.tras_fallo(fila, t0)
+chequear("4 fallos no bloquean", fila["fallos"] == 4 and not fila["bloqueado_hasta"])
+fila = seguridad.tras_fallo(fila, t0)
+chequear("el quinto bloquea 15 minutos", fila["bloqueado_hasta"] == (t0 + seguridad.BLOQUEO).isoformat())
+chequear("fallos viejos no cuentan", seguridad.tras_fallo({"fallos": 4, "ultimo": (t0 - timedelta(minutes=20)).isoformat()}, t0)["fallos"] == 1)
+
+reset()
+db.get_tenant_by_panel_user = lambda u: next((dict(t) for t in TABLAS["tenants"] if t.get("panel_user") == u), None)
+TABLAS["tenants"][0]["panel_user"] = "marcos"
+TABLAS["tenants"][0]["panel_pass_hash"] = _bcrypt.hashpw(b"clave-buena", _bcrypt.gensalt(4)).decode()
+with client.session_transaction() as ses:
+    ses.clear()
+for _ in range(5):
+    r = _post_sin_token("/login", data={"usuario": "marcos", "clave": "mala"})
+chequear("5 fallos dejan la cuenta bloqueada", r.status_code == 401
+         and any(f["clave"] == "panel:marcos" and f.get("bloqueado_hasta") for f in TABLAS["login_intentos"]))
+r = _post_sin_token("/login", data={"usuario": "marcos", "clave": "clave-buena"})
+chequear("bloqueada no entra ni con la clave buena", r.status_code == 429 and "Demasiados intentos" in r.data.decode())
+r = _post_sin_token("/login", data={"usuario": "otro", "clave": "x"})
+chequear("otro usuario desde la misma IP todavía puede", r.status_code == 401)
+for _ in range(15):
+    r = _post_sin_token("/login", data={"usuario": f"u{_}", "clave": "x"})
+chequear("a los 20 fallos se bloquea la IP", _post_sin_token("/login", data={"usuario": "otro2", "clave": "x"}).status_code == 429)
+TABLAS["login_intentos"] = []
+r = _post_sin_token("/login", data={"usuario": "marcos", "clave": "mala"})
+r = _post_sin_token("/login", data={"usuario": "MARCOS", "clave": "clave-buena"})
+chequear("mayúsculas cuentan como el mismo usuario", any(f["clave"] == "panel:marcos" for f in TABLAS["login_intentos"]) or r.status_code == 302)
+TABLAS["login_intentos"] = []
+_post_sin_token("/login", data={"usuario": "marcos", "clave": "mala"})
+r = _post_sin_token("/login", data={"usuario": "marcos", "clave": "clave-buena"})
+chequear("entrar bien limpia los fallos del usuario", r.status_code == 302 and not any(f["clave"] == "panel:marcos" for f in TABLAS["login_intentos"])
+         and TABLAS["tenants"][0].get("ultimo_ingreso"))
+
+# admin nuevo: la clave sola lleva a configurar el doble factor
+TABLAS["login_intentos"] = []
+TABLAS["admins"] = [{"id": "a2", "usuario": "nuevo", "pass_hash": _bcrypt.hashpw(b"otra-clave-larga", _bcrypt.gensalt(4)).decode()}]
+with client.session_transaction() as ses:
+    ses.clear()
+    ses["csrf_token"] = "tok"
+r = _post_sin_token("/admin/login", data={"usuario": "nuevo", "clave": "otra-clave-larga"})
+chequear("admin sin doble factor va a configurarlo", "/admin/doble-factor" in r.headers["Location"])
+with client.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+chequear("sin configurarlo no ve el panel", "/admin/doble-factor" in client.get("/admin").headers["Location"])
+pagina = client.get("/admin/doble-factor").data.decode()
+with client.session_transaction() as ses:
+    nuevo_sec = ses["totp_nuevo"]
+chequear("muestra la clave para la app", seguridad.agrupado(nuevo_sec) in pagina and "otpauth://totp/" in pagina)
+chequear("todavía no la guarda", not TABLAS["admins"][0].get("totp_secreto"))
+html = client.post("/admin/doble-factor", data={"codigo": "000000" if seguridad._codigo(nuevo_sec, int(_time.time() // 30)) != "000000" else "111111"}).data.decode()
+chequear("código malo no activa", "no coincide" in html and not TABLAS["admins"][0].get("totp_secreto"))
+r = client.post("/admin/doble-factor", data={"codigo": seguridad._codigo(nuevo_sec, int(_time.time() // 30))})
+chequear("código bueno activa", TABLAS["admins"][0].get("totp_secreto") == nuevo_sec and client.get("/admin").status_code == 200)
+mes = datetime.now(zona).strftime("%Y-%m")
+TABLAS["turnos"].append(turno("csv1", "t1", ahora - timedelta(hours=5), estado="reservado", paciente_nombre="Nadie", paciente_telefono="5491100000009"))
+r = client.get(f"/admin/uso.csv?mes={mes}")
+cuerpo = r.data.decode("utf-8")
+chequear("baja el CSV del mes", r.status_code == 200 and f"uso-{mes}.csv" in r.headers["Content-Disposition"] and cuerpo.startswith("\ufeffProfesional;"))
+chequear("con el uso de cada cuenta y sin pacientes", "Lic. Marcos;marcos" in cuerpo and "Nadie" not in cuerpo and "5491100000009" not in cuerpo
+         and any(l.startswith("Lic. Marcos;") and l.split(";")[5] != "0" for l in cuerpo.splitlines()))
+chequear("mes raro cae en el actual", f"uso-{mes}.csv" in client.get("/admin/uso.csv?mes=cualquiera").headers["Content-Disposition"])
+with client.session_transaction() as ses:
+    ses.clear()
+    ses["tenant_id"] = "t1"
+    ses["csrf_token"] = "tok"
+chequear("un profesional no baja el CSV", client.get("/admin/uso.csv").status_code == 302)
+# código de admin: reuso y límite
+TABLAS["admins"][0]["totp_ultimo_paso"] = None
+with client.session_transaction() as ses:
+    ses.clear()
+    ses["csrf_token"] = "tok"
+_post_sin_token("/admin/login", data={"usuario": "nuevo", "clave": "otra-clave-larga"})
+with client.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+codigo_ya = seguridad._codigo(nuevo_sec, int(_time.time() // 30))
+r = client.post("/admin/codigo", data={"codigo": codigo_ya})
+chequear("el código entra", r.status_code == 302 and TABLAS["admins"][0]["totp_ultimo_paso"])
+with client.session_transaction() as ses:
+    ses.clear()
+    ses["csrf_token"] = "tok"
+_post_sin_token("/admin/login", data={"usuario": "nuevo", "clave": "otra-clave-larga"})
+with client.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+r = client.post("/admin/codigo", data={"codigo": codigo_ya})
+chequear("el mismo código no sirve dos veces", r.status_code == 401 and "ya usado" in r.data.decode())
+for _ in range(5):
+    r = client.post("/admin/codigo", data={"codigo": "123456"})
+chequear("el código también tiene límite", client.post("/admin/codigo", data={"codigo": "123456"}).status_code == 429)
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
