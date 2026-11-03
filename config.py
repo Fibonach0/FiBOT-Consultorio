@@ -66,6 +66,13 @@ RECORDATORIO_PAGO_TEMPLATE = os.environ.get("RECORDATORIO_PAGO_TEMPLATE", "")
 # Vacía = texto libre, con la misma limitación de las 24 h.
 LISTA_ESPERA_TEMPLATE = os.environ.get("LISTA_ESPERA_TEMPLATE", "")
 
+# Freno de envíos: lista de teléfonos separados por coma. Si está cargada, el
+# sistema SOLO le manda WhatsApp a esos números y al resto lo saltea (lo deja
+# en el log). Es para probar con un número real sin que los pacientes
+# inventados de la demo —que pueden ser teléfonos de gente real— reciban
+# nada. Vacía = sin freno: le manda a todos (producción).
+WHATSAPP_SOLO_A = [n.strip() for n in os.environ.get("WHATSAPP_SOLO_A", "").split(",") if n.strip()]
+
 # Mails (recuperar la clave). Proveedor: Resend (API HTTP). Sin las dos
 # variables, el sistema no manda mails y la recuperación sigue siendo por
 # el link que genera administración.
