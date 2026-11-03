@@ -40,7 +40,7 @@
       {% if tenant.foto %}<img src="{{ tenant.foto }}" alt="" width="72" height="72" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex:none">{% endif %}
       <div>
         <h1 style="margin:0 0 4px">{{ tenant.nombre }}</h1>
-        {% if tenant.rubro %}<p style="color:var(--muted); margin:0; text-transform:capitalize">{{ tenant.rubro }}{% if tenant.modalidades_publicas == 'virtual' %} · por videollamada{% elif tenant.modalidades_publicas == 'ambas' %} · presencial o videollamada{% endif %}</p>{% endif %}
+        {% if tenant.rubro %}<p style="color:var(--muted); margin:0"><span style="text-transform:capitalize">{{ tenant.rubro }}</span>{% if tenant.modalidades_publicas == 'virtual' %} · por videollamada{% elif tenant.modalidades_publicas == 'ambas' %} · presencial o videollamada{% endif %}</p>{% endif %}
       </div>
     </div>
     {% if tenant.descripcion %}<p style="margin-bottom:0">{{ tenant.descripcion }}</p>{% endif %}
