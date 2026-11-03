@@ -171,6 +171,11 @@ pública no es un camino paralelo, es la misma operación atómica (filtra por
 `slug` cargado simplemente no tiene página pública; sigue andando por
 WhatsApp y panel como siempre.
 
+Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
+muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin
+tomar el horario; el segundo reserva. Todas las pantallas dicen con quién es el
+turno.
+
 El teléfono que se carga en el formulario se limpia a solo dígitos antes de
 guardarlo — el recordatorio automático (y que el paciente después le escriba
 al bot para cancelar) necesitan el número en el mismo formato internacional

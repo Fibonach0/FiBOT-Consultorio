@@ -3319,10 +3319,23 @@ def publico_reservar(slug, turno_id):
     if not nombre or not telefono:
         flash("Completá nombre y teléfono.")
         return redirect(url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    if request.form.get("confirmado") != "1":
+        # Doble confirmación: primero se muestra todo junto (con quién, cuándo
+        # y a qué WhatsApp) y recién el segundo POST reserva. No se toma el
+        # horario en este paso: si otro lo reserva mientras tanto, se avisa.
+        turno = db.turno_por_id(tenant["id"], turno_id)
+        if not turno or turno["estado"] != "libre":
+            flash("Ese horario ya no está disponible — elegí otro.")
+            return redirect(url_for("publico", slug=slug))
+        if len(telefono) < 10:
+            flash("Revisá el WhatsApp: tiene que ir completo, con código de país (ej. 5491123456789).")
+            return redirect(url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
+        return render_template("publico_revisar.html", tenant=tenant, turno=_con_hora_local([turno], tz)[0],
+                               nombre=nombre, telefono=telefono)
     if not db.reservar_turno(tenant["id"], turno_id, telefono, nombre):
         flash("Ese horario ya no está disponible — elegí otro.")
         return redirect(url_for("publico", slug=slug))
-    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     turno = db.turno_por_id(tenant["id"], turno_id)
     turno = _con_hora_local([turno], tz)[0]
     return render_template("publico_confirmado.html", tenant=tenant, turno=turno)

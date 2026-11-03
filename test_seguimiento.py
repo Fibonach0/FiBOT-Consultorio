@@ -1241,7 +1241,7 @@ db.reprogramar_turno("t1", "p4", manana + timedelta(days=20), 50)
 movida = next(t for t in TABLAS["turnos"] if t.get("reprogramado_desde") and t["paciente_telefono"] == TEL6)
 chequear("reprogramar conserva la marca", movida["revisar_ficha"] and not fila_p("p4")["revisar_ficha"])
 TABLAS["turnos"].append(turno("p9", "t1", manana + timedelta(days=30)))
-respuesta = client.post("/marcos/reservar/p9", data={"nombre": "Juan Pérez", "telefono": TEL6}).data.decode()
+respuesta = client.post("/marcos/reservar/p9", data={"nombre": "Juan Pérez", "telefono": TEL6, "confirmado": "1"}).data.decode()
 chequear("la página pública no muestra otros pacientes", fila_p("p9")["revisar_ficha"] and "Lola" not in respuesta)
 
 partes = scheduler._partes_del_resumen(dict(TENANT), datetime.now(timezone.utc).date())
@@ -1266,7 +1266,7 @@ envios = []
 _texto, _numero = scheduler.whatsapp.enviar_texto, scheduler.whatsapp.numero_de
 scheduler.whatsapp.enviar_texto = lambda n, tel, texto: envios.append((tel, texto)) or True
 scheduler.whatsapp.numero_de = lambda t: "num"
-client.post("/marcos/reservar/w0", data={"nombre": "Mora Díaz", "telefono": "54 9 11 2222 3333"})
+client.post("/marcos/reservar/w0", data={"nombre": "Mora Díaz", "telefono": "54 9 11 2222 3333", "confirmado": "1"})
 chequear("la reserva pública entra en la agenda", fila_w("w0")["estado"] == "reservado" and fila_w("w0")["paciente_telefono"] == "5491122223333")
 html = client.get("/agenda").data.decode()
 chequear("aparece en Reservas nuevas", "Reservas nuevas" in html and "Mora Díaz" in html[html.index("Reservas nuevas"):html.index("<h3>Hoy")])
@@ -1281,12 +1281,12 @@ client.post("/agenda/sesion/w0/vista", data={})
 chequear("Visto la saca de la tarjeta", "Reservas nuevas" not in client.get("/agenda").data.decode() and fila_w("w0")["estado"] == "reservado")
 client.post("/agenda/agendar/w1", data={"nombre": "Del panel", "telefono": "5491133334444"})
 chequear("lo agendado desde el panel no avisa", not fila_w("w1")["reserva_nueva"] and scheduler.db.reservas_sin_avisar("t1") == [])
-client.post("/marcos/reservar/w2", data={"nombre": "Ida", "telefono": "5491144440000"})
+client.post("/marcos/reservar/w2", data={"nombre": "Ida", "telefono": "5491144440000", "confirmado": "1"})
 db.cancelar_turno("t1", "w2")
 scheduler._avisar_reservas(tenant_w, zona)
 chequear("cancelada antes del aviso no se avisa", len(envios) == 1 and not fila_w("w2")["reserva_nueva"])
-client.post("/marcos/reservar/w2", data={"nombre": "Ida", "telefono": "5491144440000"})
-client.post("/marcos/reservar/w3", data={"nombre": "Eva", "telefono": "5491155550000"})
+client.post("/marcos/reservar/w2", data={"nombre": "Ida", "telefono": "5491144440000", "confirmado": "1"})
+client.post("/marcos/reservar/w3", data={"nombre": "Eva", "telefono": "5491155550000", "confirmado": "1"})
 scheduler._avisar_reservas(tenant_w, zona)
 chequear("varias juntas van en un solo mensaje", len(envios) == 2 and "2 reservas nuevas" in envios[1][1], envios)
 scheduler.whatsapp.enviar_texto, scheduler.whatsapp.numero_de = _texto, _numero

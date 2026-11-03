@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block titulo %}Revisá tu turno — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<header>
+  <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
+</header>
+<main>
+  <div class="card">
+    <h2>Revisá antes de reservar</h2>
+    <div class="turno"><span>Profesional</span><strong>{{ tenant.nombre }}{% if tenant.rubro %} <span style="color:var(--muted);font-weight:400">· {{ tenant.rubro }}</span>{% endif %}</strong></div>
+    <div class="turno"><span>Día</span><strong>{{ turno._dia }}</strong></div>
+    <div class="turno"><span>Hora</span><strong>{{ turno._hora }}</strong></div>
+    <div class="turno"><span>A nombre de</span><strong>{{ nombre }}</strong></div>
+    <div class="turno"><span>WhatsApp</span><strong>+{{ telefono }}</strong></div>
+    <p style="color:var(--muted);">A ese WhatsApp te llega el recordatorio antes del turno. Si algo no está bien, corregilo antes de confirmar.</p>
+
+    <form method="post" action="{{ url_for('publico_reservar', slug=tenant.slug, turno_id=turno.id) }}">
+      <input type="hidden" name="nombre" value="{{ nombre }}">
+      <input type="hidden" name="telefono" value="{{ telefono }}">
+      <input type="hidden" name="confirmado" value="1">
+      <div style="margin-top:14px;">
+        <button class="btn" type="submit">Sí, reservar con {{ tenant.nombre }}</button>
+        <a class="btn secundario" href="{{ url_for('publico_reservar_form', slug=tenant.slug, turno_id=turno.id) }}" style="text-decoration:none; display:inline-block; margin-left:8px;">Corregir</a>
+      </div>
+    </form>
+  </div>
+</main>
+{% endblock %}
