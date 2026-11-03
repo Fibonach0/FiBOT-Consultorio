@@ -2624,7 +2624,8 @@ adm.post("/admin/codigo", data={"csrf_token": "tok", "codigo": seguridad._codigo
 with adm.session_transaction() as ses:
     ses["csrf_token"] = "tok"
 html = adm.get("/admin").data.decode()
-chequear("admin ofrece agregar llave", "Tus llaves de acceso" in html and "/admin/llaves/opciones" in html)
+chequear("admin ofrece agregar llave", "llaves de acceso" in html and "/admin/llaves/opciones" in html)
+chequear("la llave está arriba, antes de la lista de profesionales", html.index("Agregar llave en este dispositivo") < html.index("<h3>Profesionales"))
 o = adm.post("/admin/llaves/opciones", data={"csrf_token": "tok"}).get_json()
 chequear("opciones de llave para admin", o["user"]["name"] == "igna" and o["authenticatorSelection"]["userVerification"] == "required")
 app.webauthn.verify_registration_response = lambda **k: SimpleNamespace(credential_id=b"llave-admin", credential_public_key=b"pub", sign_count=0)

@@ -25,6 +25,44 @@
   </div>
 
   <div class="card">
+    <h3>Tu cuenta · llaves de acceso <span class="contador">{{ admin_llaves|length }}</span></h3>
+    <p class="tenue" style="margin-top:0">Entrás a administración con la huella, la cara o el PIN del dispositivo, sin clave ni código.</p>
+    {% for x in admin_llaves %}
+    <div class="ficha-item">
+      <span><strong>{{ x.nombre or 'Llave' }}</strong> <span class="tenue">· último uso {{ x.ultima[:10] if x.ultima else 'nunca' }}</span></span>
+      <form method="post" action="{{ url_for('admin_llave_borrar', llave_id=x.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="quitar" type="submit" onclick="return confirm('¿Borrar esta llave?')">×</button>
+      </form>
+    </div>
+    {% endfor %}
+    <button class="btn chico secundario" type="button" id="llave-agregar">Agregar llave en este dispositivo</button>
+    <div class="tenue" id="llave-estado" style="margin-top:6px"></div>
+    {% with prefijo_llaves="admin_", prefijo_llaves_login="admin_" %}{% include "_llaves_js.html" %}{% endwith %}
+    <script>
+    (() => {
+      const b = document.getElementById('llave-agregar');
+      if (!fibotLlaves.disponible()) { b.disabled = true; return; }
+      b.addEventListener('click', async () => {
+        const r = await fibotLlaves.registrar('{{ csrf_token() }}');
+        if (r.ok) location.reload(); else document.getElementById('llave-estado').textContent = r.error || 'No se pudo.';
+      });
+    })();
+    </script>
+  </div>
+
+  <div class="card">
+    <h3>Tu clave</h3>
+    <form method="post" action="{{ url_for('admin_clave') }}" class="fila">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label>Clave actual</label><input type="password" name="actual" autocomplete="current-password" required></div>
+      <div><label>Clave nueva (mínimo 12)</label><input type="password" name="nueva" autocomplete="new-password" minlength="12" required></div>
+      <div><label>Repetí la nueva</label><input type="password" name="repetir" autocomplete="new-password" minlength="12" required></div>
+      <div class="al-pie"><button class="btn chico" type="submit">Cambiar</button></div>
+    </form>
+  </div>
+
+  <div class="card">
     <h3>Profesionales <span class="contador">{{ tenants|length }}</span></h3>
     <div class="tenue" style="margin-bottom:8px">Uso de los últimos 30 días. Desde acá no se ve ningún dato de pacientes: sólo cuentas.</div>
     <form method="get" action="{{ url_for('admin_uso_csv') }}" class="fila" style="margin-bottom:10px">
@@ -76,8 +114,8 @@
     <div class="tenue" style="margin-top:6px">Sale por el número de WhatsApp compartido de la plataforma, con turnos de 50 minutos y recordatorio 24 horas antes; la profesional ajusta el resto desde su panel.</div>
   </div>
 
-  <div class="card">
-    <h3>Actividad</h3>
+  <details class="card" {% if filtro %}open{% endif %}>
+    <summary><h3 style="display:inline">Actividad</h3> <span class="tenue">· últimos 200 movimientos</span></summary>
     <form method="get" class="fila" style="margin-bottom:8px">
       <div><label>De</label><select name="actividad_de" onchange="this.form.submit()">
         <option value="">Todas las cuentas</option>
@@ -92,45 +130,7 @@
     </table>
     </div>
     <div class="tenue" style="margin-top:6px">Ingresos, bloqueos, cambios de clave, sesiones cerradas, altas y moderación. Nunca datos de pacientes. Últimos 200.</div>
-  </div>
-
-  <div class="card">
-    <h3>Tus llaves de acceso <span class="contador">{{ admin_llaves|length }}</span></h3>
-    <p class="tenue" style="margin-top:0">Entrás a administración con la huella, la cara o el PIN del dispositivo, sin clave ni código.</p>
-    {% for x in admin_llaves %}
-    <div class="ficha-item">
-      <span><strong>{{ x.nombre or 'Llave' }}</strong> <span class="tenue">· último uso {{ x.ultima[:10] if x.ultima else 'nunca' }}</span></span>
-      <form method="post" action="{{ url_for('admin_llave_borrar', llave_id=x.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="quitar" type="submit" onclick="return confirm('¿Borrar esta llave?')">×</button>
-      </form>
-    </div>
-    {% endfor %}
-    <button class="btn chico secundario" type="button" id="llave-agregar">Agregar llave en este dispositivo</button>
-    <div class="tenue" id="llave-estado" style="margin-top:6px"></div>
-    {% with prefijo_llaves="admin_", prefijo_llaves_login="admin_" %}{% include "_llaves_js.html" %}{% endwith %}
-    <script>
-    (() => {
-      const b = document.getElementById('llave-agregar');
-      if (!fibotLlaves.disponible()) { b.disabled = true; return; }
-      b.addEventListener('click', async () => {
-        const r = await fibotLlaves.registrar('{{ csrf_token() }}');
-        if (r.ok) location.reload(); else document.getElementById('llave-estado').textContent = r.error || 'No se pudo.';
-      });
-    })();
-    </script>
-  </div>
-
-  <div class="card">
-    <h3>Tu clave</h3>
-    <form method="post" action="{{ url_for('admin_clave') }}" class="fila">
-      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <div><label>Clave actual</label><input type="password" name="actual" autocomplete="current-password" required></div>
-      <div><label>Clave nueva (mínimo 12)</label><input type="password" name="nueva" autocomplete="new-password" minlength="12" required></div>
-      <div><label>Repetí la nueva</label><input type="password" name="repetir" autocomplete="new-password" minlength="12" required></div>
-      <div class="al-pie"><button class="btn chico" type="submit">Cambiar</button></div>
-    </form>
-  </div>
+  </details>
 
   <div class="card">
     <h3>Biblioteca compartida <span class="contador">{{ biblioteca|length }}</span></h3>
