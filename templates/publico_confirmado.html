@@ -8,7 +8,7 @@
   <div class="card">
     <h2>¡Turno reservado!</h2>
     <p>Con <strong>{{ tenant.nombre }}</strong>{% if tenant.rubro %} <span style="color:var(--muted);">({{ tenant.rubro }})</span>{% endif %}</p>
-    <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}</p>
+    <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}{% if turno.tipo %} · {{ turno.tipo }}{% endif %}</p>
     {% if turno.modalidad == 'virtual' %}<p>Es <strong>por videollamada</strong>: el link te llega con la confirmación.</p>{% endif %}
     {% if enviada %}
     <div class="aviso" style="margin:10px 0"><strong>Revisá tu WhatsApp:</strong> te mandamos un mensaje para que confirmes el turno. Al confirmar te llega el link para agendarlo en tu calendario.</div>

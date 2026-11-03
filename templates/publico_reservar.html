@@ -8,10 +8,11 @@
   <div class="card">
     <h2>Tus datos</h2>
     <p>Turno con <strong>{{ tenant.nombre }}</strong>{% if tenant.rubro %} <span style="color:var(--muted);">({{ tenant.rubro }})</span>{% endif %}</p>
-    <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}</p>
+    <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}{% if tipo %} · {{ tipo.nombre }} ({{ tipo.minutos }} min){% endif %}</p>
     {% with mensajes = get_flashed_messages() %}{% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}{% endwith %}
 
     <form method="post" action="{{ url_for('publico_reservar', slug=tenant.slug, turno_id=turno.id) }}">
+      {% if i_tipo is not none %}<input type="hidden" name="tipo" value="{{ i_tipo }}">{% endif %}
       <label for="nombre">Nombre y apellido</label>
       <input type="text" id="nombre" name="nombre" required>
 

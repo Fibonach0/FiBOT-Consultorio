@@ -169,6 +169,7 @@
             {% if t._reprogramado_desde %}<span class="chip">pasada del {{ t._reprogramado_desde }}</span>{% endif %}
             {% if t.frecuencia %}<span class="chip">{{ t.frecuencia }}</span>{% endif %}
             {% if t.modalidad == 'virtual' %}<span class="chip">videollamada</span>{% endif %}
+            {% if t.tipo %}<span class="chip">{{ t.tipo }}</span>{% endif %}
             {% if t.confirmado_at %}<span class="chip" title="Confirmó por WhatsApp: el número es correcto">✓ confirmó</span>{% elif t.confirmacion_enviada_at %}<span class="chip" title="Se le mandó un WhatsApp para confirmar y todavía no contestó">sin confirmar</span>{% endif %}
             {% if t.valor is not none and t.valor is defined %}<span class="chip">{{ t.valor|pesos }}</span>{% endif %}
             {% if t.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
@@ -343,8 +344,48 @@
 
   <div class="tablero abajo">
   <div>
+  <div class="card" id="tipos">
+    <h3>Tipos de turno</h3>
+    <p class="tenue" style="margin-top:0">Si ofrecés turnos de distinta duración, cargalos y el paciente elige al reservar (ej. «Primera entrevista» 60 min y «Sesión» 45). Un turno largo ocupa los horarios libres siguientes. Vacío = un solo tipo, de {{ duracion_default }} minutos.</p>
+    <form method="post" action="{{ url_for('agenda_tipos') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% set tt = tenant.tipos_turno or [] %}
+      {% for n in range(1, 5) %}
+      <div class="fila" style="margin-bottom:4px">
+        <div style="flex:2"><input type="text" name="tipo{{ n }}_nombre" maxlength="60" placeholder="{{ 'Primera entrevista' if n == 1 else 'Sesión' if n == 2 else '' }}" value="{{ tt[n-1].nombre if tt|length >= n else '' }}" aria-label="Nombre del tipo {{ n }}"></div>
+        <div><input type="number" name="tipo{{ n }}_minutos" min="10" max="240" step="5" placeholder="min" value="{{ tt[n-1].minutos if tt|length >= n else '' }}" aria-label="Minutos del tipo {{ n }}"></div>
+      </div>
+      {% endfor %}
+      <div class="al-pie"><button class="btn chico" type="submit">Guardar tipos</button></div>
+    </form>
+  </div>
+
+  <div class="card" id="horario">
+    <h3>Tu horario de atención</h3>
+    <p class="tenue" style="margin-top:0">Cargalo una vez y los horarios libres se generan solos, semana a semana. Hasta dos franjas por día (ej. 9 a 13 y 15 a 19). Turnos de {{ duracion_default }} minutos.</p>
+    <form method="post" action="{{ url_for('agenda_horario') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% for d in range(7) %}
+      {% set fr = horario_por_dia[d] %}
+      <div class="fila" style="align-items:center;margin-bottom:4px">
+        <div style="min-width:90px;flex:0"><strong>{{ dias_label[d] }}</strong></div>
+        <div><input type="time" name="dia{{ d }}_desde1" step="900" value="{{ fr[0][1] if fr|length > 0 else '' }}" aria-label="{{ dias_label[d] }} desde"></div>
+        <div><input type="time" name="dia{{ d }}_hasta1" step="900" value="{{ fr[0][2] if fr|length > 0 else '' }}" aria-label="{{ dias_label[d] }} hasta"></div>
+        <div><input type="time" name="dia{{ d }}_desde2" step="900" value="{{ fr[1][1] if fr|length > 1 else '' }}" aria-label="{{ dias_label[d] }} desde (2da franja)"></div>
+        <div><input type="time" name="dia{{ d }}_hasta2" step="900" value="{{ fr[1][2] if fr|length > 1 else '' }}" aria-label="{{ dias_label[d] }} hasta (2da franja)"></div>
+      </div>
+      {% endfor %}
+      <div class="fila">
+        <div><label>Generar con anticipación</label><select name="horario_semanas">
+          {% for x in range(1, 13) %}<option value="{{ x }}"{% if (tenant.horario_semanas or 4) == x %} selected{% endif %}>{{ x }} semana{{ 's' if x > 1 }}</option>{% endfor %}
+        </select></div>
+        <div class="al-pie"><button class="btn chico" type="submit">Guardar horario</button></div>
+      </div>
+    </form>
+  </div>
+
   <div class="card">
-    <h3>Generar horarios disponibles</h3>
+    <h3>Generar horarios a mano</h3>
     <form method="post" action="{{ url_for('agenda_generar') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <div class="fila">
@@ -514,12 +555,13 @@
     <form method="post" action="{{ url_for('agenda_pausa') }}" class="fila" style="align-items:flex-end;padding:10px;border-radius:8px;margin-bottom:10px;background:{{ '#fbeeee' if tenant.pausado else 'var(--green-bg)' }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% if tenant.pausado %}
-        <div style="flex:2"><strong>Pausada:</strong> nadie puede reservar (ni por la web ni por WhatsApp).{% if tenant.mensaje_pausa %} <span class="tenue">«{{ tenant.mensaje_pausa }}»</span>{% endif %}</div>
+        <div style="flex:2"><strong>Pausada{% if tenant.pausado_hasta %} hasta el {{ tenant.pausado_hasta[8:10] }}/{{ tenant.pausado_hasta[5:7] }} (ese día se reactiva sola){% endif %}:</strong> nadie puede reservar (ni por la web ni por WhatsApp).{% if tenant.mensaje_pausa %} <span class="tenue">«{{ tenant.mensaje_pausa }}»</span>{% endif %}</div>
         <input type="hidden" name="pausar" value="0">
         <div class="al-pie"><button class="btn chico" type="submit">Volver a tomar turnos</button></div>
       {% else %}
         <div style="flex:2"><strong>Tomando turnos.</strong> <label style="margin:4px 0 2px">Si te vas de vacaciones, pausala (mensaje opcional para tus pacientes):</label>
-          <input type="text" name="mensaje_pausa" maxlength="200" placeholder="Vuelvo a atender el 2 de marzo"></div>
+          <input type="text" name="mensaje_pausa" maxlength="200" placeholder="Me tomo unos días de descanso"></div>
+        <div><label style="margin:4px 0 2px">Vuelvo el (opcional)</label><input type="date" name="pausado_hasta"></div>
         <input type="hidden" name="pausar" value="1">
         <div class="al-pie"><button class="btn chico secundario" type="submit">Pausar</button></div>
       {% endif %}

@@ -379,6 +379,7 @@ _LIBERADO = {
     "confirmacion_recordada_at": None,
     "hueco": None,
     "hueco_desde": None,
+    "tipo": None,
 }
 
 
@@ -512,6 +513,7 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
                 "frecuencia": original.get("frecuencia"),
                 "modalidad": original.get("modalidad"),
                 "nota": original.get("nota"),
+                "tipo": original.get("tipo"),
                 "reprogramado_desde": original["inicio"],
             }
         )

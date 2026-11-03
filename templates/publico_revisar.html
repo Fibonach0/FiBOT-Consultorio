@@ -10,6 +10,7 @@
     <div class="turno"><span>Profesional</span><strong>{{ tenant.nombre }}{% if tenant.rubro %} <span style="color:var(--muted);font-weight:400">· {{ tenant.rubro }}</span>{% endif %}</strong></div>
     <div class="turno"><span>Día</span><strong>{{ turno._dia }}</strong></div>
     <div class="turno"><span>Hora</span><strong>{{ turno._hora }}</strong></div>
+    {% if tipo %}<div class="turno"><span>Turno</span><strong>{{ tipo.nombre }} · {{ tipo.minutos }} min</strong></div>{% endif %}
     <div class="turno"><span>Modalidad</span><strong>{{ 'Por videollamada' if modalidad == 'virtual' else 'En el consultorio' }}</strong></div>
     <div class="turno"><span>A nombre de</span><strong>{{ nombre }}</strong></div>
     <div class="turno"><span>WhatsApp</span><strong>+{{ telefono }}</strong></div>
@@ -19,6 +20,7 @@
       <input type="hidden" name="nombre" value="{{ nombre }}">
       <input type="hidden" name="telefono" value="{{ telefono }}">
       <input type="hidden" name="modalidad" value="{{ modalidad }}">
+      {% if i_tipo is not none %}<input type="hidden" name="tipo" value="{{ i_tipo }}">{% endif %}
       <input type="hidden" name="confirmado" value="1">
       <div style="margin-top:14px;">
         <button class="btn" type="submit">Sí, reservar con {{ tenant.nombre }}</button>

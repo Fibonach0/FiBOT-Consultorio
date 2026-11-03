@@ -160,3 +160,28 @@ def vencer_huecos(tenant: dict, ahora: datetime | None = None) -> int:
         scheduler.avisar_profesional(tenant, texto)
         resueltos += 1
     return resueltos
+
+
+def reactivar_si_toca(tenant: dict, hoy) -> bool:
+    """Pausa con fecha de vuelta: el día que llega, la página vuelve a tomar
+    turnos, se le avisa al profesional y a la lista de espera se le ofrece el
+    próximo horario libre (una vez por persona y por día). Lo llama el
+    scheduler; devuelve True si reactivó."""
+    hasta = tenant.get("pausado_hasta")
+    if not tenant.get("pausado") or not hasta or hoy.isoformat() < str(hasta)[:10]:
+        return False
+    db.guardar_ajustes(tenant["id"], {"pausado": False, "pausado_hasta": None, "mensaje_pausa": None})
+    tenant = {**tenant, "pausado": False}
+    avisados = 0
+    proximo = db.turnos_libres(tenant["id"], datetime.now(ZoneInfo("UTC")), limite=1)
+    if proximo and tenant.get("slug"):
+        cuando = scheduler.cuando_de(proximo[0], tenant, _tz(tenant))
+        for p in db.lista_de_espera(tenant["id"]):
+            if p.get("ofrecido_en") == hoy.isoformat():
+                continue
+            db.marcar_ofrecido(tenant["id"], p["id"], hoy.isoformat())
+            if ofrecer_horario(tenant, p["telefono"], cuando, f"{base_url()}/{tenant['slug']}"):
+                avisados += 1
+    scheduler.avisar_profesional(tenant, "terminó tu pausa: tu página vuelve a tomar turnos"
+                                 + (f"; le avisamos a {avisados} de tu lista de espera" if avisados else ""))
+    return True

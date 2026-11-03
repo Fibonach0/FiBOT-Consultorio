@@ -38,7 +38,8 @@ def _menu(tenant: dict) -> str:
 
 
 def _pausado(tenant: dict) -> str:
-    return (f"*{tenant['nombre']}* no está tomando turnos nuevos por ahora."
+    vuelve = f" Vuelve el {str(tenant['pausado_hasta'])[8:10]}/{str(tenant['pausado_hasta'])[5:7]}." if tenant.get("pausado_hasta") else ""
+    return (f"*{tenant['nombre']}* no está tomando turnos nuevos por ahora.{vuelve}"
             + (f" {tenant['mensaje_pausa']}" if tenant.get("mensaje_pausa") else "")
             + " Si ya tenés un turno, sigue en pie.")
 
