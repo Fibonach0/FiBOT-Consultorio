@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block titulo %}Turno cancelado — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<header><span>FiBOT Consultorio · {{ tenant.nombre }}</span></header>
+<main>
+  <div class="card" style="max-width:520px;margin:30px auto">
+    <h2>Listo, se canceló</h2>
+    <p>Tu turno con <strong>{{ tenant.nombre }}</strong> del {{ turno._dia }} a las {{ turno._hora }} quedó cancelado. Si lo tenías agendado, borralo de tu calendario.</p>
+    {% if tenant.slug %}<a class="btn secundario" style="text-decoration:none" href="{{ url_for('publico', slug=tenant.slug) }}">Sacar otro turno</a>{% endif %}
+  </div>
+</main>
+{% endblock %}
