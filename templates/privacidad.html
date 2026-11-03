@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block titulo %}Política de privacidad — FiBOT Consultorio{% endblock %}
+{% block cuerpo %}
+<header><span>FiBOT Consultorio</span></header>
+<main style="max-width:760px">
+  <div class="card" style="line-height:1.6">
+    <h2>Política de privacidad</h2>
+    <p class="tenue">Última actualización: {{ actualizada }}</p>
+
+    <h3>Qué es FiBOT Consultorio</h3>
+    <p>FiBOT Consultorio es un sistema para profesionales de la salud mental y la psicopedagogía: agenda de turnos, recordatorios y avisos por WhatsApp, fichas de pacientes y herramientas de seguimiento. Lo usan profesionales («los profesionales») para atender a sus pacientes («los pacientes»).</p>
+
+    <h3>Quién es responsable de los datos</h3>
+    <p>Cada profesional es responsable de los datos de sus pacientes que carga o recibe en el sistema. FiBOT Consultorio presta el servicio y trata esos datos sólo por cuenta y orden del profesional, para que el sistema funcione. Para consultas sobre esta política o sobre el servicio, escribinos a <strong>{{ contacto }}</strong>.</p>
+
+    <h3>Qué datos se tratan</h3>
+    <ul>
+      <li><strong>De los pacientes:</strong> nombre, número de WhatsApp, turnos y su estado, mensajes que el paciente le manda al número del consultorio, respuestas a cuestionarios y, cuando el profesional los carga, datos de su ficha (incluidos datos de salud, que la ley considera sensibles).</li>
+      <li><strong>De los profesionales:</strong> nombre, matrícula, usuario, mail y número para avisos, y registros de ingreso y seguridad de su cuenta.</li>
+    </ul>
+
+    <h3>Para qué se usan</h3>
+    <ul>
+      <li>Reservar, recordar, reprogramar y cancelar turnos, incluso por WhatsApp.</li>
+      <li>Avisarle al profesional reservas nuevas y su resumen diario.</li>
+      <li>Que el profesional lleve sus fichas, cuestionarios e informes.</li>
+      <li>Proteger las cuentas (registro de ingresos, avisos de seguridad).</li>
+    </ul>
+    <p>No vendemos datos, no los usamos para publicidad y no los compartimos con terceros fuera de lo necesario para prestar el servicio.</p>
+
+    <h3>WhatsApp</h3>
+    <p>Los mensajes se envían y reciben por la API oficial de WhatsApp Business de Meta. Al escribirle al número del consultorio, el paciente acepta además las condiciones y la política de privacidad de WhatsApp. Por WhatsApp no se envían datos clínicos: sólo turnos, recordatorios y avisos. Los avisos al profesional van sin nombres de pacientes.</p>
+
+    <h3>Dónde se guardan y quién más interviene</h3>
+    <p>Los datos se guardan en servidores de proveedores de infraestructura (alojamiento de la aplicación y base de datos) y, para los mensajes, en Meta. Estos proveedores sólo procesan los datos para prestar su servicio. El acceso dentro del sistema está separado por profesional: un profesional nunca ve los pacientes de otro.</p>
+
+    <h3>Seguridad</h3>
+    <p>Conexiones cifradas (HTTPS), claves guardadas con cifrado irreversible, doble factor y llaves de acceso opcionales, límite de intentos de ingreso, registro de actividad y enlaces de un solo uso para entregar información.</p>
+
+    <h3>Cuánto tiempo se guardan</h3>
+    <p>Mientras el profesional use el servicio o hasta que pida borrarlos. Los datos técnicos temporales (sesiones vencidas, enlaces usados, registros de seguridad de más de un año) se borran automáticamente.</p>
+
+    <h3>Tus derechos</h3>
+    <p>De acuerdo con la Ley 25.326 de Protección de Datos Personales, podés pedir acceso, rectificación, actualización o supresión de tus datos. Si sos paciente, lo más directo es pedírselo a tu profesional; también podés escribirnos a <strong>{{ contacto }}</strong> y lo gestionamos con él. Para dejar de recibir mensajes por WhatsApp, pedíselo a tu profesional.</p>
+    <p class="tenue">La Agencia de Acceso a la Información Pública, en su carácter de órgano de control de la Ley 25.326, tiene la atribución de atender las denuncias y reclamos que interpongan quienes resulten afectados en sus derechos por incumplimiento de las normas vigentes en materia de protección de datos personales.</p>
+
+    <h3>Cambios</h3>
+    <p>Si cambiamos esta política, actualizamos la fecha de arriba. Los cambios importantes se avisan a los profesionales.</p>
+  </div>
+</main>
+{% endblock %}
