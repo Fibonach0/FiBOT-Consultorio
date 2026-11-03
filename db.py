@@ -1215,3 +1215,15 @@ def marcar_aviso_enviado(tenant_id: str, dia: str) -> None:
 def tenants_activos() -> list[dict]:
     res = _client.table("tenants").select("*").eq("activo", True).execute()
     return res.data
+
+
+def marcar_evento(clave: str, detalle: str | None = None) -> None:
+    """Última vez que pasó algo de la plataforma (ej. 'webhook', 'mensaje')."""
+    from datetime import datetime, timezone
+    _client.table("eventos_plataforma").upsert(
+        {"clave": clave, "cuando": datetime.now(timezone.utc).isoformat(), "detalle": detalle},
+        on_conflict="clave").execute()
+
+
+def eventos_plataforma() -> dict[str, dict]:
+    return {f["clave"]: f for f in _client.table("eventos_plataforma").select("*").execute().data}

@@ -94,6 +94,7 @@ def webhook_receive():
         return jsonify(ok=False), 403
 
     body = request.get_json(silent=True) or {}
+    _marcar("webhook", body.get("object"))
     for entry in body.get("entry", []):
         for change in entry.get("changes", []):
             value = change.get("value", {})
@@ -117,6 +118,7 @@ def webhook_receive():
                 if msg.get("type") != "text":
                     continue
                 telefono = msg.get("from")
+                _marcar("mensaje", phone_number_id)
                 tenant = tenant_del_numero or db.tenant_por_paciente(telefono)
                 if not tenant:
                     logger.warning(
@@ -131,6 +133,15 @@ def webhook_receive():
                 whatsapp.enviar_texto(whatsapp.numero_de(tenant), telefono, respuesta)
 
     return jsonify(ok=True), 200
+
+
+def _marcar(clave: str, detalle: str | None) -> None:
+    """Para el «último mensaje recibido» de administración. Si falla, el
+    mensaje se procesa igual."""
+    try:
+        db.marcar_evento(clave, detalle)
+    except Exception:
+        logger.warning("No se pudo marcar el evento %s", clave, exc_info=True)
 
 
 # ---------- panel ----------
@@ -727,22 +738,91 @@ def _estado_plataforma(tenants: list[dict], tz: ZoneInfo) -> list[dict]:
     tick = scheduler._ultimo_tick
     activos = [t for t in tenants if t.get("activo") is not False]
     completos = db.estado_seguridad_tenants()
+    eventos = _eventos()
     return [
         ok("Dominio", bool(principal) and host == principal,
            f"Entraste por {host}." + (f" Dominio principal: {principal}." if principal
                                       else " Falta cargar DOMINIO_PRINCIPAL en Railway (por ahora no redirige).")),
         ok("Mail", mail.disponible(), "Recuperar la clave y avisos de seguridad por mail." if mail.disponible()
            else "Sin proveedor: faltan RESEND_API_KEY y MAIL_REMITENTE. La clave se recupera con el link de administración."),
-        ok("WhatsApp", whatsapp_real and bool(config.PLATAFORMA_PHONE_NUMBER_ID) and bool(plantillas),
-           ("Conectado" if whatsapp_real else "Sin credenciales reales de Meta")
-           + (f"; número de la plataforma cargado" if config.PLATAFORMA_PHONE_NUMBER_ID else "; falta el número de la plataforma")
-           + (f"; plantillas: {', '.join(plantillas)}." if plantillas else "; sin plantillas aprobadas.")),
+        dict(ok("WhatsApp", whatsapp_real and bool(config.PLATAFORMA_PHONE_NUMBER_ID) and bool(plantillas),
+                ("Conectado" if whatsapp_real else "Sin credenciales reales de Meta")
+                + (f"; número de la plataforma cargado" if config.PLATAFORMA_PHONE_NUMBER_ID else "; falta el número de la plataforma")
+                + (f"; plantillas: {', '.join(plantillas)}." if plantillas else "; sin plantillas aprobadas.")
+                + f" Último mensaje recibido: {_hace(eventos.get('mensaje'), tz)}."
+                + (" Freno de envíos activo." if config.WHATSAPP_SOLO_A else "")),
+             enlace=url_for("admin_whatsapp"), enlace_texto="Revisar WhatsApp"),
         ok("Recordatorios y limpieza", bool(tick) and datetime.now(ZoneInfo("UTC")) - tick < timedelta(minutes=30),
            f"Última vuelta: {tick.astimezone(tz).strftime('%d/%m %H:%M')}." if tick else "Todavía no corrió desde que arrancó el servidor."),
         ok("Respaldo", None, "Lo hace Supabase y desde la app no se puede ver: revisalo en Supabase → Database → Backups."),
         ok("Profesionales", None, f"{len(activos)} activas · {completos['sin_mail']} sin mail cargado · "
                                   f"{completos['con_doble_factor']} con doble factor · {completos['con_llave']} con llave de acceso."),
     ]
+
+
+def _eventos() -> dict[str, dict]:
+    try:
+        return db.eventos_plataforma()
+    except Exception:
+        logger.warning("No se pudieron leer los eventos de la plataforma", exc_info=True)
+        return {}
+
+
+def _hace(evento: dict | None, tz: ZoneInfo) -> str:
+    """«hace 5 min (03/11 12:31)» o «nunca»."""
+    if not evento:
+        return "nunca"
+    cuando = datetime.fromisoformat(evento["cuando"])
+    minutos = int((datetime.now(ZoneInfo("UTC")) - cuando).total_seconds() // 60)
+    hace = (f"hace {minutos} min" if minutos < 60 else f"hace {minutos // 60} h" if minutos < 48 * 60
+            else f"hace {minutos // 1440} días")
+    return f"{hace} ({cuando.astimezone(tz).strftime('%d/%m %H:%M')})"
+
+
+@app.get("/admin/whatsapp")
+@admin_requerido
+def admin_whatsapp():
+    """Lista de pasos de WhatsApp revisada en vivo contra Meta, y prueba de
+    envío. Nunca muestra el token ni otros secretos."""
+    tz = ZoneInfo("America/Argentina/Buenos_Aires")
+    eventos = _eventos()
+    pasos = whatsapp.diagnostico(_hace(eventos["webhook"], tz) if eventos.get("webhook") else None,
+                                 _hace(eventos["mensaje"], tz) if eventos.get("mensaje") else None)
+    plantillas = [("hello_world", "hello_world (en_US, la trae toda cuenta nueva)")]
+    if config.RECORDATORIO_TEMPLATE:
+        plantillas.append((config.RECORDATORIO_TEMPLATE, f"{config.RECORDATORIO_TEMPLATE} (el recordatorio, con datos de ejemplo)"))
+    return render_template("admin_whatsapp.html", pasos=pasos, plantillas=plantillas,
+                           resultado=session.pop("prueba_whatsapp", None))
+
+
+@app.post("/admin/whatsapp/prueba")
+@admin_requerido
+def admin_whatsapp_prueba():
+    telefono = "".join(ch for ch in request.form.get("telefono") or "" if ch.isdigit())
+    plantilla = request.form.get("plantilla") or "hello_world"
+    if plantilla not in ("hello_world", config.RECORDATORIO_TEMPLATE) or not plantilla:
+        plantilla = "hello_world"
+    if len(telefono) < 10:
+        resultado = {"ok": False, "texto": "Escribí el teléfono completo, con código de país (ej. 5491122223333)."}
+    elif not config.PLATAFORMA_PHONE_NUMBER_ID:
+        resultado = {"ok": False, "texto": "Falta PLATAFORMA_PHONE_NUMBER_ID en Railway."}
+    else:
+        if plantilla == "hello_world":
+            lang, params = "en_US", []
+        else:
+            lang, params = config.RECORDATORIO_TEMPLATE_LANG, ["Lic. Prueba", "mañana a las 10:00 (es una prueba)"]
+        ok, detalle = whatsapp.enviar_plantilla_detalle(config.PLATAFORMA_PHONE_NUMBER_ID, telefono, plantilla, lang, params)
+        final = "…" + telefono[-4:]
+        if detalle == "frenado":
+            resultado = {"ok": False, "texto": f"No salió: el teléfono terminado en {final} no está en WHATSAPP_SOLO_A. Agregalo en Railway para probar."}
+        elif ok:
+            resultado = {"ok": True, "texto": f"Meta aceptó «{plantilla}» para el teléfono terminado en {final}. Tiene que llegar en unos segundos."}
+        else:
+            resultado = {"ok": False, "texto": f"Meta lo rechazó: {detalle}"}
+        db.registrar_actividad(_actor_admin(), f"mandó un WhatsApp de prueba ({plantilla}) al …{telefono[-4:]}: "
+                                               + ("aceptado" if ok and detalle != "frenado" else "no salió"))
+    session["prueba_whatsapp"] = resultado
+    return redirect(url_for("admin_whatsapp"))
 
 
 @app.post("/admin/profesionales")

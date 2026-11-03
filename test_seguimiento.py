@@ -2759,6 +2759,66 @@ app.config.DOMINIO_PRINCIPAL = "localhost"
 chequear("con el dominio cargado lo marca bien", "Dominio principal: localhost" in celu_adm.get("/admin").data.decode())
 app.config.DOMINIO_PRINCIPAL = ""
 
+# --- WhatsApp en administración: último mensaje, lista de pasos y prueba ---
+import whatsapp as _wa  # noqa: E402
+
+TABLAS["eventos_plataforma"] = []
+html = celu_adm.get("/admin").data.decode()
+chequear("estado: último mensaje nunca", "Último mensaje recibido: nunca" in html and "Revisar WhatsApp" in html)
+db.marcar_evento("mensaje", "PN1")
+db.marcar_evento("mensaje", "PN1")
+chequear("un solo registro por clave", len(TABLAS["eventos_plataforma"]) == 1)
+chequear("estado: último mensaje hace poco", "Último mensaje recibido: hace 0 min" in celu_adm.get("/admin").data.decode())
+
+
+class _R:
+    def __init__(self, codigo, datos):
+        self.status_code, self._d, self.text = codigo, datos, str(datos)
+
+    def json(self):
+        return self._d
+
+
+def _get_meta(url, headers=None, params=None, timeout=None):
+    if url.endswith("/subscribed_apps"):
+        return _R(200, {"data": []})
+    if url.endswith("/message_templates"):
+        return _R(200, {"data": [{"name": "recordatorio_turno", "status": "APPROVED", "language": "es_AR"},
+                                 {"name": "turno_reprogramado", "status": "PENDING", "language": "es_AR"}]})
+    return _R(200, {"display_phone_number": "+1 555 000", "verified_name": "FiBOT", "quality_rating": "GREEN"})
+
+
+enviados = []
+_wa.requests.get = _get_meta
+_wa.requests.post = lambda url, headers=None, json=None, timeout=None: enviados.append(json) or _R(200, {})
+_cfg = _wa.config
+viejos = (_cfg.META_ACCESS_TOKEN, _cfg.PLATAFORMA_PHONE_NUMBER_ID, _cfg.META_WABA_ID, _cfg.RECORDATORIO_TEMPLATE,
+          _cfg.REPROGRAMADO_TEMPLATE, _cfg.WHATSAPP_SOLO_A)
+_cfg.META_ACCESS_TOKEN, _cfg.PLATAFORMA_PHONE_NUMBER_ID, _cfg.META_WABA_ID = "token-real-de-prueba", "PN1", "WABA1"
+_cfg.RECORDATORIO_TEMPLATE, _cfg.REPROGRAMADO_TEMPLATE, _cfg.WHATSAPP_SOLO_A = "recordatorio_turno", "turno_reprogramado", ["5491122223333"]
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("pasos: número", "+1 555 000" in html and "calidad alta" in html)
+chequear("pasos: sin suscripción y cómo arreglarlo", "Ninguna app suscripta" in html and "WABA1/subscribed_apps" in html)
+chequear("pasos: plantillas", "Recordatorio (recordatorio_turno): aprobada" in html and "Reprogramado (turno_reprogramado): en revisión" in html)
+chequear("pasos: freno", "terminados en …3333" in html)
+chequear("la página nunca muestra el token", "token-real-de-prueba" not in html)
+chequear("la prueba pide CSRF", celu_adm.post("/admin/whatsapp/prueba", data={"telefono": "5491122223333"}).status_code in (400, 403))
+celu_adm.post("/admin/whatsapp/prueba", data={"csrf_token": "tok", "telefono": "+54 9 11 9999-0000"})
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("prueba frenada", "no está en WHATSAPP_SOLO_A" in html and not enviados)
+celu_adm.post("/admin/whatsapp/prueba", data={"csrf_token": "tok", "telefono": "5491122223333"})
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("prueba aceptada", "Meta aceptó «hello_world»" in html and enviados[-1]["template"] == {"name": "hello_world", "language": {"code": "en_US"}})
+celu_adm.post("/admin/whatsapp/prueba", data={"csrf_token": "tok", "telefono": "5491122223333", "plantilla": "recordatorio_turno"})
+chequear("prueba con el recordatorio lleva parámetros", len(enviados[-1]["template"]["components"][0]["parameters"]) == 2)
+_wa.requests.post = lambda url, headers=None, json=None, timeout=None: _R(400, {"error": {"message": "x", "code": 131030, "error_data": {"details": "No autorizado"}}})
+celu_adm.post("/admin/whatsapp/prueba", data={"csrf_token": "tok", "telefono": "5491122223333", "plantilla": "otra_cualquiera"})
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("rechazo de Meta con detalle", "Meta lo rechazó: No autorizado (código 131030)" in html)
+chequear("la prueba queda en la actividad", any("WhatsApp de prueba" in a["accion"] for a in TABLAS["actividad"]))
+(_cfg.META_ACCESS_TOKEN, _cfg.PLATAFORMA_PHONE_NUMBER_ID, _cfg.META_WABA_ID, _cfg.RECORDATORIO_TEMPLATE,
+ _cfg.REPROGRAMADO_TEMPLATE, _cfg.WHATSAPP_SOLO_A) = viejos
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

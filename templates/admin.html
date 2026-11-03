@@ -19,7 +19,8 @@
     {% for e in estado %}
     <div class="ficha-item">
       <span><strong>{% if e.ok is sameas true %}✓{% elif e.ok is sameas false %}✗{% else %}·{% endif %} {{ e.nombre }}</strong>
-        <span class="tenue">{{ e.detalle }}</span></span>
+        <span class="tenue">{{ e.detalle }}</span>
+        {% if e.enlace %}<a href="{{ e.enlace }}">{{ e.enlace_texto }}</a>{% endif %}</span>
     </div>
     {% endfor %}
   </div>
