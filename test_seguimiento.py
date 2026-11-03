@@ -2924,7 +2924,7 @@ chequear("sin turno: con un solo profesional en el número, va el link", avisos_
 TABLAS["tenants"][1]["slug"] = "otra"
 TABLAS["mensajes_sin_destino"] = []
 _webhook(_msg())
-chequear("sin turno: con dos, no elige", "/marcos" not in avisos_wa[-1]["texto"] and "la página que te pasó tu profesional" in avisos_wa[-1]["texto"])
+chequear("sin turno: con dos, va la lista de profesionales", "/marcos" not in avisos_wa[-1]["texto"] and "/turnos" in avisos_wa[-1]["texto"])
 celu_adm.post("/admin/whatsapp/respuesta", data={"csrf_token": "tok", "texto": "Hola! Reservá en {link} 🙂"})
 TABLAS["mensajes_sin_destino"] = []
 TABLAS["tenants"][1]["slug"] = None
@@ -2935,7 +2935,19 @@ chequear("sin turno: el texto se ve y se edita", "Hola! Reservá en {link}" in h
 celu_adm.post("/admin/whatsapp/respuesta", data={"csrf_token": "tok", "texto": "algo", "fabrica": "1"})
 chequear("sin turno: volver al de fábrica", "No encontramos un turno" in celu_adm.get("/admin/whatsapp").data.decode()
          and any("respuesta de fábrica" in a["accion"] for a in TABLAS["actividad"]))
+# la página de turnos en el panel
+panel_t1 = app.app.test_client()
+with panel_t1.session_transaction() as ses:
+    ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
+    ses["csrf_token"] = "tok"
+html = panel_t1.get("/agenda").data.decode()
+chequear("panel: muestra su página de turnos para compartir", "Tu página de turnos" in html and "/marcos" in html and "wa.me" in html)
+r = panel_t1.get("/agenda/mi-pagina-qr.svg")
+chequear("panel: QR de su página", r.status_code == 200 and r.mimetype == "image/svg+xml" and b"<svg" in r.data)
 TABLAS["tenants"][0]["slug"] = None
+chequear("panel: sin página, no hay tarjeta ni QR", "Tu página de turnos" not in panel_t1.get("/agenda").data.decode()
+         and panel_t1.get("/agenda/mi-pagina-qr.svg").status_code == 404)
 db.get_tenant_by_phone_number_id, db.tenant_por_paciente = _viejo_por_numero, _viejo_por_paciente
 
 # simulador

@@ -145,14 +145,16 @@ SIN_LINK = "la página que te pasó tu profesional"
 
 
 def _link_sin_destino() -> str | None:
-    """Si un solo profesional usa el número compartido (y tiene página
-    pública), el link a su página. Con más de uno no se puede elegir: el
-    número no dice a quién le escribieron."""
+    """El link para quien escribe sin turno: la página del profesional si es
+    el único en el número compartido, o /turnos si son varios (el número no
+    dice a quién le escribieron)."""
     compartidos = [t for t in db.tenants_activos() if not t.get("whatsapp_phone_number_id") and t.get("slug")]
-    if len(compartidos) != 1:
+    if not compartidos:
         return None
     base = f"https://{config.DOMINIO_PRINCIPAL}" if config.DOMINIO_PRINCIPAL else request.host_url.rstrip("/")
-    return f"{base}/{compartidos[0]['slug']}"
+    # Con uno solo, directo a su calendario; con varios, a la lista de
+    # profesionales (/turnos), donde el paciente elige con quién.
+    return f"{base}/{compartidos[0]['slug']}" if len(compartidos) == 1 else f"{base}/turnos"
 
 
 def _respuesta_sin_destino() -> tuple[str, str]:
@@ -764,7 +766,7 @@ def admin_uso_csv():
                               headers={"Content-Disposition": f'attachment; filename="uso-{primero:%Y-%m}.csv"'})
 
 
-SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad"}
+SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos"}
 RUBROS_ALTA = ["psicología", "psicopedagogía"]
 
 
@@ -3280,15 +3282,76 @@ def privacidad():
                            contacto=os.environ.get("CONTACTO_PRIVACIDAD") or "la administración de FiBOT")
 
 
+def _proximo_con_semana(turnos: list[dict], tz: ZoneInfo) -> dict | None:
+    """El primero de la lista con su día LOCAL (para el link a su semana: el
+    día en UTC puede ser el siguiente)."""
+    if not turnos:
+        return None
+    t = _con_hora_local(turnos[:1], tz)[0]
+    t["_semana"] = datetime.fromisoformat(t["inicio"]).astimezone(tz).date().isoformat()
+    return t
+
+
+@app.get("/agenda/mi-pagina-qr.svg")
+@login_required
+def agenda_qr_pagina():
+    """QR de la página de turnos del profesional, para imprimir o mostrar."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    if not tenant or not tenant.get("slug"):
+        return "", 404
+    svg = seguridad.qr_svg(url_for("publico", slug=tenant["slug"], _external=True), escala=6)
+    return app.response_class(svg, mimetype="image/svg+xml")
+
+
+@app.get("/turnos")
+def turnos_directorio():
+    """La puerta de entrada para pacientes: todos los profesionales con página
+    pública. Cada uno lleva a SU calendario (/<slug>), que es también el link
+    que el profesional comparte."""
+    profesionales = sorted((t for t in db.tenants_activos() if t.get("slug")), key=lambda t: t["nombre"].casefold())
+    return render_template("turnos.html", profesionales=profesionales)
+
+
 @app.get("/<slug>")
 def publico(slug):
+    """Calendario de UN profesional, de a una semana (lunes a domingo, en su
+    zona horaria), sólo con los horarios libres."""
     tenant = db.get_tenant_by_slug(slug)
     if not tenant:
         return "No encontrado.", 404
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     ahora = datetime.now(ZoneInfo("UTC"))
-    turnos = _con_hora_local(db.turnos_libres(tenant["id"], ahora, limite=20), tz)
-    return render_template("publico.html", tenant=tenant, turnos=turnos)
+    esta_semana = ahora.astimezone(tz).date() - timedelta(days=ahora.astimezone(tz).weekday())
+    try:
+        lunes = date.fromisoformat(request.args.get("semana") or "")
+        lunes -= timedelta(days=lunes.weekday())
+    except ValueError:
+        lunes = None
+    if not lunes or lunes < esta_semana:
+        # Sin semana elegida: la del próximo horario libre (si esta no tiene).
+        proximo = db.turnos_libres(tenant["id"], ahora, limite=1)
+        lunes = esta_semana
+        if proximo and request.args.get("semana") is None:
+            dia = datetime.fromisoformat(proximo[0]["inicio"]).astimezone(tz).date()
+            lunes = dia - timedelta(days=dia.weekday())
+    desde = max(ahora, datetime.combine(lunes, dtime(0), tz))
+    hasta = datetime.combine(lunes + timedelta(days=7), dtime(0), tz)
+    libres = [t for t in db.turnos_libres(tenant["id"], desde, limite=300)
+              if desde <= datetime.fromisoformat(t["inicio"]) < hasta]
+    por_dia = {lunes + timedelta(days=i): [] for i in range(7)}
+    for t in _con_hora_local(libres, tz):
+        dia = datetime.fromisoformat(t["inicio"]).astimezone(tz).date()
+        if dia in por_dia:
+            por_dia[dia].append(t)
+    dias = [{"fecha": d, "nombre": DIAS_LABEL[d.weekday()], "numero": f"{d.day}/{d.month:02d}",
+             "pasado": d < ahora.astimezone(tz).date(), "turnos": ts} for d, ts in por_dia.items()]
+    siguiente = db.turnos_libres(tenant["id"], hasta, limite=1)
+    return render_template("publico.html", tenant=tenant, dias=dias, hay=bool(libres),
+                           anterior=(lunes - timedelta(days=7)).isoformat() if lunes > esta_semana else None,
+                           siguiente=(lunes + timedelta(days=7)).isoformat(),
+                           proximo_despues=_proximo_con_semana(siguiente, tz),
+                           titulo_semana=f"{lunes.day}/{lunes.month:02d} al {(lunes + timedelta(days=6)).day}/{(lunes + timedelta(days=6)).month:02d}",
+                           hay_directorio=sum(1 for t in db.tenants_activos() if t.get("slug")) > 1)
 
 
 @app.get("/<slug>/reservar/<turno_id>")

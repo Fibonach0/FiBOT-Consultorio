@@ -487,6 +487,32 @@
   </div>
   {% endif %}
 
+  {% if tenant.slug %}
+  {% set mi_pagina = url_for('publico', slug=tenant.slug, _external=True) %}
+  <div class="card" id="mi-pagina">
+    <h3>Tu página de turnos</h3>
+    <p class="tenue" style="margin-top:0">Tus pacientes eligen día y hora y reservan solos, sin escribirte. Es tuya: compartila donde quieras.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input type="text" id="mi-pagina-link" value="{{ mi_pagina }}" readonly style="flex:1;min-width:220px">
+      <button class="btn chico" type="button" id="mi-pagina-copiar">Copiar</button>
+      <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener"
+         href="https://wa.me/?text={{ ('Sacá tu turno conmigo acá: ' ~ mi_pagina)|urlencode }}">Compartir por WhatsApp</a>
+      <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ mi_pagina }}">Ver</a>
+    </div>
+    <details style="margin-top:8px"><summary class="tenue">Código QR (para imprimir o poner en el consultorio)</summary>
+      <img src="{{ url_for('agenda_qr_pagina') }}" alt="QR de tu página de turnos" width="220" height="220" loading="lazy" style="margin-top:8px">
+    </details>
+  </div>
+  <script>
+    document.getElementById('mi-pagina-copiar').addEventListener('click', async (e) => {
+      const campo = document.getElementById('mi-pagina-link');
+      try { await navigator.clipboard.writeText(campo.value); } catch (_) { campo.select(); document.execCommand('copy'); }
+      e.target.textContent = 'Copiado';
+      setTimeout(() => { e.target.textContent = 'Copiar'; }, 1800);
+    });
+  </script>
+  {% endif %}
+
   <div class="card">
     <h3>Ajustes</h3>
     <form method="post" action="{{ url_for('agenda_avisos') }}" class="fila">

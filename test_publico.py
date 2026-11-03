@@ -50,6 +50,9 @@ def fake_reservar_turno(tenant_id, turno_id, telefono, nombre):
 
 
 db.reservar_turno = fake_reservar_turno
+OTRA = {"id": "t2", "nombre": "Lic. Beto Gómez", "rubro": "psicopedagogía", "slug": "betogomez", "activo": True}
+SIN_PAGINA = {"id": "t3", "nombre": "Lic. Sin Página", "rubro": "psicología", "slug": None, "activo": True}
+db.tenants_activos = lambda: [dict(TENANT, activo=True), OTRA, SIN_PAGINA]
 
 client = app.app.test_client()
 
@@ -57,9 +60,28 @@ r = client.get("/slug-inexistente")
 assert r.status_code == 404, r.status_code
 print("GET /<slug desconocido> -> 404 OK")
 
+r = client.get("/turnos")
+html = r.data.decode()
+assert r.status_code == 200 and "Lic. Ana Pérez" in html and "Lic. Beto Gómez" in html and "Lic. Sin Página" not in html, html[:400]
+assert 'href="/anaperez"' in html and 'href="/betogomez"' in html
+print("GET /turnos -> lista los profesionales con página y lleva a cada calendario OK")
+
 r = client.get("/anaperez")
-assert r.status_code == 200 and b"Lic. Ana P" in r.data and b"Reservar" in r.data, r.status_code
-print("GET /anaperez -> 200 OK, lista el turno libre")
+html = r.data.decode()
+hora_local = datetime.fromisoformat(TURNO_LIBRE["inicio"]).astimezone(app.ZoneInfo(TENANT["timezone"])).strftime("%H:%M")
+assert r.status_code == 200 and "Lic. Ana P" in html and f'reservar/turno-a">{hora_local}</a>' in html, html[:400]
+assert "Semana del" in html and "Otros profesionales" in html and "Anterior" not in html
+print("GET /anaperez -> 200 OK, calendario de la semana con el turno libre")
+
+r = client.get("/anaperez?semana=2020-01-06")
+assert r.status_code == 200 and "Anterior" not in r.data.decode()
+print("una semana pasada vuelve a la actual OK")
+siguiente = (datetime.fromisoformat(TURNO_LIBRE["inicio"]) + timedelta(days=7)).date().isoformat()
+TURNOS_FUTUROS = []
+r = client.get(f"/anaperez?semana={siguiente}")
+html = r.data.decode()
+assert r.status_code == 200 and "Anterior" in html and "turno-a" not in html and "No hay horarios libres esta semana" in html
+print("semana siguiente sin horarios: lo dice y deja volver OK")
 
 r = client.get("/anaperez/reservar/turno-a")
 assert r.status_code == 200 and b"nombre" in r.data and b"telefono" in r.data, r.status_code
