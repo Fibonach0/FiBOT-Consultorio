@@ -2781,7 +2781,9 @@ class _R:
 
 def _get_meta(url, headers=None, params=None, timeout=None):
     if url.endswith("/subscribed_apps"):
-        return _R(200, {"data": []})
+        return _R(200, {"data": [{"whatsapp_business_api_data": {"id": "999", "name": "WA DevX Webhook Events 1P App"}}]})
+    if url.endswith("/app"):
+        return _R(200, {"id": "123", "name": "FiBOT - Consultorio"})
     if url.endswith("/message_templates"):
         return _R(200, {"data": [{"name": "recordatorio_turno", "status": "APPROVED", "language": "es_AR"},
                                  {"name": "turno_reprogramado", "status": "PENDING", "language": "es_AR"}]})
@@ -2798,7 +2800,7 @@ _cfg.META_ACCESS_TOKEN, _cfg.PLATAFORMA_PHONE_NUMBER_ID, _cfg.META_WABA_ID = "to
 _cfg.RECORDATORIO_TEMPLATE, _cfg.REPROGRAMADO_TEMPLATE, _cfg.WHATSAPP_SOLO_A = "recordatorio_turno", "turno_reprogramado", ["5491122223333"]
 html = celu_adm.get("/admin/whatsapp").data.decode()
 chequear("pasos: número", "+1 555 000" in html and "calidad alta" in html)
-chequear("pasos: sin suscripción y cómo arreglarlo", "Ninguna app suscripta" in html and "WABA1/subscribed_apps" in html)
+chequear("pasos: sin suscripción y cómo arreglarlo", "«FiBOT - Consultorio» NO está suscripta" in html and "WABA1/subscribed_apps" in html)
 chequear("pasos: plantillas", "Recordatorio (recordatorio_turno): aprobada" in html and "Reprogramado (turno_reprogramado): en revisión" in html)
 chequear("pasos: freno", "terminados en …3333" in html)
 chequear("la página nunca muestra el token", "token-real-de-prueba" not in html)
