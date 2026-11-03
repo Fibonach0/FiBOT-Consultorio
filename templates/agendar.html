@@ -21,10 +21,15 @@
       {% if futuro %}
       <div style="border-top:1px solid var(--rule);padding-top:12px;margin-top:6px">
         <strong>¿No podés ir?</strong>
+        {% if not puede_modificar %}
+        <p style="margin:6px 0 0">Faltan menos de {{ horas_limite }} horas: para cancelar o cambiar, escribile directamente a {{ tenant.nombre }}.</p>
+        {% else %}
+        {% if horas_limite %}<p style="color:var(--muted);margin:4px 0 0;font-size:.9rem">Podés hacerlo desde acá hasta {{ horas_limite }} horas antes.</p>{% endif %}
         <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:8px">
           <a class="btn secundario" style="text-decoration:none" href="{{ url_for('agendar_cambiar', token=request.view_args.token) }}">Cambiar el horario</a>
           <a class="btn secundario" style="text-decoration:none" href="{{ url_for('agendar_cancelar', token=request.view_args.token) }}">Cancelar el turno</a>
         </div>
+        {% endif %}
       </div>
       {% endif %}
     {% endif %}

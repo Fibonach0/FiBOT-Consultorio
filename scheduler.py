@@ -269,6 +269,23 @@ def _recordar_confirmaciones(tenant: dict, tz: ZoneInfo, ahora: datetime | None 
         mandar_confirmacion(tenant, t, tz)
 
 
+def avisar_profesional(tenant: dict, texto: str) -> bool:
+    """WhatsApp al profesional (a `aviso_telefono`) en el momento, con la
+    misma plantilla del resumen. Sin nombres ni datos de pacientes: el detalle
+    está en el panel."""
+    numero = whatsapp.numero_de(tenant)
+    if not tenant.get("aviso_telefono") or not numero:
+        return False
+    try:
+        if config.AVISO_TEMPLATE:
+            return whatsapp.enviar_plantilla(numero, tenant["aviso_telefono"], config.AVISO_TEMPLATE,
+                                             config.RECORDATORIO_TEMPLATE_LANG, [texto])
+        return whatsapp.enviar_texto(numero, tenant["aviso_telefono"], f"Tu consultorio: {texto}. Mirá el panel.")
+    except Exception:
+        logger.warning("No se pudo avisar al tenant %s", tenant.get("id"), exc_info=True)
+        return False
+
+
 def _loop() -> None:
     intervalo = config.RECORDATORIO_INTERVALO_MIN * 60
     while True:

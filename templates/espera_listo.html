@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block titulo %}Lista de espera — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<header><span>FiBOT Consultorio · {{ tenant.nombre }}</span></header>
+<main>
+  <div class="card" style="max-width:520px;margin:30px auto">
+    {% if ya_estaba %}
+      <h2>Ya estabas anotado</h2>
+      <p>Tu WhatsApp ya está en la lista de espera de <strong>{{ tenant.nombre }}</strong>.</p>
+    {% else %}
+      <h2>¡Listo, te anotamos!</h2>
+      <p>Estás en la lista de espera de <strong>{{ tenant.nombre }}</strong>. Si se libera un horario, te escribimos por WhatsApp con el link para reservarlo.</p>
+    {% endif %}
+    <a class="btn secundario" style="text-decoration:none" href="{{ url_for('publico', slug=tenant.slug) }}">Volver al calendario</a>
+  </div>
+</main>
+{% endblock %}

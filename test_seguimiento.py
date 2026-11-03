@@ -3114,6 +3114,54 @@ chequear("cancelar: el link ya no sirve", web.get("/agendar/tok-w1").status_code
          and web.post("/agendar/tok-w1/cancelar").status_code == 404)
 db.get_tenant_by_id = _por_id
 
+# --- Aviso al profesional, lista de espera web y política de cancelación ---
+reset()
+TABLAS["lista_espera"] = []
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "aviso_telefono": "5491122223333", "cancelar_hasta_horas": 24})
+_avisos_prof = []
+_viejo_avisar = scheduler.avisar_profesional
+app.scheduler.avisar_profesional = lambda tenant, texto: _avisos_prof.append(texto) or True
+_por_slug, _por_id2 = db.get_tenant_by_slug, db.get_tenant_by_id
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+web2 = app.app.test_client()
+
+html = web2.post("/marcos/lista-espera", data={"nombre": "Nora", "telefono": "+54 9 11 4444-5555", "preferencia": "martes tarde"}).data.decode()
+chequear("espera web: se anota y avisa sin nombre", "te anotamos" in html and TABLAS["lista_espera"][0]["origen"] == "web"
+         and TABLAS["lista_espera"][0]["telefono"] == "5491144445555" and _avisos_prof and "Nora" not in _avisos_prof[-1])
+html = web2.post("/marcos/lista-espera", data={"nombre": "Nora", "telefono": "5491144445555"}).data.decode()
+chequear("espera web: no se duplica", "Ya estabas anotado" in html and len(TABLAS["lista_espera"]) == 1 and len(_avisos_prof) == 1)
+r = web2.post("/marcos/lista-espera", data={"nombre": "X", "telefono": "123"})
+chequear("espera web: teléfono incompleto vuelve", r.status_code == 302 and len(TABLAS["lista_espera"]) == 1)
+chequear("espera web: el panel la marca", "se anotó en la web" in panel_c.get("/agenda").data.decode())
+
+_ahora = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+TABLAS["turnos"] = [turno("p1", "t1", _ahora + timedelta(hours=5), estado="reservado", paciente_telefono="5491166667777",
+                          token_calendario="tok-p1"),
+                    turno("p2", "t1", _ahora + timedelta(days=4), estado="reservado", paciente_telefono="5491166667777",
+                          token_calendario="tok-p2")]
+html = web2.get("/agendar/tok-p1").data.decode()
+chequear("política: con menos de 24 h no ofrece cancelar", "Faltan menos de 24 horas" in html and "Cancelar el turno" not in html)
+html = web2.post("/agendar/tok-p1/cancelar").data.decode()
+chequear("política: tampoco por POST directo", "Ya no se puede desde acá" in html and TABLAS["turnos"][0]["estado"] == "reservado")
+chequear("política: ni cambiar", "Ya no se puede desde acá" in web2.get("/agendar/tok-p1/cambiar").data.decode())
+_t1["cancelar_hasta_horas"] = 0
+chequear("política: 0 = hasta que empieza", "Cancelar el turno" in web2.get("/agendar/tok-p1").data.decode())
+_t1["cancelar_hasta_horas"] = 24
+_avisos_prof.clear()
+web2.post("/agendar/tok-p2/cancelar")
+chequear("cancelar web: avisa al profesional con la lista de espera", _avisos_prof and "canceló desde la web" in _avisos_prof[-1]
+         and "1 en lista de espera" in _avisos_prof[-1])
+
+panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "presencial", "en_directorio": "1",
+                                     "cancelar_hasta_horas": "48"})
+chequear("panel: guarda la política", TABLAS["tenants"][0]["cancelar_hasta_horas"] == 48)
+panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "presencial", "cancelar_hasta_horas": "999"})
+chequear("panel: política inválida no cambia", TABLAS["tenants"][0]["cancelar_hasta_horas"] == 48)
+app.scheduler.avisar_profesional = _viejo_avisar
+db.get_tenant_by_slug, db.get_tenant_by_id = _por_slug, _por_id2
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")
