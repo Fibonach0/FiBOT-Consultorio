@@ -12,6 +12,10 @@
   .resultado { padding:10px 12px; border-radius:6px; margin-bottom:12px; }
   .resultado.bien { background:var(--green-bg); color:var(--green); }
   .resultado.mal { background:#fbeeee; color:#7a2222; }
+  .chat { display:flex; flex-direction:column; gap:6px; margin:10px 0; max-height:420px; overflow-y:auto; }
+  .burbuja { max-width:80%; padding:7px 10px; border-radius:10px; white-space:pre-wrap; font-size:.92rem; }
+  .burbuja.paciente { align-self:flex-end; background:var(--green-bg); }
+  .burbuja.bot { align-self:flex-start; background:var(--cream); border:1px solid var(--rule); }
 </style>
 <header>
   <span>FiBOT Consultorio · Administración · WhatsApp</span>
@@ -63,6 +67,38 @@
     {% else %}
     <p class="tenue" style="margin:0">Todavía no llegó ninguno. Llegan cuando Meta aprueba, rechaza o recategoriza una plantilla, con la app suscripta a la cuenta.</p>
     {% endfor %}
+  </div>
+
+  <div class="card" id="simulador">
+    <h3>Probar el bot</h3>
+    <p class="tenue" style="margin-top:0">Escribile como si fueras un paciente (…{{ simulado }}) y mirá qué contesta. No sale nada por WhatsApp, pero lo que hace el bot es de verdad: si reserva o cancela, queda hecho. Usalo con las cuentas de demo y al terminar tocá «Deshacer».</p>
+    {% if simulacion.chat %}
+    <div class="tenue">Charla con el bot de <strong>{{ simulacion.nombre }}</strong></div>
+    <div class="chat">{% for m in simulacion.chat %}<div class="burbuja {{ m.de }}">{{ m.texto }}</div>{% endfor %}</div>
+    {% endif %}
+    <form method="post" action="{{ url_for('admin_whatsapp_simular') }}" class="fila">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label>Cuenta</label><select name="tenant_id">{% for t in cuentas %}<option value="{{ t.id }}"{% if simulacion.tenant_id == t.id %} selected{% endif %}>{{ t.nombre }}</option>{% endfor %}</select></div>
+      <div><label>Mensaje</label><input type="text" name="texto" placeholder="hola · turnos · 1 Juan · cancelar" autocomplete="off" required autofocus></div>
+      <div class="al-pie"><button class="btn" type="submit">Mandar al bot</button></div>
+    </form>
+    {% if simulacion.chat %}
+    <form method="post" action="{{ url_for('admin_whatsapp_simular_deshacer') }}" style="margin-top:8px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn chico secundario" type="submit">Deshacer (liberar sus turnos y borrar la charla)</button>
+    </form>
+    {% endif %}
+  </div>
+
+  <div class="card">
+    <h3>Escribieron sin turno <span class="contador">{{ bandeja|length }}</span></h3>
+    <p class="tenue" style="margin-top:0">Mensajes al número compartido de teléfonos sin turno: no hay a qué profesional mandarlos. Se ven sólo los últimos 4 dígitos, nunca el texto. Se borran a los 30 días.</p>
+    {% for m in bandeja %}
+    <div class="ficha-item"><span>…{{ m.final }} <span class="tenue">· {{ 'se le contestó' if m.respondido else 'ya se le había contestado hoy' }}</span></span><span class="tenue">{{ m._cuando }}</span></div>
+    {% else %}
+    <p class="tenue" style="margin:0">Nadie por ahora.</p>
+    {% endfor %}
+    <details style="margin-top:8px"><summary class="tenue">Qué se le contesta</summary><div style="white-space:pre-wrap;margin-top:6px">{{ respuesta_sin_destino }}</div></details>
   </div>
 
   <div class="card">

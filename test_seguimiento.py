@@ -238,6 +238,7 @@ def reset():
     TABLAS["eventos_plataforma"] = []
     TABLAS["ajustes_plataforma"] = []
     TABLAS["plantillas_meta"] = []
+    TABLAS["mensajes_sin_destino"] = []
     TABLAS["login_intentos"] = []
     TABLAS.setdefault("sesiones", [])  # sobreviven a reset(): los clientes de prueba siguen logueados
     TABLAS["actividad"] = []
@@ -2892,6 +2893,46 @@ _webhook({"object": "whatsapp_business_account", "entry": [{"id": "WABA1", "chan
 html = celu_adm.get("/admin/whatsapp").data.decode()
 chequear("aviso de categoría: en la página", "resumen_consultorio" in html and "pasó a marketing" in html and "antes era utility" in html)
 chequear("avisos: quedan en la actividad", any(a["actor"] == "Meta" and "aprobada" in a["accion"] for a in TABLAS["actividad"]))
+# alguien sin turno le escribe al número compartido
+TABLAS["mensajes_sin_destino"] = []
+avisos_wa.clear()
+_viejo_por_numero, _viejo_por_paciente = db.get_tenant_by_phone_number_id, db.tenant_por_paciente
+db.get_tenant_by_phone_number_id = lambda pid: None
+db.tenant_por_paciente = lambda tel: None
+_msg = lambda: {"object": "whatsapp_business_account", "entry": [{"id": "WABA1", "changes": [{"field": "messages", "value": {
+    "metadata": {"phone_number_id": "PN1"}, "messages": [{"from": "5491177778888", "type": "text", "text": {"body": "hola"}}]}}]}]}
+_webhook(_msg())
+_webhook(_msg())
+chequear("sin turno: se le contesta una sola vez", len(avisos_wa) == 1 and avisos_wa[0]["to"] == "5491177778888"
+         and "No encontramos un turno" in avisos_wa[0]["texto"])
+chequear("sin turno: queda en la bandeja sin el número entero", len(TABLAS["mensajes_sin_destino"]) == 2
+         and all(m["final"] == "8888" and "77778888" not in json.dumps(m) for m in TABLAS["mensajes_sin_destino"]))
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("sin turno: se ve en administración", "Escribieron sin turno" in html and "…8888" in html and "5491177778888" not in html
+         and "ya se le había contestado hoy" in html)
+db.get_tenant_by_phone_number_id, db.tenant_por_paciente = _viejo_por_numero, _viejo_por_paciente
+
+# simulador
+chequear("simulador pide CSRF", celu_adm.post("/admin/whatsapp/simular", data={"tenant_id": "t1", "texto": "hola"}).status_code in (400, 403))
+avisos_wa.clear()
+celu_adm.post("/admin/whatsapp/simular", data={"csrf_token": "tok", "tenant_id": "t1", "texto": "hola"})
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("simulador: muestra la charla", "Charla con el bot de" in html and 'burbuja paciente">hola' in html and 'burbuja bot' in html)
+chequear("simulador: no manda WhatsApp", not avisos_wa)
+celu_adm.post("/admin/whatsapp/simular", data={"csrf_token": "tok", "tenant_id": "t1", "texto": "cancelar"})
+chequear("simulador: sigue la charla", celu_adm.get("/admin/whatsapp").data.decode().count('burbuja paciente') == 2)
+chequear("simulador: queda en la actividad", any("con el simulador" in a["accion"] for a in TABLAS["actividad"]))
+_cancelados = []
+_viejo_prox, _viejo_cancelar = db.proximos_turnos_de, db.cancelar_turno
+_pendientes = [[{"id": "x1"}, {"id": "x2"}], []]
+db.proximos_turnos_de = lambda tid, tel: _pendientes.pop(0) if tel == app.SIMULADO and tid == "t1" else []
+db.cancelar_turno = lambda tid, turno_id, origen=None: _cancelados.append((tid, turno_id, origen))
+celu_adm.post("/admin/whatsapp/simular/deshacer", data={"csrf_token": "tok"})
+html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("deshacer: libera sus turnos sin contarlo como cancelación", _cancelados == [("t1", "x1", None), ("t1", "x2", None)]
+         and "2 turno(s) del simulador liberados" in html and "Charla con el bot de" not in html)
+db.proximos_turnos_de, db.cancelar_turno = _viejo_prox, _viejo_cancelar
+
 _wa.aplicar_ajustes({})
 
 (_cfg.META_ACCESS_TOKEN, _cfg.PLATAFORMA_PHONE_NUMBER_ID, _cfg.META_WABA_ID, _cfg.RECORDATORIO_TEMPLATE,

@@ -1148,6 +1148,7 @@ def limpiar_vencidos(ahora: str, hace_un_dia: str, hace_una_semana: str, hace_un
     _client.table("entregas").update({"html": ""}).lt("vence", hace_tres_meses).neq("html", "").execute()
     _client.table("cuestionarios").delete().is_("respondido_at", "null").lt("vence", hace_tres_meses).execute()
     _client.table("actividad").delete().lt("cuando", hace_un_anio).execute()
+    _client.table("mensajes_sin_destino").delete().lt("cuando", hace_un_mes).execute()
 
 
 def guardar_totp_tenant(tenant_id: str, campos: dict) -> None:
@@ -1248,3 +1249,19 @@ def guardar_aviso_plantilla(aviso: dict) -> None:
 
 def avisos_plantillas() -> list[dict]:
     return _client.table("plantillas_meta").select("*").order("cuando", desc=True).limit(50).execute().data
+
+
+def registrar_sin_destino(final: str, telefono_hash: str, respondido: bool) -> None:
+    from datetime import datetime, timezone
+    _client.table("mensajes_sin_destino").insert({"final": final, "telefono_hash": telefono_hash, "respondido": respondido,
+                                                  "cuando": datetime.now(timezone.utc).isoformat()}).execute()
+
+
+def respondido_sin_destino_desde(telefono_hash: str, desde: str) -> bool:
+    return bool(_client.table("mensajes_sin_destino").select("id").eq("telefono_hash", telefono_hash)
+                .eq("respondido", True).gte("cuando", desde).limit(1).execute().data)
+
+
+def mensajes_sin_destino(limite: int = 50) -> list[dict]:
+    return _client.table("mensajes_sin_destino").select("final,respondido,cuando").order(
+        "cuando", desc=True).limit(limite).execute().data

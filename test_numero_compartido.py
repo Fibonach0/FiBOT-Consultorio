@@ -96,9 +96,15 @@ chequear("la respuesta sale por el número de la plataforma",
          enviados and enviados[0][0] == "PLATAFORMA1", enviados)
 
 enviados.clear()
+sin_destino = []
+db.respondido_sin_destino_desde = lambda clave, desde: any(c == clave and r for c, r in sin_destino)
+db.registrar_sin_destino = lambda final, clave, respondido: sin_destino.append((clave, respondido))
 r = postear("PLATAFORMA1", "5491199998888")
-chequear("teléfono sin turnos -> 200 y no contesta nada",
-         r.status_code == 200 and enviados == [], enviados)
+chequear("teléfono sin turnos -> 200 y le explica cómo reservar, sin nombrar a ningún profesional",
+         r.status_code == 200 and len(enviados) == 1 and "No encontramos un turno" in enviados[0][2]
+         and "t-compartido" not in enviados[0][2], enviados)
+r = postear("PLATAFORMA1", "5491199998888")
+chequear("teléfono sin turnos -> una sola vez por día", len(enviados) == 1, enviados)
 
 enviados.clear()
 r = postear("OTRO_NUMERO_CUALQUIERA", "5491133334444")
