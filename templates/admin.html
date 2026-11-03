@@ -32,6 +32,10 @@
         <td>{{ t._ingreso }}</td>
         <td>{{ t.uso.sesiones }}</td><td>{{ t.uso.pacientes }}</td><td>{{ t.uso.cuestionarios }}</td><td>{{ t.uso.entregas }}</td>
         <td>
+          <form method="post" action="{{ url_for('admin_link_clave', tenant_id=t.id) }}" style="margin-bottom:4px">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn chico secundario" type="submit">Link para clave nueva</button>
+          </form>
           <form method="post" action="{{ url_for('admin_cerrar_sesiones', tenant_id=t.id) }}" style="margin-bottom:4px">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <button class="btn chico secundario" type="submit" onclick="return confirm('¿Cerrar todas las sesiones de {{ t.nombre }}? Va a tener que volver a entrar.')">Cerrar sesiones</button>
@@ -59,6 +63,24 @@
       <div class="al-pie"><button class="btn" type="submit">Crear cuenta</button></div>
     </form>
     <div class="tenue" style="margin-top:6px">Sale por el número de WhatsApp compartido de la plataforma, con turnos de 50 minutos y recordatorio 24 horas antes; la profesional ajusta el resto desde su panel.</div>
+  </div>
+
+  <div class="card">
+    <h3>Actividad</h3>
+    <form method="get" class="fila" style="margin-bottom:8px">
+      <div><label>De</label><select name="actividad_de" onchange="this.form.submit()">
+        <option value="">Todas las cuentas</option>
+        {% for t in tenants %}<option value="{{ t.id }}"{% if filtro == t.id %} selected{% endif %}>{{ t.nombre }}</option>{% endfor %}
+      </select></div>
+    </form>
+    <div class="envoltura">
+    <table class="tabla">
+      <tr><th>Cuándo</th><th>Quién</th><th>Qué</th></tr>
+      {% for a in actividad %}<tr><td>{{ a._cuando }}</td><td>{{ a.actor }}</td><td>{{ a.accion }}</td></tr>
+      {% else %}<tr><td colspan="3" class="tenue">Sin actividad todavía.</td></tr>{% endfor %}
+    </table>
+    </div>
+    <div class="tenue" style="margin-top:6px">Ingresos, bloqueos, cambios de clave, sesiones cerradas, altas y moderación. Nunca datos de pacientes. Últimos 200.</div>
   </div>
 
   <div class="card">

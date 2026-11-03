@@ -9,6 +9,7 @@ de db.py — que es justo donde están las cosas que importan (el orden de
 reprogramar, que liberar un turno limpie el pago, que nada cruce de tenant).
 """
 import itertools
+import re
 import os
 from datetime import datetime, timedelta, timezone
 
@@ -202,6 +203,16 @@ def turno(id_, tenant_id, inicio, **extra):
     return {**base, **extra}
 
 
+def _sesion_de(tenant_id):
+    """Sesión del lado del servidor para un cliente de prueba."""
+    TABLAS.setdefault("sesiones", [])
+    sid = f"s-prueba-{len(TABLAS['sesiones']) + 1}"
+    ahora_ = datetime.now(timezone.utc).isoformat()
+    TABLAS["sesiones"].append({"id": sid, "tenant_id": tenant_id, "dispositivo": "Prueba", "origen": "clave",
+                               "creada": ahora_, "ultima": ahora_})
+    return sid
+
+
 def reset():
     TABLAS["tenants"] = [dict(TENANT), dict(OTRO)]
     TABLAS["pacientes"] = []
@@ -221,6 +232,10 @@ def reset():
     TABLAS["entregas"] = []
     TABLAS["admins"] = []
     TABLAS["login_intentos"] = []
+    TABLAS.setdefault("sesiones", [])  # sobreviven a reset(): los clientes de prueba siguen logueados
+    TABLAS["actividad"] = []
+    TABLAS["enlaces_clave"] = []
+    TABLAS["qr_logins"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -350,6 +365,7 @@ db.get_tenant_by_id = lambda tid: next((dict(t) for t in TABLAS["tenants"] if t[
 client = app.app.test_client()
 with client.session_transaction() as s:
     s["tenant_id"] = "t1"
+    s["sesion_id"] = _sesion_de("t1")
     s["csrf_token"] = "tok"
 
 _post_sin_token = client.post
@@ -869,6 +885,7 @@ with client.session_transaction() as s:
 chequear("sin login no baja nada", client.get("/agenda/exportar").status_code == 302)
 with client.session_transaction() as s:
     s["tenant_id"] = "t1"
+    s["sesion_id"] = _sesion_de("t1")
 
 print("Aumento de honorarios")
 chequear("redondea a la centena", app._con_aumento(27180, "porcentaje", 10) == 29900 and app._con_aumento(10050, "porcentaje", 1) == 10200,
@@ -1008,6 +1025,7 @@ chequear("psicopedagogía se reconoce sin acentos", rubros.de({"rubro": " Psicop
 chequear("otro rubro usa los textos de siempre", not rubros.de({"rubro": "psicología"})["escuela"] and not rubros.de({})["escuela"])
 with client.session_transaction() as s:
     s["tenant_id"] = "t1"
+    s["sesion_id"] = _sesion_de("t1")
     s["csrf_token"] = "tok"
 reset()
 TABLAS["turnos"].append(turno("esc", "t1", manana, estado="reservado", paciente_nombre="Nina", paciente_telefono="549111"))
@@ -1307,6 +1325,7 @@ with client.session_transaction() as s:
 chequear("la guía pide login", client.get("/agenda/ayuda").status_code == 302)
 with client.session_transaction() as s:
     s["tenant_id"] = "t1"
+    s["sesion_id"] = _sesion_de("t1")
 
 # --- Tests ya tomados ---
 from datetime import date as _date  # noqa: E402
@@ -1948,6 +1967,7 @@ chequear("no comparte lo que no existe", len(TABLAS["biblioteca_cuestionarios"])
 # otra profesional la ve y la agrega
 with client.session_transaction() as ses:
     ses["tenant_id"] = "t2"
+    ses["sesion_id"] = _sesion_de("t2")
 html = client.get("/agenda").data.decode()
 chequear("la otra profesional ve la biblioteca", "Biblioteca compartida (2)" in html and "compartido por Lic. Marcos" in html and ">Retirar<" not in html)
 entrada = TABLAS["biblioteca_cuestionarios"][0]["id"]
@@ -1959,6 +1979,7 @@ client.post(f"/agenda/biblioteca/{entrada}/retirar", data={})
 chequear("no puede retirar lo ajeno", any(e["id"] == entrada for e in TABLAS["biblioteca_cuestionarios"]))
 with client.session_transaction() as ses:
     ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
 client.post(f"/agenda/biblioteca/{entrada}/retirar", data={})
 chequear("la autora retira y la copia queda", not any(e["id"] == entrada for e in TABLAS["biblioteca_cuestionarios"]) and len([p for p in TABLAS["plantillas_cuestionario"] if p["tenant_id"] == "t2"]) == antes_t2 + 1)
 html = client.post(f"/agenda/biblioteca/{entrada}/agregar", data={}, follow_redirects=True).data.decode()
@@ -2025,10 +2046,12 @@ html = client.post("/agenda/biblioteca/b1/agregar", data={}, follow_redirects=Tr
 chequear("ni lo pueden agregar", "ya no está en la biblioteca" in html)
 with client.session_transaction() as ses:
     ses["tenant_id"] = "t2"
+    ses["sesion_id"] = _sesion_de("t2")
 html = client.get("/agenda").data.decode()
 chequear("la autora lo ve marcado", "oculto por moderación" in html and "(Lic. Marcos)" not in html)
 with client.session_transaction() as ses:
     ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
 TABLAS["tenants"][0]["moderador"] = True
 client.post("/agenda/biblioteca/b1/moderar/mostrar", data={})
 chequear("mostrar lo devuelve", not TABLAS["biblioteca_cuestionarios"][0]["oculto"] and TABLAS["biblioteca_cuestionarios"][0]["oculto_por"] is None)
@@ -2090,10 +2113,12 @@ chequear("salir vuelve al login de admin", "/admin/login" in r.headers["Location
 # la cuenta desactivada pierde la sesión
 with client.session_transaction() as ses:
     ses["tenant_id"] = "t2"
+    ses["sesion_id"] = _sesion_de("t2")
     ses["csrf_token"] = "tok"
 chequear("cuenta desactivada no entra aunque tenga sesión", client.get("/agenda").status_code == 302)
 with client.session_transaction() as ses:
     ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
     ses["csrf_token"] = "tok"
 TABLAS["tenants"][1]["activo"] = True
 
@@ -2213,6 +2238,7 @@ chequear("mes raro cae en el actual", f"uso-{mes}.csv" in client.get("/admin/uso
 with client.session_transaction() as ses:
     ses.clear()
     ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
     ses["csrf_token"] = "tok"
 chequear("un profesional no baja el CSV", client.get("/admin/uso.csv").status_code == 302)
 # código de admin: reuso y límite
@@ -2246,9 +2272,11 @@ TABLAS["tenants"][0]["panel_pass_hash"] = _bcrypt.hashpw(b"clave-vieja-1", _bcry
 otro_cliente = app.app.test_client()
 with otro_cliente.session_transaction() as ses:
     ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
 with client.session_transaction() as ses:
     ses.clear()
     ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
     ses["csrf_token"] = "tok"
 html = client.get("/agenda").data.decode()
 chequear("Ajustes ofrece cambiar la clave", "Cambiar la clave" in html)
@@ -2286,6 +2314,7 @@ TABLAS["admins"] = [{"id": "a3", "usuario": "jefe", "pass_hash": _bcrypt.hashpw(
 profesional = app.app.test_client()
 with profesional.session_transaction() as ses:
     ses["tenant_id"] = "t2"
+    ses["sesion_id"] = _sesion_de("t2")
 chequear("la profesional está adentro", profesional.get("/agenda").status_code == 200)
 with client.session_transaction() as ses:
     ses.clear()
@@ -2297,7 +2326,8 @@ client.post("/admin/codigo", data={"codigo": seguridad._codigo(SEC2, int(_time.t
 with client.session_transaction() as ses:
     ses["csrf_token"] = "tok"
 html = client.post("/admin/profesionales/t2/cerrar-sesiones", data={}, follow_redirects=True).data.decode()
-chequear("el admin cierra sus sesiones", "Se cerraron todas las sesiones de Dra. Otra" in html and TABLAS["tenants"][1]["sesion_version"] == 1)
+chequear("el admin cierra sus sesiones", "Se cerraron todas las sesiones de Dra. Otra" in html
+         and not any(x["tenant_id"] == "t2" for x in TABLAS["sesiones"]))
 chequear("la profesional queda afuera", profesional.get("/agenda").status_code == 302)
 chequear("cuenta inexistente", client.post("/admin/profesionales/nada/cerrar-sesiones", data={}).status_code == 404)
 admin2 = app.app.test_client()
@@ -2309,6 +2339,148 @@ html = client.post("/admin/clave", data={"actual": "clave-admin-larga", "nueva":
 chequear("el admin cambia su clave", "cambiaste la clave" in html and _bcrypt.checkpw(b"clave-admin-nueva", TABLAS["admins"][0]["pass_hash"].encode()))
 chequear("y sigue adentro", client.get("/admin").status_code == 200)
 chequear("su otra sesión se cierra", admin2.get("/admin").status_code == 302)
+
+# --- Sesiones visibles, link de clave, actividad, doble factor con QR y entrar con QR ---
+chequear("dispositivo legible", seguridad.dispositivo("Mozilla/5.0 (Windows NT 10.0) AppleWebKit Chrome/120 Safari/537") == "Chrome en Windows"
+         and seguridad.dispositivo("Mozilla/5.0 (iPhone; CPU iPhone OS 17) Version/17 Safari/604") == "Safari en iPhone"
+         and seguridad.dispositivo(None) == "Navegador")
+svg = seguridad.qr_svg("otpauth://totp/x?secret=ABC")
+chequear("el QR sale como SVG en la página", svg.startswith("<svg") and "http" not in svg.split(">")[0].replace("http://www.w3.org", ""))
+
+reset()
+TABLAS["login_intentos"] = []
+TABLAS["sesiones"] = []
+TABLAS["tenants"][0]["panel_user"] = "marcos"
+TABLAS["tenants"][0]["panel_pass_hash"] = _bcrypt.hashpw(b"clave-de-marcos", _bcrypt.gensalt(4)).decode()
+compu = app.app.test_client()
+celu = app.app.test_client()
+r = compu.post("/login", data={"usuario": "marcos", "clave": "clave-de-marcos"}, headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/120"})
+r2 = celu.post("/login", data={"usuario": "marcos", "clave": "clave-de-marcos"}, headers={"User-Agent": "Mozilla/5.0 (iPhone) Version/17 Safari/604"})
+chequear("cada login abre una sesión registrada", r.status_code == 302 and r2.status_code == 302 and len(TABLAS["sesiones"]) == 2
+         and {x["dispositivo"] for x in TABLAS["sesiones"]} == {"Chrome en Windows", "Safari en iPhone"})
+chequear("y queda en la actividad", sum("entró al panel" in a["accion"] for a in TABLAS["actividad"]) == 2)
+with compu.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+    sid_compu = ses["sesion_id"]
+html = compu.get("/agenda").data.decode()
+chequear("Ajustes lista las sesiones", "Tus sesiones abiertas (2)" in html and "Safari en iPhone" in html and "Chrome en Windows" in html and ">esta<" in html)
+sid_celu = next(x["id"] for x in TABLAS["sesiones"] if x["id"] != sid_compu)
+compu.post(f"/agenda/sesiones/{sid_celu}/cerrar", data={"csrf_token": "tok"})
+chequear("cerrar una sesión la saca", celu.get("/agenda").status_code == 302 and compu.get("/agenda").status_code == 200)
+TABLAS["sesiones"].append({"id": "ajena", "tenant_id": "t2", "dispositivo": "x", "origen": "clave", "creada": "2026-11-02T00:00:00+00:00", "ultima": "2026-11-02T00:00:00+00:00"})
+compu.post("/agenda/sesiones/ajena/cerrar", data={"csrf_token": "tok"})
+chequear("no cierra sesiones de otro", any(x["id"] == "ajena" for x in TABLAS["sesiones"]))
+celu.post("/login", data={"usuario": "marcos", "clave": "clave-de-marcos"})
+compu.post("/agenda/sesiones/cerrar-otras", data={"csrf_token": "tok"})
+chequear("cerrar las otras deja ésta", compu.get("/agenda").status_code == 200 and celu.get("/agenda").status_code == 302)
+r = compu.post(f"/agenda/sesiones/{sid_compu}/cerrar", data={"csrf_token": "tok"})
+chequear("cerrar la propia es salir", "/login" in r.headers["Location"] and compu.get("/agenda").status_code == 302)
+viejo = app.app.test_client()
+with viejo.session_transaction() as ses:
+    ses["tenant_id"] = "t1"  # sesión anterior al cambio, sin fila
+chequear("una sesión sin registrar no entra", viejo.get("/agenda").status_code == 302)
+
+# entrar con QR
+compu = app.app.test_client()
+celu = app.app.test_client()
+celu.post("/login", data={"usuario": "marcos", "clave": "clave-de-marcos"})
+with celu.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+d = compu.post("/login/qr", headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/120"}).get_json()
+chequear("la compu recibe un QR", d["svg"].startswith("<svg") and d["token"] and d["segundos"] == 120)
+q = TABLAS["qr_logins"][-1]
+chequear("del token sólo se guarda el hash", q["token_hash"] != d["token"] and d["token"] not in str(q))
+chequear("todavía esperando", compu.get(f"/login/qr/{d['token']}/estado").get_json()["estado"] == "esperando")
+intruso = app.app.test_client()
+chequear("otro navegador con el mismo link no puede", intruso.get(f"/login/qr/{d['token']}/estado").status_code == 404)
+anonimo = app.app.test_client()
+r = anonimo.get(f"/login/qr/{d['token']}")
+chequear("abrirlo sin sesión pide entrar y vuelve", r.status_code == 302 and "siguiente=/login/qr/" in r.headers["Location"])
+pregunta = celu.get(f"/login/qr/{d['token']}").data.decode()
+chequear("el celular pregunta y muestra qué pidió", "¿Entrar a tu panel en otra pantalla?" in pregunta and "Chrome en Windows" in pregunta)
+chequear("aprobar sin token no vale", _post_sin_token.__self__ is not None and celu.post(f"/login/qr/{d['token']}", data={"respuesta": "aprobar"}).status_code == 403)
+html = celu.post(f"/login/qr/{d['token']}", data={"respuesta": "aprobar", "csrf_token": "tok"}).data.decode()
+chequear("el celular aprueba", "Listo" in html and TABLAS["qr_logins"][-1]["tenant_id"] == "t1")
+e = compu.get(f"/login/qr/{d['token']}/estado").get_json()
+chequear("la compu entra", e["estado"] == "listo" and compu.get("/agenda").status_code == 200
+         and any(x["origen"] == "QR" and x["dispositivo"] == "Chrome en Windows" for x in TABLAS["sesiones"]))
+chequear("el QR no sirve dos veces", compu.get(f"/login/qr/{d['token']}/estado").get_json()["estado"] in ("vencido", "invalido")
+         and "ya no sirve" in celu.get(f"/login/qr/{d['token']}").data.decode())
+compu2 = app.app.test_client()
+d2 = compu2.post("/login/qr").get_json()
+celu.post(f"/login/qr/{d2['token']}", data={"respuesta": "rechazar", "csrf_token": "tok"})
+chequear("rechazar no deja entrar", compu2.get(f"/login/qr/{d2['token']}/estado").get_json()["estado"] == "esperando"
+         and compu2.get("/agenda").status_code == 302)
+TABLAS["qr_logins"][-1]["vence"] = "2026-01-01T00:00:00+00:00"
+chequear("vencido no se aprueba", "ya no sirve" in celu.get(f"/login/qr/{d2['token']}").data.decode())
+
+# el destino después del login es sólo propio
+anon = app.app.test_client()
+r = anon.post("/login", data={"usuario": "marcos", "clave": "clave-de-marcos", "siguiente": "https://malo.com"})
+chequear("no redirige afuera", r.headers["Location"].endswith("/agenda"))
+anon = app.app.test_client()
+r = anon.post("/login", data={"usuario": "marcos", "clave": "clave-de-marcos", "siguiente": "//malo.com/x"})
+chequear("ni con doble barra", r.headers["Location"].endswith("/agenda"))
+
+# doble factor de la profesional con QR
+dfa = app.app.test_client()
+dfa.post("/login", data={"usuario": "marcos", "clave": "clave-de-marcos"})
+with dfa.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+pagina = dfa.get("/agenda/doble-factor").data.decode()
+with dfa.session_transaction() as ses:
+    sec_m = ses["totp_nuevo"]
+chequear("el doble factor muestra un QR", "<svg" in pagina and "escaneá este código" in pagina and seguridad.agrupado(sec_m) in pagina)
+dfa.post("/agenda/doble-factor", data={"csrf_token": "tok", "codigo": seguridad._codigo(sec_m, int(_time.time() // 30))})
+chequear("se activa con el código", TABLAS["tenants"][0].get("totp_secreto") == sec_m)
+nuevo_ingreso = app.app.test_client()
+r = nuevo_ingreso.post("/login", data={"usuario": "marcos", "clave": "clave-de-marcos"})
+chequear("ahora la clave sola pide código", "/login/codigo" in r.headers["Location"] and nuevo_ingreso.get("/agenda").status_code == 302)
+r = nuevo_ingreso.post("/login/codigo", data={"codigo": "000000" if seguridad._codigo(sec_m, int(_time.time() // 30)) != "000000" else "111111"})
+chequear("código malo no entra", r.status_code == 401)
+TABLAS["tenants"][0]["totp_ultimo_paso"] = None
+r = nuevo_ingreso.post("/login/codigo", data={"codigo": seguridad._codigo(sec_m, int(_time.time() // 30))})
+chequear("con el código entra", r.status_code == 302 and nuevo_ingreso.get("/agenda").status_code == 200)
+html = dfa.post("/agenda/doble-factor/desactivar", data={"csrf_token": "tok", "codigo": "123456"}, follow_redirects=True).data.decode()
+chequear("desactivar pide un código válido", "hace falta un código válido" in html and TABLAS["tenants"][0].get("totp_secreto"))
+TABLAS["tenants"][0]["totp_ultimo_paso"] = None
+dfa.post("/agenda/doble-factor/desactivar", data={"csrf_token": "tok", "codigo": seguridad._codigo(sec_m, int(_time.time() // 30))})
+chequear("se desactiva con el código", not TABLAS["tenants"][0].get("totp_secreto"))
+
+# link de clave nueva desde admin
+TABLAS["login_intentos"] = []
+SEC3 = seguridad.nuevo_secreto()
+TABLAS["admins"] = [{"id": "a9", "usuario": "jefa", "pass_hash": _bcrypt.hashpw(b"clave-admin-larga", _bcrypt.gensalt(4)).decode(), "totp_secreto": SEC3}]
+adm = app.app.test_client()
+adm.post("/admin/login", data={"usuario": "jefa", "clave": "clave-admin-larga"})
+with adm.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+adm.post("/admin/codigo", data={"csrf_token": "tok", "codigo": seguridad._codigo(SEC3, int(_time.time() // 30))})
+with adm.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+pagina = adm.post("/admin/profesionales/t1/link-clave", data={"csrf_token": "tok"}).data.decode()
+link = re.search(r'value="(https?://[^"]+/clave-nueva/[^"]+)"', pagina).group(1)
+token_link = link.rsplit("/", 1)[1]
+chequear("el admin genera el link y sólo se guarda el hash", TABLAS["enlaces_clave"] and token_link not in str(TABLAS["enlaces_clave"]))
+anon = app.app.test_client()
+chequear("abrir el link no lo gasta", "Poné tu clave nueva" in anon.get(f"/clave-nueva/{token_link}").data.decode() and not TABLAS["enlaces_clave"][0].get("usado_at"))
+chequear("valida la clave", "al menos 10" in anon.post(f"/clave-nueva/{token_link}", data={"nueva": "corta", "repetir": "corta"}).data.decode())
+html = anon.post(f"/clave-nueva/{token_link}", data={"nueva": "clave-recuperada", "repetir": "clave-recuperada"}).data.decode()
+chequear("pone la clave nueva y cierra sesiones", "Ya podés entrar" in html and _bcrypt.checkpw(b"clave-recuperada", TABLAS["tenants"][0]["panel_pass_hash"].encode())
+         and not any(x["tenant_id"] == "t1" for x in TABLAS["sesiones"]))
+chequear("el link sirve una vez", "ya no sirve" in anon.get(f"/clave-nueva/{token_link}").data.decode())
+chequear("link inventado", "ya no sirve" in anon.get("/clave-nueva/inventado").data.decode())
+chequear("la página de olvido explica qué hacer", "te manda un link" in anon.get("/olvide-la-clave").data.decode()
+         and "¿Te olvidaste la clave?" in anon.get("/login").data.decode())
+
+# actividad en admin
+html = adm.get("/admin").data.decode()
+for texto in ("generó un link para clave nueva de Lic. Marcos", "puso una clave nueva con el link", "aprobó entrar con QR",
+              "activó el doble factor", "cerró una de sus sesiones", "entró a administración"):
+    chequear(f"actividad: {texto}", texto in html)
+html = adm.get("/admin?actividad_de=t2").data.decode()
+chequear("filtra por cuenta", "Lic. Marcos" not in html.split("<th>Qué</th>")[1].split("</table>")[0])
+chequear("la actividad no tiene datos de pacientes", all("Paciente" not in a["accion"] for a in TABLAS["actividad"]))
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
