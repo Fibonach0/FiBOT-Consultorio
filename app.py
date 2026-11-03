@@ -30,6 +30,7 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 from openpyxl import Workbook
 
 import config
+import cancelaciones
 import conversation
 import db
 import rubros
@@ -129,6 +130,16 @@ def webhook_receive():
                     continue
                 telefono = msg.get("from")
                 _marcar("mensaje", phone_number_id)
+                # ¿Es un profesional contestando «liberar» / «me lo tomo» sobre
+                # un horario que le cancelaron? (cancelaciones.py)
+                try:
+                    decision = cancelaciones.respuesta_del_profesional(telefono, msg.get("text", {}).get("body", ""))
+                except Exception:
+                    logger.exception("Falló la respuesta del profesional (…%s)", (telefono or "")[-4:])
+                    decision = None
+                if decision:
+                    whatsapp.enviar_texto(phone_number_id, telefono, decision)
+                    continue
                 tenant = tenant_del_numero or db.tenant_por_paciente(telefono)
                 if not tenant:
                     _sin_destino(phone_number_id, telefono)
@@ -1844,6 +1855,8 @@ def agenda():
         "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),
                                   key=lambda r: r["turno"]["inicio"]),
         "espera": db.lista_de_espera(tenant["id"]),
+        "huecos": _con_hora_local(db.huecos(tenant["id"]), tz),
+        "estadisticas": _estadisticas_pagina(tenant, tz),
         "bloqueos": bloqueos,
         "hoy_iso": ahora.date().isoformat(),
         "mes_actual": ahora.strftime("%Y-%m"),
@@ -2174,21 +2187,11 @@ def agenda_espera_ofrecer(espera_id):
         db.marcar_ofrecido(tenant["id"], espera_id, hoy)
         cuando = scheduler._fmt(libres[0]["inicio"], tz)
         link = url_for("publico", slug=tenant["slug"], _external=True, _scheme="https")
-        if _ofrecer_horario(tenant, persona["telefono"], cuando, link):
+        if cancelaciones.ofrecer_horario(tenant, persona["telefono"], cuando, link):
             flash(f"Le ofrecimos a {persona['nombre']} el {cuando}.")
         else:
             flash(f"No se pudo escribirle a {persona['nombre']}.")
     return _volver_a_agenda()
-
-
-def _ofrecer_horario(tenant: dict, telefono: str, cuando: str, link: str) -> bool:
-    numero = whatsapp.numero_de(tenant)
-    if not numero:
-        return False
-    if config.LISTA_ESPERA_TEMPLATE:
-        return whatsapp.enviar_plantilla(numero, telefono, config.LISTA_ESPERA_TEMPLATE,
-                                         config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], cuando, link])
-    return whatsapp.enviar_texto(numero, telefono, f"Hola. Se liberó un horario con *{tenant['nombre']}*: {cuando}. Si lo querés, reservalo acá: {link}")
 
 
 @app.post("/agenda/avisos")
@@ -2960,6 +2963,39 @@ def agenda_firma():
     return _volver_a_agenda()
 
 
+def _estadisticas_pagina(tenant: dict, tz: ZoneInfo) -> dict | None:
+    """Este mes en la página de turnos: visitas, reservas, cancelaciones y
+    cambios desde la web, anotados en la lista de espera."""
+    if not tenant.get("slug"):
+        return None
+    inicio = datetime.now(tz).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    try:
+        return db.eventos_pagina_desde(tenant["id"], inicio)
+    except Exception:
+        return None
+
+
+@app.post("/agenda/hueco/<turno_id>/<accion>")
+@login_required
+def agenda_hueco(turno_id, accion):
+    """El profesional decide sobre un horario que le cancelaron: «liberar»
+    (vuelve a ofrecerse, y a la lista de espera si está activado) o «tomar»
+    (se lo queda, no se ofrece)."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    turno = db.turno_por_id(tenant["id"], turno_id)
+    if not turno or turno["estado"] != "libre" or accion not in ("liberar", "tomar"):
+        flash("Ese horario ya no está para decidir.")
+        return _volver_a_agenda()
+    cuando = scheduler._fmt(turno["inicio"], _tz_de(tenant))
+    if accion == "liberar":
+        ofrecido = cancelaciones.liberar(tenant, turno)
+        flash(f"El {cuando} quedó libre para tus pacientes." + (f" Se lo ofrecimos a {ofrecido}." if ofrecido else ""))
+    else:
+        cancelaciones.tomar(tenant, turno)
+        flash(f"El {cuando} es tuyo: no se le ofrece a nadie.")
+    return _volver_a_agenda()
+
+
 @app.post("/agenda/perfil")
 @login_required
 def agenda_perfil():
@@ -2971,6 +3007,8 @@ def agenda_perfil():
         "descripcion": (f.get("descripcion") or "").strip()[:160] or None,
         "modalidades_publicas": modalidades,
         "en_directorio": f.get("en_directorio") == "1",
+        "al_cancelar": "preguntar" if f.get("al_cancelar") == "preguntar" else "liberar",
+        "ofrecer_espera_auto": f.get("ofrecer_espera_auto") == "1",
         "cancelar_hasta_horas": int(f.get("cancelar_hasta_horas")) if (f.get("cancelar_hasta_horas") or "") in
         {str(h) for h in HORAS_CANCELAR} else (tenant or {}).get("cancelar_hasta_horas", 24),
     })
@@ -3414,6 +3452,8 @@ def publico(slug):
     tenant = db.get_tenant_by_slug(slug)
     if not tenant:
         return "No encontrado.", 404
+    if "bot" not in (request.user_agent.string or "").lower() and request.args.get("semana") is None:
+        _evento(tenant, "visita")
     return render_template("publico.html", tenant=tenant, cambiar=None, **_semana_libre(tenant, request.args.get("semana")),
                            hay_directorio=sum(1 for t in db.tenants_activos()
                                               if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
@@ -3425,7 +3465,7 @@ def publico_reservar_form(slug, turno_id):
     if not tenant:
         return "No encontrado.", 404
     turno = db.turno_por_id(tenant["id"], turno_id)
-    if not turno or turno["estado"] != "libre":
+    if not turno or turno["estado"] != "libre" or turno.get("hueco"):
         flash("Ese horario ya no está disponible — elegí otro.")
         return redirect(url_for("publico", slug=slug))
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
@@ -3454,7 +3494,7 @@ def publico_reservar(slug, turno_id):
         # y a qué WhatsApp) y recién el segundo POST reserva. No se toma el
         # horario en este paso: si otro lo reserva mientras tanto, se avisa.
         turno = db.turno_por_id(tenant["id"], turno_id)
-        if not turno or turno["estado"] != "libre":
+        if not turno or turno["estado"] != "libre" or turno.get("hueco"):
             flash("Ese horario ya no está disponible — elegí otro.")
             return redirect(url_for("publico", slug=slug))
         if len(telefono) < 10:
@@ -3463,9 +3503,11 @@ def publico_reservar(slug, turno_id):
         return render_template("publico_revisar.html", tenant=tenant, turno=_con_hora_local([turno], tz)[0],
                                nombre=nombre, telefono=telefono, modalidad=modalidad,
                                confirma_por_whatsapp=bool(config.CONFIRMACION_TEMPLATE))
-    if not db.reservar_turno(tenant["id"], turno_id, telefono, nombre):
+    previo = db.turno_por_id(tenant["id"], turno_id)
+    if (previo or {}).get("hueco") or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre):
         flash("Ese horario ya no está disponible — elegí otro.")
         return redirect(url_for("publico", slug=slug))
+    _evento(tenant, "reserva")
     token = secrets.token_urlsafe(16)
     campos = {"token_calendario": token, "modalidad": None if modalidad == "presencial" else modalidad}
     turno = db.turno_por_id(tenant["id"], turno_id)
@@ -3527,12 +3569,16 @@ def agendar(token):
         cambiado=request.args.get("cambiado") == "1")))
 
 
+def _evento(tenant: dict, tipo: str) -> None:
+    """Para las estadísticas de la página. Si falla, no importa."""
+    try:
+        db.registrar_evento_pagina(tenant["id"], tipo)
+    except Exception:
+        logger.warning("No se pudo registrar el evento %s", tipo)
+
+
 def _puede_modificar(turno: dict, tenant: dict) -> bool:
-    """Política del profesional: hasta cuántas horas antes se puede cancelar
-    o cambiar desde la web (`cancelar_hasta_horas`, 0 = hasta que empieza)."""
-    horas = tenant.get("cancelar_hasta_horas")
-    horas = 24 if horas is None else horas
-    return datetime.fromisoformat(turno["inicio"]) - datetime.now(ZoneInfo("UTC")) > timedelta(hours=horas)
+    return cancelaciones.puede_modificar(turno, tenant)
 
 
 def _tarde(tenant: dict, turno: dict):
@@ -3558,6 +3604,7 @@ def publico_espera(slug):
         return redirect(url_for("publico", slug=slug) + "#espera")
     nuevo = db.agregar_a_espera(tenant["id"], nombre, telefono, preferencia, origen="web")
     if nuevo:
+        _evento(tenant, "espera")
         scheduler.avisar_profesional(tenant, "alguien se anotó en tu lista de espera desde tu página de turnos")
     return render_template("espera_listo.html", tenant=tenant, ya_estaba=not nuevo)
 
@@ -3588,9 +3635,8 @@ def agendar_cancelar(token):
     if request.method == "POST":
         db.cancelar_turno(tenant["id"], turno["id"], "paciente")
         db.registrar_actividad("paciente (web)", f"canceló un turno desde el link de agendar", tenant["id"])
-        esperando = len(db.lista_de_espera(tenant["id"]))
-        scheduler.avisar_profesional(tenant, f"un paciente canceló desde la web el turno del {scheduler.cuando_de(turno, tenant, tz)}"
-                                     + (f"; tenés {esperando} en lista de espera" if esperando else ""))
+        cancelaciones.tras_cancelar(tenant, turno, "la web")
+        _evento(tenant, "cancelacion")
         return _sin_indexar(app.make_response(render_template(
             "agendar_listo.html", tenant=tenant, accion="cancelado", turno=_con_hora_local([turno], tz)[0])))
     return _sin_indexar(app.make_response(render_template(
@@ -3624,7 +3670,7 @@ def agendar_cambiar_a(token, turno_id):
         return _tarde(tenant, turno)
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     nuevo = db.turno_por_id(tenant["id"], turno_id)
-    if not nuevo or nuevo["estado"] != "libre" or datetime.fromisoformat(nuevo["inicio"]) <= datetime.now(ZoneInfo("UTC")):
+    if not nuevo or nuevo["estado"] != "libre" or nuevo.get("hueco") or datetime.fromisoformat(nuevo["inicio"]) <= datetime.now(ZoneInfo("UTC")):
         flash("Ese horario ya no está disponible — elegí otro.")
         return redirect(url_for("agendar_cambiar", token=token))
     if request.method == "GET":
@@ -3643,6 +3689,7 @@ def agendar_cambiar_a(token, turno_id):
     db.registrar_actividad("paciente (web)", "cambió el horario de un turno desde el link de agendar", tenant["id"])
     scheduler.avisar_profesional(tenant, f"un paciente pasó desde la web su turno del {scheduler.cuando_de(turno, tenant, tz)} "
                                          f"al {scheduler.cuando_de(nuevo, tenant, tz)}")
+    _evento(tenant, "cambio")
     db.actualizar_reserva(tenant["id"], nuevo["id"], {"reserva_avisada": True})
     return redirect(url_for("agendar", token=token, cambiado=1))
 

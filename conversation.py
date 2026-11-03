@@ -96,7 +96,16 @@ def _cancelar(tenant: dict, telefono: str, nombre: str | None = None) -> str:
             pedido = f" Escribí *cancelar* y el nombre completo, por ejemplo *cancelar {ejemplo}*." if ejemplo else ""
         return f"{inicio}\n\n{detalle}\n\nTodavía no se canceló nada.{pedido}"
     turno = elegidos[0]
+    import cancelaciones  # acá: cancelaciones importa scheduler, que no hace falta para el resto del bot
+    if not cancelaciones.puede_modificar(turno, tenant):
+        return (f"Tu turno del {_fmt(turno['inicio'], tz)} es en menos de {cancelaciones.horas_limite(tenant)} horas: "
+                f"para cancelarlo, escribile directamente a *{tenant['nombre']}*. Todavía no se canceló nada.")
     db.cancelar_turno(tenant["id"], turno["id"], "paciente")
+    try:
+        cancelaciones.tras_cancelar(tenant, turno, "WhatsApp")
+    except Exception:
+        import logging
+        logging.getLogger("conversation").exception("Falló el aviso de la cancelación del turno %s", turno["id"])
     de_quien = f" de {turno['paciente_nombre']}" if nombre and turno.get("paciente_nombre") else ""
     return f"Cancelado el turno{de_quien} del {_fmt(turno['inicio'], tz)}. Escribí *turno* si querés reservar otro horario."
 

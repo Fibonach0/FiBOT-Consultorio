@@ -17,7 +17,13 @@ os.environ.setdefault("FLASK_SECRET_KEY", "fake")
 import db  # noqa: E402
 import conversation  # noqa: E402
 
-tenant = {"id": "t1", "nombre": "Lic. Ana Pérez", "timezone": "America/Argentina/Buenos_Aires"}
+tenant = {"id": "t1", "nombre": "Lic. Ana Pérez", "timezone": "America/Argentina/Buenos_Aires",
+          "cancelar_hasta_horas": 0}  # sin plazo: estos tests cancelan turnos de dentro de un rato
+
+import cancelaciones  # noqa: E402
+
+TRAS_CANCELAR = []
+cancelaciones.tras_cancelar = lambda t, turno, por: TRAS_CANCELAR.append((turno["id"], por))
 
 ahora = datetime.now(timezone.utc)
 FAKE_TURNOS = [
@@ -97,3 +103,18 @@ assert FAKE_TURNOS[1]["estado"] == "libre"
 print("cancelar turno propio -> OK, vuelve a estar libre")
 
 print("\nTODOS LOS TESTS DE CONVERSACIÓN PASARON")
+
+
+# --- Plazo para cancelar también por WhatsApp ---
+TRAS_CANCELAR.clear()
+_cerca = {"id": "cerca", "inicio": (datetime.now(timezone.utc) + timedelta(hours=3)).isoformat(),
+          "paciente_telefono": "549110000", "paciente_nombre": "Tito"}
+_canceladas = []
+db.proximos_turnos_de = lambda tid, tel: [dict(_cerca)]
+db.cancelar_turno = lambda tid, turno_id, origen=None: _canceladas.append(turno_id)
+r = conversation.responder(dict(tenant, cancelar_hasta_horas=24), "549110000", "cancelar")
+assert "menos de 24 horas" in r and "Todavía no se canceló nada" in r and not _canceladas and not TRAS_CANCELAR, r
+print("cancelar por WhatsApp respeta el plazo del profesional OK")
+r = conversation.responder(dict(tenant, cancelar_hasta_horas=2), "549110000", "cancelar")
+assert "Cancelado" in r and _canceladas == ["cerca"] and TRAS_CANCELAR == [("cerca", "WhatsApp")], r
+print("dentro del plazo cancela y sigue el flujo de cancelaciones (aviso, retener o lista de espera) OK")
