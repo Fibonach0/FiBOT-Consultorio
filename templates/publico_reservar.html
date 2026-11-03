@@ -6,8 +6,10 @@
 </header>
 <main>
   <div class="card">
-    <h2>Confirmar turno</h2>
+    <h2>Tus datos</h2>
+    <p>Turno con <strong>{{ tenant.nombre }}</strong>{% if tenant.rubro %} <span style="color:var(--muted);">({{ tenant.rubro }})</span>{% endif %}</p>
     <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}</p>
+    {% with mensajes = get_flashed_messages() %}{% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}{% endwith %}
 
     <form method="post" action="{{ url_for('publico_reservar', slug=tenant.slug, turno_id=turno.id) }}">
       <label for="nombre">Nombre y apellido</label>
@@ -17,7 +19,7 @@
       <input type="text" id="telefono" name="telefono" required placeholder="5491123456789">
 
       <div style="margin-top:14px;">
-        <button class="btn" type="submit">Confirmar reserva</button>
+        <button class="btn" type="submit">Seguir</button>
         <a class="btn secundario" href="{{ url_for('publico', slug=tenant.slug) }}" style="text-decoration:none; display:inline-block; margin-left:8px;">Elegir otro horario</a>
       </div>
     </form>

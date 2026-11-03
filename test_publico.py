@@ -65,22 +65,42 @@ r = client.get("/anaperez/reservar/turno-a")
 assert r.status_code == 200 and b"nombre" in r.data and b"telefono" in r.data, r.status_code
 print("GET /anaperez/reservar/turno-a -> 200 OK, formulario")
 
+r = client.get("/anaperez/reservar/turno-a")
+assert "Turno con <strong>Lic. Ana Pérez</strong>" in r.data.decode()
+print("el formulario dice con quién es el turno OK")
+
 r = client.post(
     "/anaperez/reservar/turno-a",
     data={"nombre": "Juan Pérez", "telefono": "+54 9 11 2345-6789"},
 )
-assert r.status_code == 200 and b"reservado" in r.data.lower(), r.status_code
+html = r.data.decode()
+assert r.status_code == 200 and "Revisá antes de reservar" in html and "Lic. Ana Pérez" in html and "+5491123456789" in html, html[:300]
+assert TURNO_LIBRE["estado"] == "libre", "el primer paso NO reserva"
+print("primer POST -> pantalla de revisión, sin reservar OK")
+
+r = client.post("/anaperez/reservar/turno-a", data={"nombre": "Juan", "telefono": "1234"}, follow_redirects=True)
+assert "Revisá el WhatsApp" in r.data.decode() and TURNO_LIBRE["estado"] == "libre"
+print("WhatsApp incompleto -> vuelve al formulario OK")
+
+r = client.post(
+    "/anaperez/reservar/turno-a",
+    data={"nombre": "Juan Pérez", "telefono": "5491123456789", "confirmado": "1"},
+)
+assert r.status_code == 200 and b"reservado" in r.data.lower() and "Con <strong>Lic. Ana Pérez</strong>" in r.data.decode(), r.status_code
 assert TURNO_LIBRE["estado"] == "reservado"
 assert TURNO_LIBRE["paciente_telefono"] == "5491123456789", TURNO_LIBRE["paciente_telefono"]
 print("POST /anaperez/reservar/turno-a -> 200 OK, confirmado y teléfono normalizado a solo dígitos")
 
 r = client.post(
     "/anaperez/reservar/turno-a",
-    data={"nombre": "Otra Persona", "telefono": "5491100000000"},
+    data={"nombre": "Otra Persona", "telefono": "5491100000000", "confirmado": "1"},
     follow_redirects=True,
 )
 assert r.status_code == 200 and "no está disponible".encode() in r.data
 print("POST sobre un turno ya tomado -> redirige con aviso OK")
+r = client.post("/anaperez/reservar/turno-a", data={"nombre": "Otra", "telefono": "5491100000000"}, follow_redirects=True)
+assert "no está disponible".encode() in r.data
+print("revisar un turno ya tomado -> avisa OK")
 
 r = client.get("/privacidad")
 assert r.status_code == 200 and "Política de privacidad" in r.data.decode() and "Ley 25.326" in r.data.decode(), "privacidad"
