@@ -3519,6 +3519,12 @@ chequear("MP: el aviso aprueba la reserva", r.status_code == 200 and pago4["esta
          and TABLAS["turnos"][0]["pago_web"] == "aprobado" and pago4["mp_pago_id"] == "112")
 app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "112"}})
 chequear("MP: avisos repetidos no rompen nada", pago4["estado"] == "aprobado")
+_ver = db.get_tenant_by_id
+db.get_tenant_by_id = lambda tid: (_ for _ in ()).throw(Exception("invalid input syntax for type uuid"))
+chequear("MP: aviso sin profesional o con id inválido contesta 200",
+         app.app.test_client().post("/webhook/mercadopago", json={}).status_code == 200
+         and app.app.test_client().post("/webhook/mercadopago?t=cualquiera", json={"type": "payment", "data": {"id": "1"}}).status_code == 200)
+db.get_tenant_by_id = _ver
 chequear("MP: la página dice confirmado", "tu turno está confirmado" in w.get(f"/pago/{pago4['token']}").data.decode())
 # pago tardío
 TABLAS["turnos"][1].update(db._LIBERADO)
