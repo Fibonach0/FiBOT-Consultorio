@@ -71,6 +71,7 @@ whatsapp.enviar_texto = lambda pid, to, txt: enviados.append((pid, to, txt)) or 
 conversation.responder = lambda tenant, tel, txt: f"respuesta de {tenant['id']}"
 # Nadie tiene el número compartido asignado: por eso hay que resolver por paciente.
 db.get_tenant_by_phone_number_id = lambda pid: None
+db.marcar_evento = lambda clave, detalle=None: None  # la hora del último mensaje no es lo que se prueba acá
 db.tenant_por_paciente = lambda tel: TENANT_COMPARTIDO if tel == "5491133334444" else None
 
 client = app.app.test_client()

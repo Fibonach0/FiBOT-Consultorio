@@ -48,6 +48,16 @@ números (se comparan los últimos 10 dígitos) y al resto lo saltean devolviend
 número real y datos de demo: los teléfonos inventados pueden ser de gente
 real. Vacía = producción, le manda a todos.
 
+**WhatsApp en administración (`/admin/whatsapp`, `migrations/044`)**: el webhook
+marca en `eventos_plataforma` la hora del último aviso de Meta (`webhook`) y del
+último mensaje de un paciente (`mensaje`), sólo la hora y el phone_number_id; si
+falla, el mensaje se procesa igual. La tarjeta Estado lo muestra. La página
+(`whatsapp.diagnostico`) consulta a Meta en vivo, sólo al abrirla: número,
+suscripción de la app a la cuenta y estado de cada plantilla (las dos últimas
+necesitan `META_WABA_ID`). Es la lista a seguir al cambiar de número. La prueba
+de envío manda `hello_world` o el recordatorio con datos de ejemplo, respeta el
+freno y queda en la actividad. Nunca se muestra el token.
+
 El costo de eso: cuando varios tenants comparten un número, el
 `phone_number_id` del webhook **ya no identifica a nadie**. El tenant se
 resuelve por el paciente — `db.tenant_por_paciente(telefono)` busca el turno

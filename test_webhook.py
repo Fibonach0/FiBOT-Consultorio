@@ -34,6 +34,7 @@ import db  # noqa: E402
 # porque este test es de plomería (firma, ruteo, códigos de estado), no de
 # la base. La lógica de esa función se lee, no hace falta mockear Supabase.
 db.get_tenant_by_phone_number_id = lambda pid: None
+db.marcar_evento = lambda clave, detalle=None: None  # la hora del último mensaje no es lo que se prueba acá
 
 client = app.app.test_client()
 

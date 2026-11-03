@@ -37,6 +37,11 @@ RECORDATORIO_INTERVALO_MIN = int(os.environ.get("RECORDATORIO_INTERVALO_MIN", "1
 # Vacío = la función está apagada y cada tenant necesita su propio número.
 PLATAFORMA_PHONE_NUMBER_ID = os.environ.get("PLATAFORMA_PHONE_NUMBER_ID", "")
 
+# Identificador de la cuenta de WhatsApp (WABA) de ese número. Opcional: sólo
+# lo usa la página de WhatsApp de administración para revisar si la app está
+# suscripta y en qué estado están las plantillas.
+META_WABA_ID = os.environ.get("META_WABA_ID", "")
+
 # El recordatorio sale el día ANTES del turno, a alguien que reservó por la
 # página web y nunca le escribió al bot: siempre fuera de la ventana de 24 h
 # de Meta, donde el texto libre está prohibido. Por eso hace falta una

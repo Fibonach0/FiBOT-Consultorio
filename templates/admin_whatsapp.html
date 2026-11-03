@@ -1,0 +1,48 @@
+{% extends "base.html" %}
+{% block titulo %}WhatsApp — Administración{% endblock %}
+{% block cuerpo %}
+<style>
+  .paso { padding:10px 0; border-bottom:1px dotted var(--rule); }
+  .paso:last-child { border-bottom:none; }
+  .paso .marca { display:inline-block; width:1.4em; font-weight:700; }
+  .paso.bien .marca { color:var(--green); }
+  .paso.mal .marca { color:#a33; }
+  .paso .como { margin:4px 0 0 1.4em; font-size:.85rem; color:var(--muted); word-break:break-word; }
+  .paso code { font-size:.78rem; background:var(--cream); padding:2px 4px; border-radius:4px; }
+  .resultado { padding:10px 12px; border-radius:6px; margin-bottom:12px; }
+  .resultado.bien { background:var(--green-bg); color:var(--green); }
+  .resultado.mal { background:#fbeeee; color:#7a2222; }
+</style>
+<header>
+  <span>FiBOT Consultorio · Administración · WhatsApp</span>
+  <a href="{{ url_for('admin_panel') }}">Volver</a>
+</header>
+<main class="panel">
+  <div class="card">
+    <h3>Pasos</h3>
+    <p class="tenue" style="margin-top:0">Revisado recién contra Meta. Cuando cambies de número, seguí esta lista de arriba a abajo hasta que quede todo en verde.</p>
+    {% for p in pasos %}
+    <div class="paso {% if p.ok is sameas true %}bien{% elif p.ok is sameas false %}mal{% endif %}">
+      <span class="marca">{% if p.ok is sameas true %}✓{% elif p.ok is sameas false %}✗{% else %}·{% endif %}</span><strong>{{ p.nombre }}</strong>
+      <span class="tenue">{{ p.detalle }}</span>
+      {% if p.como and p.ok is not sameas true %}
+      <div class="como">{% if p.como.startswith('railway run') %}Corré en la terminal: <code>{{ p.como }}</code>{% else %}{{ p.como }}{% endif %}</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+    <p style="margin-bottom:0"><a href="{{ url_for('admin_whatsapp') }}">Revisar de nuevo</a></p>
+  </div>
+
+  <div class="card">
+    <h3>Mandarme un WhatsApp de prueba</h3>
+    {% if resultado %}<div class="resultado {{ 'bien' if resultado.ok else 'mal' }}">{{ resultado.texto }}</div>{% endif %}
+    <form method="post" action="{{ url_for('admin_whatsapp_prueba') }}" class="fila">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label>Tu teléfono, con código de país</label><input type="tel" name="telefono" placeholder="5491122223333" required></div>
+      <div><label>Plantilla</label><select name="plantilla">{% for v, t in plantillas %}<option value="{{ v }}">{{ t }}</option>{% endfor %}</select></div>
+      <div class="al-pie"><button class="btn" type="submit">Mandar</button></div>
+    </form>
+    <div class="tenue" style="margin-top:6px">Sale desde el número de la plataforma. Respeta el freno de envíos y, con el número de prueba de Meta, sólo llega a los destinatarios autorizados en Meta.</div>
+  </div>
+</main>
+{% endblock %}
