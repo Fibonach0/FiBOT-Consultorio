@@ -380,6 +380,8 @@ _LIBERADO = {
     "hueco": None,
     "hueco_desde": None,
     "tipo": None,
+    "pago_web": None,
+    "pago_vence": None,
 }
 
 
@@ -1371,3 +1373,36 @@ def eventos_pagina_desde(tenant_id: str, desde: datetime) -> dict[str, int]:
     for f in res.data:
         cuenta[f["tipo"]] = cuenta.get(f["tipo"], 0) + 1
     return cuenta
+
+
+def crear_pago(fila: dict) -> dict:
+    return _client.table("pagos").insert({**fila, "creado": datetime.now(timezone.utc).isoformat()}).execute().data[0]
+
+
+def actualizar_pago(pago_id: str, campos: dict) -> None:
+    _client.table("pagos").update(campos).eq("id", pago_id).execute()
+
+
+def pago_por_token(token: str) -> dict | None:
+    """El token es la credencial de la página del paciente y la referencia en
+    Mercado Pago."""
+    if not token:
+        return None
+    res = _client.table("pagos").select("*").eq("token", token).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def pago_de(tenant_id: str, pago_id: str) -> dict | None:
+    res = _client.table("pagos").select("*").eq("tenant_id", tenant_id).eq("id", pago_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def pagos_esperando(tenant_id: str) -> list[dict]:
+    return _client.table("pagos").select("*").eq("tenant_id", tenant_id).eq("estado", "esperando").execute().data
+
+
+def pagos_para_revisar(tenant_id: str) -> list[dict]:
+    """Comprobantes por validar y pagos que llegaron tarde."""
+    res = _client.table("pagos").select("*").eq("tenant_id", tenant_id).in_("estado", ["comprobante", "aprobado_tarde"]) \
+        .order("creado").execute()
+    return res.data

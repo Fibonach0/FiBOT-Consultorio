@@ -240,6 +240,7 @@ def reset():
     TABLAS["plantillas_meta"] = []
     TABLAS["mensajes_sin_destino"] = []
     TABLAS["eventos_pagina"] = []
+    TABLAS["pagos"] = []
     TABLAS["login_intentos"] = []
     TABLAS.setdefault("sesiones", [])  # sobreviven a reset(): los clientes de prueba siguen logueados
     TABLAS["actividad"] = []
@@ -3419,6 +3420,123 @@ if _maniana:
 html = web6.get("/marcos?vista=mes&tipo=1").data.decode()
 chequear("mes: muestra el mes con los días que tienen lugar", "Lu" in html and "libre" in html and "semana=" in html)
 chequear("mes: se puede volver a la semana", 'vista=mes' in web6.get("/marcos?tipo=1").data.decode())
+
+# --- Cobro de las reservas web ---
+import pagos as _pg  # noqa: E402
+
+reset()
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "activo": True, "cobro_web": "transferencia", "precio_sesion": 25000,
+            "transferencia_datos": "Alias: marcos.mp", "aviso_telefono": "5491122223333"})
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+_avp = []
+_va3 = scheduler.avisar_profesional
+scheduler.avisar_profesional = lambda tenant, texto: _avp.append(texto) or True
+_d = datetime.now(timezone.utc).replace(second=0, microsecond=0) + timedelta(days=3)
+TABLAS["turnos"] = [turno("p1", "t1", _d), turno("p2", "t1", _d + timedelta(hours=1)), turno("p3", "t1", _d + timedelta(hours=2))]
+w = app.app.test_client()
+chequear("cobro: el resumen avisa cuánto hay que pagar", "hay que pagar" in w.post("/marcos/reservar/p1", data={
+    "nombre": "Ana", "telefono": "5491100003333"}).data.decode())
+r = w.post("/marcos/reservar/p1", data={"nombre": "Ana", "telefono": "5491100003333", "confirmado": "1"})
+p1 = TABLAS["turnos"][0]
+pago = TABLAS["pagos"][-1]
+chequear("cobro: la reserva queda apartada esperando el pago", r.status_code == 302 and "/pago/" in r.headers["Location"]
+         and p1["estado"] == "reservado" and p1["pago_web"] == "esperando" and pago["monto"] == 25000)
+html = w.get(f"/pago/{pago['token']}").data.decode()
+chequear("cobro: la página muestra el alias y el monto", "Alias: marcos.mp" in html and "$ 25.000" in html and "Enviar comprobante" in html)
+chequear("cobro: no se recuerda mientras no paga", "p1" not in [t["id"] for t in [x for x in db.turnos_para_recordar("t1", 24 * 5)
+                                                                   if x.get("pago_web") not in ("esperando", "comprobante")]])
+import io as _io2  # noqa: E402
+w.post(f"/pago/{pago['token']}/comprobante", data={"comprobante": (_io2.BytesIO(b"<html>x"), "x.html")}, content_type="multipart/form-data")
+chequear("cobro: rechaza archivos que no son foto o PDF", pago["estado"] == "esperando")
+w.post(f"/pago/{pago['token']}/comprobante", data={"comprobante": (_io2.BytesIO(b"%PDF-1.4 ..."), "c.pdf")}, content_type="multipart/form-data")
+chequear("cobro: recibe el comprobante y avisa", pago["estado"] == "comprobante" and p1["pago_web"] == "comprobante"
+         and "comprobante" in _avp[-1])
+html = panel_c.get("/agenda").data.decode()
+chequear("cobro: el panel lo muestra para validar", "Pagos para revisar" in html and "Ver comprobante" in html)
+r = panel_c.get(f"/agenda/pago-web/{pago['id']}/comprobante")
+chequear("cobro: el comprobante se ve", r.status_code == 200 and r.mimetype == "application/pdf")
+panel_c.post(f"/agenda/pago-web/{pago['id']}/aceptar", data={"csrf_token": "tok"})
+chequear("cobro: aceptar confirma y marca pagado", pago["estado"] == "aprobado" and p1["pago_web"] == "aprobado"
+         and p1["pago"] == "pagado" and p1["confirmado_at"] and pago["comprobante"] is None)
+
+# rechazar
+w.post("/marcos/reservar/p2", data={"nombre": "Beto", "telefono": "5491100004444", "confirmado": "1"})
+pago2 = TABLAS["pagos"][-1]
+w.post(f"/pago/{pago2['token']}/comprobante", data={"comprobante": (_io2.BytesIO(b"\x89PNG\r\n\x1a\n00"), "c.png")},
+       content_type="multipart/form-data")
+panel_c.post(f"/agenda/pago-web/{pago2['id']}/rechazar", data={"csrf_token": "tok"})
+chequear("cobro: rechazar libera el horario", pago2["estado"] == "rechazado" and TABLAS["turnos"][1]["estado"] == "libre")
+
+# vencimiento
+w.post("/marcos/reservar/p3", data={"nombre": "Ceci", "telefono": "5491100005555", "confirmado": "1"})
+pago3 = TABLAS["pagos"][-1]
+_pg.vencer(dict(_t1), datetime.now(timezone.utc) + timedelta(hours=1))
+chequear("cobro: sin pagar a tiempo, se libera", pago3["estado"] == "esperando")
+_pg.vencer(dict(_t1), datetime.now(timezone.utc) + timedelta(hours=3))
+chequear("cobro: vencido se libera", pago3["estado"] == "vencido" and TABLAS["turnos"][2]["estado"] == "libre")
+
+# Mercado Pago
+_t1.update({"cobro_web": "mercadopago", "mp_token_cifrado": _pg.cifrar("TEST-token-del-profesional"),
+            "mp_vence": (datetime.now(timezone.utc) + timedelta(days=100)).isoformat()})
+chequear("cifrado: ida y vuelta, y no queda en claro", _pg.descifrar(_t1["mp_token_cifrado"]) == "TEST-token-del-profesional"
+         and "token-del" not in _t1["mp_token_cifrado"])
+_vc = (_pg.config.MP_CLIENT_ID, _pg.config.MP_CLIENT_SECRET)
+_pg.config.MP_CLIENT_ID, _pg.config.MP_CLIENT_SECRET = "app", "secreto"
+_mp = {"pagos": {}}
+
+
+class _RMP:
+    def __init__(self, codigo, datos):
+        self.status_code, self._d, self.text = codigo, datos, str(datos)
+
+    def json(self):
+        return self._d
+
+
+def _mp_post(url, json=None, headers=None, timeout=None):
+    _mp["pref"] = (url, json, headers)
+    return _RMP(201, {"id": "pref1", "init_point": "https://mp.example/pagar"})
+
+
+_pg.requests.post = _mp_post
+_pg.requests.get = lambda url, headers=None, timeout=None: _RMP(200, _mp["pagos"][url.rsplit("/", 1)[1]])
+TABLAS["turnos"][0].update(db._LIBERADO)
+w.post("/marcos/reservar/p1", data={"nombre": "Dani", "telefono": "5491100006666", "confirmado": "1"})
+pago4 = TABLAS["pagos"][-1]
+r = w.post(f"/pago/{pago4['token']}/mercadopago")
+chequear("MP: abre el checkout con la cuenta del profesional", r.headers.get("Location") == "https://mp.example/pagar"
+         and _mp["pref"][2]["Authorization"] == "Bearer TEST-token-del-profesional"
+         and _mp["pref"][1]["external_reference"] == pago4["token"] and _mp["pref"][1]["items"][0]["unit_price"] == 25000.0
+         and "t=t1" in _mp["pref"][1]["notification_url"])
+_mp["pagos"]["111"] = {"status": "approved", "external_reference": pago4["token"], "transaction_amount": 100}
+app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "111"}})
+chequear("MP: con monto menor no aprueba", pago4["estado"] == "esperando")
+_mp["pagos"]["112"] = {"status": "approved", "external_reference": pago4["token"], "transaction_amount": 25000}
+r = app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "112"}})
+chequear("MP: el aviso aprueba la reserva", r.status_code == 200 and pago4["estado"] == "aprobado"
+         and TABLAS["turnos"][0]["pago_web"] == "aprobado" and pago4["mp_pago_id"] == "112")
+app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "112"}})
+chequear("MP: avisos repetidos no rompen nada", pago4["estado"] == "aprobado")
+chequear("MP: la página dice confirmado", "tu turno está confirmado" in w.get(f"/pago/{pago4['token']}").data.decode())
+# pago tardío
+TABLAS["turnos"][1].update(db._LIBERADO)
+w.post("/marcos/reservar/p2", data={"nombre": "Eli", "telefono": "5491100007777", "confirmado": "1"})
+pago5 = TABLAS["pagos"][-1]
+_pg.vencer(dict(_t1), datetime.now(timezone.utc) + timedelta(hours=1))
+_mp["pagos"]["113"] = {"status": "approved", "external_reference": pago5["token"], "transaction_amount": 25000}
+w.get(f"/pago/{pago5['token']}?payment_id=113&status=approved")
+chequear("MP: pago tardío queda para devolver y avisa", pago5["estado"] == "vencido" or pago5["estado"] == "aprobado_tarde")
+_pg.revisar_pago_mp(dict(_t1), "113")
+chequear("MP: pago tardío se marca y se avisa", pago5["estado"] == "aprobado_tarde" and "ya se había liberado" in _avp[-1])
+chequear("MP: un pago de otro profesional no se toca", _pg.revisar_pago_mp(dict(_t1, id="otro"), "113") is None)
+
+# seña
+chequear("seña: cobra la seña por sesión", _pg.monto_de({"cobro_modo": "sena", "sena_monto": 10000}, 25000, 3) == 30000
+         and _pg.monto_de({"cobro_modo": "total"}, 25000, 2) == 50000 and _pg.monto_de({"cobro_modo": "total"}, None) is None)
+_pg.config.MP_CLIENT_ID, _pg.config.MP_CLIENT_SECRET = _vc
+scheduler.avisar_profesional = _va3
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")

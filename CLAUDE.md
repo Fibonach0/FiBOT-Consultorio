@@ -256,6 +256,29 @@ pueden tener `precio` (se carga como `valor` al reservar). `scheduler.cuando_de`
 agrega «(tipo de N min)», así sale en confirmación y recordatorios. La página del
 paciente tiene vista mensual (`?vista=mes&mes=AAAA-MM`, `_mes_libre`).
 
+### Cobro de las reservas web (`pagos.py`, `migrations/054`)
+
+`tenants.cobro_web`: no / mercadopago / transferencia / ambos; `cobro_modo`
+total o seña (`sena_monto`); el precio sale del tipo o de `precio_sesion`. Sin
+precio o sin medio que funcione (`pagos.metodos`), no se cobra. Con cobro, la
+reserva web queda `turnos.pago_web = 'esperando'` (no se confirma ni se recuerda)
+y se crea una fila en `pagos` (token = credencial de `/pago/<token>` y
+`external_reference` en Mercado Pago). Mercado Pago: cada profesional conecta su
+cuenta por OAuth (`/agenda/mercadopago/conectar` → `/mercadopago/vuelta`, con
+`state` en la sesión); el token va cifrado con Fernet derivado de
+`FLASK_SECRET_KEY` (cambiarla obliga a reconectar) y se renueva solo. El cobro es
+Checkout Pro con `notification_url=/webhook/mercadopago?t=<tenant>`; NUNCA se
+confía en el aviso: `revisar_pago_mp` consulta el pago con el token del
+profesional y compara referencia, profesional y monto. `aprobar` es idempotente;
+si el turno ya no estaba apartado queda `aprobado_tarde` y se le avisa al
+profesional para devolverlo. Transferencia: el paciente sube el comprobante
+(PNG/JPG/PDF por firma de bytes, 2 MB, se borra al resolver) y el profesional
+acepta o rechaza en «Pagos para revisar». `pagos.vencer` (scheduler) libera lo no
+pagado: 30 min con Mercado Pago, 2 h para subir comprobante. Variables:
+`MP_CLIENT_ID`, `MP_CLIENT_SECRET` (de la app de la plataforma en Mercado Pago
+Developers, con redirect `https://<dominio>/mercadopago/vuelta`) y `MP_PRUEBA=1`
+para credenciales y checkout de prueba.
+
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin
 tomar el horario; el segundo reserva. Todas las pantallas dicen con quién es el

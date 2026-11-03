@@ -170,6 +170,7 @@
             {% if t.frecuencia %}<span class="chip">{{ t.frecuencia }}</span>{% endif %}
             {% if t.modalidad == 'virtual' %}<span class="chip">videollamada</span>{% endif %}
             {% if t.tipo %}<span class="chip">{{ t.tipo }}</span>{% endif %}
+            {% if t.pago_web == 'esperando' %}<span class="chip" title="Reservó en la web y todavía no pagó: si no paga, se libera sola">esperando pago</span>{% elif t.pago_web == 'comprobante' %}<span class="chip">comprobante para revisar</span>{% elif t.pago_web == 'aprobado' %}<span class="chip">pagó en la web</span>{% endif %}
             {% if t.confirmado_at %}<span class="chip" title="Confirmó por WhatsApp: el número es correcto">✓ confirmó</span>{% elif t.confirmacion_enviada_at %}<span class="chip" title="Se le mandó un WhatsApp para confirmar y todavía no contestó">sin confirmar</span>{% endif %}
             {% if t.valor is not none and t.valor is defined %}<span class="chip">{{ t.valor|pesos }}</span>{% endif %}
             {% if t.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
@@ -344,6 +345,40 @@
 
   <div class="tablero abajo">
   <div>
+  <div class="card" id="cobros">
+    <h3>Cobrar las reservas web {% if cobro_activo %}<span class="chip">activo</span>{% endif %}</h3>
+    <p class="tenue" style="margin-top:0">Si lo activás, cada turno que sacan en tu página se acepta recién cuando lo pagan; mientras tanto el horario queda apartado (30 minutos con Mercado Pago, 2 horas para subir el comprobante de una transferencia).</p>
+    <div style="margin-bottom:10px">
+      {% if tenant.mp_token_cifrado %}
+        <strong>Mercado Pago conectado.</strong> Los pagos van a tu cuenta.
+        <form method="post" action="{{ url_for('agenda_mp_desconectar') }}" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Desconectar</button></form>
+      {% elif mp_disponible %}
+        <a class="btn chico" style="text-decoration:none" href="{{ url_for('agenda_mp_conectar') }}">Conectar Mercado Pago</a>
+        <span class="tenue">Entrás con tu usuario de Mercado Pago; no hace falta copiar ninguna clave.</span>
+      {% else %}
+        <span class="tenue">Mercado Pago todavía no está habilitado en la plataforma. Podés cobrar por transferencia.</span>
+      {% endif %}
+    </div>
+    <form method="post" action="{{ url_for('agenda_cobros') }}" class="fila">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label>Cobrar</label><select name="cobro_web">
+        {% set cw = tenant.cobro_web or 'no' %}
+        <option value="no"{% if cw == 'no' %} selected{% endif %}>No cobrar (la reserva se acepta sola)</option>
+        <option value="mercadopago"{% if cw == 'mercadopago' %} selected{% endif %}>Con Mercado Pago</option>
+        <option value="transferencia"{% if cw == 'transferencia' %} selected{% endif %}>Por transferencia (valido el comprobante)</option>
+        <option value="ambos"{% if cw == 'ambos' %} selected{% endif %}>Las dos (elige el paciente)</option>
+      </select></div>
+      <div><label>Qué se cobra</label><select name="cobro_modo">
+        <option value="total"{% if tenant.cobro_modo != 'sena' %} selected{% endif %}>El total de la sesión</option>
+        <option value="sena"{% if tenant.cobro_modo == 'sena' %} selected{% endif %}>Una seña</option>
+      </select></div>
+      <div><label>Seña ($)</label><input type="text" inputmode="numeric" name="sena_monto" value="{{ tenant.sena_monto or '' }}" placeholder="10000"></div>
+      <div><label>Precio de la sesión ($)</label><input type="text" inputmode="numeric" name="precio_sesion" value="{{ tenant.precio_sesion or '' }}" placeholder="Si no usás tipos con precio"></div>
+      <div class="ancho"><label>Datos para transferir (alias, CBU, titular)</label><textarea name="transferencia_datos" rows="2" maxlength="300" placeholder="Alias: marcos.consultorio.mp&#10;Titular: Marcos ...">{{ tenant.transferencia_datos or '' }}</textarea></div>
+      <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
+    </form>
+  </div>
+
   <div class="card" id="tipos">
     <h3>Tipos de turno</h3>
     <p class="tenue" style="margin-top:0">Si ofrecés turnos de distinta duración, cargalos y el paciente elige al reservar (ej. «Primera entrevista» 60 min y «Sesión» 45). Un turno largo ocupa los horarios libres siguientes. Con precio, la sesión queda cargada con ese valor al reservar. Vacío = un solo tipo, de {{ duracion_default }} minutos.</p>
@@ -539,6 +574,29 @@
         <button class="btn chico" type="submit" onclick="return confirm('¿Actualizar el valor de las sesiones sin pagar de estos pacientes?')">Aplicar</button>
       </form>
     </details>
+  </div>
+  {% endif %}
+
+  {% if pagos_revisar %}
+  <div class="card" id="pagos-revisar">
+    <h3>Pagos para revisar <span class="contador">{{ pagos_revisar|length }}</span></h3>
+    {% for p in pagos_revisar %}
+    <div class="turno">
+      <span><strong>{{ p._quien or 'Paciente' }}</strong> · {{ p.monto|pesos }}
+        <span class="tenue">· {% for t in p._turnos %}{{ t._dia }} {{ t._hora }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+        {% if p.estado == 'aprobado_tarde' %}<br><span class="tenue">Pagó por Mercado Pago cuando el horario ya se había liberado: devolvelo o dale otro turno.</span>{% endif %}
+      </span>
+      <span class="acciones" style="display:flex;gap:6px;flex-wrap:wrap">
+        {% if p.estado == 'comprobante' %}
+        <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ url_for('agenda_pago_comprobante', pago_id=p.id) }}">Ver comprobante</a>
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='aceptar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit">Aceptar</button></form>
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='rechazar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit" onclick="return confirm('¿Rechazar el comprobante? El horario queda libre.')">Rechazar</button></form>
+        {% else %}
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='resuelto') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Ya lo resolví</button></form>
+        {% endif %}
+      </span>
+    </div>
+    {% endfor %}
   </div>
   {% endif %}
 
