@@ -134,3 +134,29 @@ def respuesta_del_profesional(telefono: str, texto: str) -> str | None:
         texto += f"\n\nTenés {len(pendientes) - 1} horario{'s' if len(pendientes) > 2 else ''} retenido{'s' if len(pendientes) > 2 else ''} más: está{'n' if len(pendientes) > 2 else ''} en el panel."
     return texto
 
+
+def vencer_huecos(tenant: dict, ahora: datetime | None = None) -> int:
+    """Lo llama el scheduler: si el profesional configuró un plazo y no decidió
+    a tiempo, se aplica lo que eligió por defecto y se le avisa. Devuelve
+    cuántos resolvió."""
+    horas = tenant.get("hueco_vence_horas") or 0
+    if not horas:
+        return 0
+    from datetime import timezone as _tzu
+    ahora = ahora or datetime.now(_tzu.utc)
+    resueltos = 0
+    for turno in db.huecos_pendientes(tenant["id"]):
+        desde = datetime.fromisoformat(turno["hueco_desde"]) if turno.get("hueco_desde") else ahora
+        if ahora - desde < timedelta(hours=horas):
+            continue
+        cuando = scheduler.cuando_de(turno, tenant, _tz(tenant))
+        if tenant.get("hueco_por_defecto") == "tomar":
+            tomar(tenant, turno)
+            texto = f"no decidiste sobre el turno cancelado del {cuando}: te lo dejamos a vos, no se le ofrece a nadie"
+        else:
+            ofrecido = liberar(tenant, turno)
+            texto = f"no decidiste sobre el turno cancelado del {cuando}: lo liberamos para tus pacientes" + (
+                "; se lo ofrecimos al primero de tu lista de espera" if ofrecido else "")
+        scheduler.avisar_profesional(tenant, texto)
+        resueltos += 1
+    return resueltos

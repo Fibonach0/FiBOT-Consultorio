@@ -37,7 +37,15 @@ def _menu(tenant: dict) -> str:
     )
 
 
+def _pausado(tenant: dict) -> str:
+    return (f"*{tenant['nombre']}* no está tomando turnos nuevos por ahora."
+            + (f" {tenant['mensaje_pausa']}" if tenant.get("mensaje_pausa") else "")
+            + " Si ya tenés un turno, sigue en pie.")
+
+
 def _listar_libres(tenant: dict) -> str:
+    if tenant.get("pausado"):
+        return _pausado(tenant)
     tz = _tz(tenant)
     libres = db.turnos_libres(tenant["id"], datetime.now(timezone.utc))
     if not libres:
@@ -51,6 +59,8 @@ def _listar_libres(tenant: dict) -> str:
 
 
 def _reservar(tenant: dict, telefono: str, indice: int, nombre: str | None) -> str:
+    if tenant.get("pausado"):
+        return _pausado(tenant)
     tz = _tz(tenant)
     libres = db.turnos_libres(tenant["id"], datetime.now(timezone.utc), limite=max(indice, 8))
     if indice < 1 or indice > len(libres):

@@ -167,6 +167,11 @@ def _tick() -> None:
         except Exception:
             logger.exception("Fallo recordando confirmaciones de tenant %s", tenant["id"])
         try:
+            import cancelaciones  # acá: cancelaciones importa este módulo
+            cancelaciones.vencer_huecos(tenant)
+        except Exception:
+            logger.exception("Fallo venciendo horarios retenidos de tenant %s", tenant["id"])
+        try:
             pendientes = db.turnos_para_recordar(tenant["id"], horas_antes)
         except Exception:
             logger.exception("Fallo consultando recordatorios de tenant %s", tenant["id"])

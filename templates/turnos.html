@@ -28,7 +28,9 @@
       </div>
       {% if t.descripcion %}<span>{{ t.descripcion }}</span>{% endif %}
       {% if t.modalidades_publicas == 'virtual' %}<span class="rubro">Por videollamada</span>{% elif t.modalidades_publicas == 'ambas' %}<span class="rubro">Presencial o videollamada</span>{% endif %}
-      <span class="btn" style="align-self:flex-start;margin-top:6px">Ver calendario</span>
+      {% if t.pausado %}<span class="rubro">Por ahora no toma turnos nuevos</span>
+      <span class="btn secundario" style="align-self:flex-start;margin-top:6px">Anotarme en la lista de espera</span>
+      {% else %}<span class="btn" style="align-self:flex-start;margin-top:6px">Ver calendario</span>{% endif %}
     </a>
     {% endfor %}
   </div>
