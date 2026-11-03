@@ -384,10 +384,10 @@
   </div>
 
   <div class="card">
-    <h3>Días bloqueados{% if bloqueos %} <span class="contador">{{ bloqueos|length }}</span>{% endif %}</h3>
+    <h3>Días y horarios bloqueados{% if bloqueos %} <span class="contador">{{ bloqueos|length }}</span>{% endif %}</h3>
     {% for b in bloqueos %}
     <div class="ficha-item">
-      <span><strong>{{ b._desde.strftime('%d/%m') }}{% if b._hasta != b._desde %} al {{ b._hasta.strftime('%d/%m') }}{% endif %}</strong>{% if b.motivo %} <span class="tenue">· {{ b.motivo }}</span>{% endif %}</span>
+      <span><strong>{{ b._texto }}</strong>{% if b.motivo %} <span class="tenue">· {{ b.motivo }}</span>{% endif %}</span>
       <form method="post" action="{{ url_for('agenda_bloqueo_borrar', bloqueo_id=b.id) }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
@@ -400,12 +400,14 @@
     {% endfor %}
     {% endfor %}
     <details>
-      <summary class="tenue">Bloquear días ▾</summary>
+      <summary class="tenue">Bloquear días u horas ▾</summary>
       <form method="post" action="{{ url_for('agenda_bloqueo') }}" class="fila">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
         <div><label>Desde</label><input type="date" name="desde" required></div>
-        <div><label>Hasta</label><input type="date" name="hasta" required></div>
+        <div><label>Hasta (si es más de un día)</label><input type="date" name="hasta"></div>
+        <div><label>De (opcional)</label><input type="time" name="hora_desde" step="900"></div>
+        <div><label>A (opcional)</label><input type="time" name="hora_hasta" step="900"></div>
         <div class="ancho"><label>Motivo</label><input type="text" name="motivo" placeholder="Vacaciones, congreso…"></div>
         <div class="al-pie"><button class="btn chico" type="submit">Bloquear</button></div>
       </form>
@@ -509,6 +511,19 @@
   <div class="card" id="mi-pagina">
     <h3>Tu página de turnos</h3>
     <p class="tenue" style="margin-top:0">Tus pacientes eligen día y hora y reservan solos, sin escribirte. Es tuya: compartila donde quieras.</p>
+    <form method="post" action="{{ url_for('agenda_pausa') }}" class="fila" style="align-items:flex-end;padding:10px;border-radius:8px;margin-bottom:10px;background:{{ '#fbeeee' if tenant.pausado else 'var(--green-bg)' }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% if tenant.pausado %}
+        <div style="flex:2"><strong>Pausada:</strong> nadie puede reservar (ni por la web ni por WhatsApp).{% if tenant.mensaje_pausa %} <span class="tenue">«{{ tenant.mensaje_pausa }}»</span>{% endif %}</div>
+        <input type="hidden" name="pausar" value="0">
+        <div class="al-pie"><button class="btn chico" type="submit">Volver a tomar turnos</button></div>
+      {% else %}
+        <div style="flex:2"><strong>Tomando turnos.</strong> <label style="margin:4px 0 2px">Si te vas de vacaciones, pausala (mensaje opcional para tus pacientes):</label>
+          <input type="text" name="mensaje_pausa" maxlength="200" placeholder="Vuelvo a atender el 2 de marzo"></div>
+        <input type="hidden" name="pausar" value="1">
+        <div class="al-pie"><button class="btn chico secundario" type="submit">Pausar</button></div>
+      {% endif %}
+    </form>
     {% if estadisticas is not none %}
     <p style="margin-top:0"><strong>Este mes:</strong> {{ estadisticas.get('visita', 0) }} visita{{ '' if estadisticas.get('visita', 0) == 1 else 's' }}
       · {{ estadisticas.get('reserva', 0) }} reserva{{ '' if estadisticas.get('reserva', 0) == 1 else 's' }}
@@ -547,6 +562,14 @@
         <div><label>Cuando un paciente cancela</label><select name="al_cancelar">
           <option value="liberar"{% if tenant.al_cancelar != 'preguntar' %} selected{% endif %}>El horario queda libre enseguida</option>
           <option value="preguntar"{% if tenant.al_cancelar == 'preguntar' %} selected{% endif %}>Preguntarme antes de liberarlo</option>
+        </select></div>
+        <div><label>Si no decido sobre un horario cancelado</label><select name="hueco_vence_horas">
+          {% set hv = tenant.hueco_vence_horas or 0 %}
+          {% for x in [0, 1, 2, 4, 8, 12, 24] %}<option value="{{ x }}"{% if hv == x %} selected{% endif %}>{{ 'Queda retenido hasta que decida' if x == 0 else 'Decidir solo a las ' ~ x ~ ' h' }}</option>{% endfor %}
+        </select>
+        <select name="hueco_por_defecto" style="margin-top:4px">
+          <option value="liberar"{% if tenant.hueco_por_defecto != 'tomar' %} selected{% endif %}>…y liberarlo</option>
+          <option value="tomar"{% if tenant.hueco_por_defecto == 'tomar' %} selected{% endif %}>…y quedármelo</option>
         </select></div>
         <div><label style="display:flex;gap:6px;align-items:center;color:inherit"><input type="checkbox" name="ofrecer_espera_auto" value="1"{% if tenant.ofrecer_espera_auto %} checked{% endif %} style="width:auto"> Ofrecer el horario liberado a mi lista de espera</label>
           <span class="tenue" style="font-size:.8rem">Al primero de la lista, con el link para reservar.</span></div>

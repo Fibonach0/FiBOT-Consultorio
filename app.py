@@ -1713,8 +1713,15 @@ def _bloqueos(tenant: dict, fichas: list[dict], tz: ZoneInfo, ahora: datetime) -
         desde = datetime.fromisoformat(b["desde"])
         hasta = datetime.fromisoformat(b["hasta"])
         ultimo = (hasta.astimezone(tz) - timedelta(days=1)).date()
+        d, h = desde.astimezone(tz), hasta.astimezone(tz)
+        if d.time() == dtime.min and h.time() == dtime.min:
+            texto = d.strftime("%d/%m") + (f" al {ultimo.strftime('%d/%m')}" if ultimo != d.date() else "")
+        elif d.date() == h.date():
+            texto = f"{DIAS_LABEL[d.weekday()]} {d.strftime('%d/%m')} de {d.strftime('%H:%M')} a {h.strftime('%H:%M')}"
+        else:
+            texto = f"{d.strftime('%d/%m %H:%M')} al {h.strftime('%d/%m %H:%M')}"
         lista.append({
-            **b, "_desde": desde.astimezone(tz).date(), "_hasta": ultimo,
+            **b, "_desde": desde.astimezone(tz).date(), "_hasta": ultimo, "_texto": texto,
             "_afectados": [
                 {"ficha": f, "cuando": f"{t['_dia']} {t['_hora']}"}
                 for f in fichas for t in f["sesiones"]
@@ -1980,13 +1987,27 @@ def agenda_bloqueo():
         flash("La fecha final no puede ser anterior a la inicial.")
         return _volver_a_agenda()
     utc = ZoneInfo("UTC")
-    db.agregar_bloqueo(
-        tenant["id"],
-        datetime.combine(desde, dtime.min, tzinfo=tz).astimezone(utc),
-        datetime.combine(hasta + timedelta(days=1), dtime.min, tzinfo=tz).astimezone(utc),
-        (request.form.get("motivo") or "").strip() or None,
-    )
-    flash("Días bloqueados. Mirá en la tarjeta si hay sesiones para reprogramar.")
+    # Con horas: un rato (ej. martes de 14 a 16). Sin horas: días enteros.
+    try:
+        hora_desde = dtime.fromisoformat(request.form["hora_desde"]) if request.form.get("hora_desde") else None
+        hora_hasta = dtime.fromisoformat(request.form["hora_hasta"]) if request.form.get("hora_hasta") else None
+    except ValueError:
+        flash("Revisá las horas.")
+        return _volver_a_agenda()
+    if hora_desde or hora_hasta:
+        inicio = datetime.combine(desde, hora_desde or dtime.min, tzinfo=tz)
+        fin = datetime.combine(hasta, hora_hasta, tzinfo=tz) if hora_hasta else datetime.combine(hasta + timedelta(days=1), dtime.min, tzinfo=tz)
+        if fin <= inicio:
+            flash("La hora final tiene que ser posterior a la inicial.")
+            return _volver_a_agenda()
+        mensaje = "Horario bloqueado. Mirá en la tarjeta si hay sesiones para reprogramar."
+    else:
+        inicio = datetime.combine(desde, dtime.min, tzinfo=tz)
+        fin = datetime.combine(hasta + timedelta(days=1), dtime.min, tzinfo=tz)
+        mensaje = "Días bloqueados. Mirá en la tarjeta si hay sesiones para reprogramar."
+    db.agregar_bloqueo(tenant["id"], inicio.astimezone(utc), fin.astimezone(utc),
+                       (request.form.get("motivo") or "").strip() or None)
+    flash(mensaje)
     return _volver_a_agenda()
 
 
@@ -2996,6 +3017,21 @@ def agenda_hueco(turno_id, accion):
     return _volver_a_agenda()
 
 
+@app.post("/agenda/pausa")
+@login_required
+def agenda_pausa():
+    """Pausar o reactivar la página de turnos (y la reserva por WhatsApp).
+    Las sesiones ya reservadas no se tocan; la lista de espera sigue abierta."""
+    pausar = request.form.get("pausar") == "1"
+    campos = {"pausado": pausar}
+    if pausar:
+        campos["mensaje_pausa"] = (request.form.get("mensaje_pausa") or "").strip()[:200] or None
+    db.guardar_ajustes(session["tenant_id"], campos)
+    flash("Pausaste tu página de turnos: nadie puede reservar hasta que la reactives." if pausar
+          else "Tu página de turnos vuelve a tomar reservas.")
+    return _volver_a_agenda()
+
+
 @app.post("/agenda/perfil")
 @login_required
 def agenda_perfil():
@@ -3008,6 +3044,9 @@ def agenda_perfil():
         "modalidades_publicas": modalidades,
         "en_directorio": f.get("en_directorio") == "1",
         "al_cancelar": "preguntar" if f.get("al_cancelar") == "preguntar" else "liberar",
+        "hueco_vence_horas": int(f.get("hueco_vence_horas")) if (f.get("hueco_vence_horas") or "") in
+        {str(h) for h in HORAS_VENCE_HUECO} else (tenant or {}).get("hueco_vence_horas", 0),
+        "hueco_por_defecto": "tomar" if f.get("hueco_por_defecto") == "tomar" else "liberar",
         "ofrecer_espera_auto": f.get("ofrecer_espera_auto") == "1",
         "cancelar_hasta_horas": int(f.get("cancelar_hasta_horas")) if (f.get("cancelar_hasta_horas") or "") in
         {str(h) for h in HORAS_CANCELAR} else (tenant or {}).get("cancelar_hasta_horas", 24),
@@ -3454,6 +3493,10 @@ def publico(slug):
         return "No encontrado.", 404
     if "bot" not in (request.user_agent.string or "").lower() and request.args.get("semana") is None:
         _evento(tenant, "visita")
+    if tenant.get("pausado"):
+        return render_template("publico.html", tenant=tenant, cambiar=None, pausado=True, dias=[], hay=False,
+                               anterior=None, siguiente=None, proximo_despues=None, titulo_semana="",
+                               hay_directorio=False)
     return render_template("publico.html", tenant=tenant, cambiar=None, **_semana_libre(tenant, request.args.get("semana")),
                            hay_directorio=sum(1 for t in db.tenants_activos()
                                               if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
@@ -3465,7 +3508,7 @@ def publico_reservar_form(slug, turno_id):
     if not tenant:
         return "No encontrado.", 404
     turno = db.turno_por_id(tenant["id"], turno_id)
-    if not turno or turno["estado"] != "libre" or turno.get("hueco"):
+    if tenant.get("pausado") or not turno or turno["estado"] != "libre" or turno.get("hueco"):
         flash("Ese horario ya no está disponible — elegí otro.")
         return redirect(url_for("publico", slug=slug))
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
@@ -3494,7 +3537,7 @@ def publico_reservar(slug, turno_id):
         # y a qué WhatsApp) y recién el segundo POST reserva. No se toma el
         # horario en este paso: si otro lo reserva mientras tanto, se avisa.
         turno = db.turno_por_id(tenant["id"], turno_id)
-        if not turno or turno["estado"] != "libre" or turno.get("hueco"):
+        if tenant.get("pausado") or not turno or turno["estado"] != "libre" or turno.get("hueco"):
             flash("Ese horario ya no está disponible — elegí otro.")
             return redirect(url_for("publico", slug=slug))
         if len(telefono) < 10:
@@ -3504,7 +3547,7 @@ def publico_reservar(slug, turno_id):
                                nombre=nombre, telefono=telefono, modalidad=modalidad,
                                confirma_por_whatsapp=bool(config.CONFIRMACION_TEMPLATE))
     previo = db.turno_por_id(tenant["id"], turno_id)
-    if (previo or {}).get("hueco") or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre):
+    if tenant.get("pausado") or (previo or {}).get("hueco") or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre):
         flash("Ese horario ya no está disponible — elegí otro.")
         return redirect(url_for("publico", slug=slug))
     _evento(tenant, "reserva")
@@ -3521,6 +3564,7 @@ def publico_reservar(slug, turno_id):
 
 MODALIDADES_PUBLICAS = ("presencial", "virtual", "ambas")
 HORAS_CANCELAR = (0, 2, 6, 12, 24, 48, 72)
+HORAS_VENCE_HUECO = (0, 1, 2, 4, 8, 12, 24)
 
 
 def _modalidad_publica(tenant: dict, pedida: str | None) -> str:
@@ -3649,6 +3693,9 @@ def agendar_cambiar(token):
     turno, tenant = _turno_futuro_de_token(token)
     if not turno:
         return _ya_no_sirve()
+    if tenant.get("pausado"):
+        flash("Por ahora no se pueden elegir horarios nuevos: escribile directamente.")
+        return redirect(url_for("agendar", token=token))
     if not _puede_modificar(turno, tenant):
         return _tarde(tenant, turno)
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
@@ -3670,7 +3717,7 @@ def agendar_cambiar_a(token, turno_id):
         return _tarde(tenant, turno)
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     nuevo = db.turno_por_id(tenant["id"], turno_id)
-    if not nuevo or nuevo["estado"] != "libre" or nuevo.get("hueco") or datetime.fromisoformat(nuevo["inicio"]) <= datetime.now(ZoneInfo("UTC")):
+    if tenant.get("pausado") or not nuevo or nuevo["estado"] != "libre" or nuevo.get("hueco") or datetime.fromisoformat(nuevo["inicio"]) <= datetime.now(ZoneInfo("UTC")):
         flash("Ese horario ya no está disponible — elegí otro.")
         return redirect(url_for("agendar_cambiar", token=token))
     if request.method == "GET":

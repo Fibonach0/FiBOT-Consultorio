@@ -46,6 +46,13 @@
     {% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}
   {% endwith %}
 
+  {% if pausado %}
+  <div class="card">
+    <h3 style="margin-top:0">Por ahora no toma turnos nuevos</h3>
+    {% if tenant.mensaje_pausa %}<p>{{ tenant.mensaje_pausa }}</p>{% endif %}
+    <p style="color:var(--muted);margin-bottom:0">Si ya tenés un turno, sigue en pie. Anotate abajo y te avisamos cuando vuelva a haber horarios.</p>
+  </div>
+  {% else %}
   <div class="card">
     <div class="semana-nav">
       {% if anterior %}<a class="btn secundario" href="{{ url_semana(anterior) }}" style="text-decoration:none">‹ Anterior</a>{% else %}<span></span>{% endif %}
@@ -74,9 +81,10 @@
     {% endif %}
   </div>
 
+  {% endif %}
   {% if not cambiar %}
   <div class="card" id="espera">
-    <details{% if not hay and not proximo_despues %} open{% endif %}>
+    <details{% if pausado or (not hay and not proximo_despues) %} open{% endif %}>
       <summary><strong>¿No te sirve ningún horario?</strong> <span style="color:var(--muted)">Anotate en la lista de espera</span></summary>
       <p style="color:var(--muted)">Si se libera un horario, {{ tenant.nombre }} te escribe por WhatsApp con el link para reservarlo.</p>
       <form method="post" action="{{ url_for('publico_espera', slug=tenant.slug) }}">

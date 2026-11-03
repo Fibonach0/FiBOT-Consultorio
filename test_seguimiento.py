@@ -3231,6 +3231,72 @@ chequear("panel: guarda qué hacer al cancelar", TABLAS["tenants"][0]["al_cancel
          and TABLAS["tenants"][0]["ofrecer_espera_auto"] is True)
 scheduler.avisar_profesional, _canc.ofrecer_horario = _viejo_av, _viejo_of
 
+# --- Vencimiento de horarios retenidos, bloqueo por horas y pausa ---
+import cancelaciones as _canc2  # noqa: E402
+
+reset()
+TABLAS["lista_espera"] = []
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "aviso_telefono": "5491122223333", "al_cancelar": "preguntar",
+            "hueco_vence_horas": 2, "hueco_por_defecto": "liberar", "cancelar_hasta_horas": 0})
+_av = []
+_viejo_av2 = scheduler.avisar_profesional
+scheduler.avisar_profesional = lambda tenant, texto: _av.append(texto) or True
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+_b = datetime.now(timezone.utc).replace(second=0, microsecond=0)
+TABLAS["turnos"] = [turno("v1", "t1", _b + timedelta(days=2), hueco="pendiente", hueco_desde=(_b - timedelta(hours=3)).isoformat()),
+                    turno("v2", "t1", _b + timedelta(days=3), hueco="pendiente", hueco_desde=(_b - timedelta(minutes=30)).isoformat())]
+chequear("vence: resuelve sólo los que pasaron el plazo", _canc2.vencer_huecos(dict(_t1), _b) == 1
+         and TABLAS["turnos"][0]["hueco"] is None and TABLAS["turnos"][1]["hueco"] == "pendiente")
+chequear("vence: le avisa qué hizo", _av and "lo liberamos" in _av[-1])
+_t1["hueco_por_defecto"] = "tomar"
+_canc2.vencer_huecos(dict(_t1), _b + timedelta(hours=2))
+chequear("vence: por defecto quedárselo", TABLAS["turnos"][1]["hueco"] == "propio" and "te lo dejamos a vos" in _av[-1])
+_t1["hueco_vence_horas"] = 0
+TABLAS["turnos"][0].update({"hueco": "pendiente", "hueco_desde": (_b - timedelta(days=5)).isoformat()})
+chequear("vence: con 0 no vence nunca", _canc2.vencer_huecos(dict(_t1), _b) == 0 and TABLAS["turnos"][0]["hueco"] == "pendiente")
+scheduler.avisar_profesional = _viejo_av2
+
+# bloqueo por horas
+reset()
+_tz_ar = app.ZoneInfo(TZ)
+_dia = (datetime.now(_tz_ar) + timedelta(days=7)).date()
+_a14 = datetime.combine(_dia, app.dtime(14, 0), tzinfo=_tz_ar)
+TABLAS["turnos"] = [turno("b13", "t1", (_a14 - timedelta(hours=1)).astimezone(timezone.utc)),
+                    turno("b14", "t1", _a14.astimezone(timezone.utc)),
+                    turno("b15", "t1", (_a14 + timedelta(hours=1)).astimezone(timezone.utc)),
+                    turno("b16", "t1", (_a14 + timedelta(hours=2)).astimezone(timezone.utc))]
+panel_c.post("/agenda/bloqueo", data={"csrf_token": "tok", "desde": _dia.isoformat(), "hora_desde": "14:00", "hora_hasta": "16:00",
+                                      "motivo": "trámite"})
+_libres = {t["id"] for t in db.turnos_libres("t1", datetime.now(timezone.utc), limite=50)}
+chequear("bloqueo por horas: saca sólo ese rato", _libres == {"b13", "b16"})
+html = panel_c.get("/agenda").data.decode()
+chequear("bloqueo por horas: se ve con las horas", "de 14:00 a 16:00" in html)
+panel_c.post("/agenda/bloqueo", data={"csrf_token": "tok", "desde": _dia.isoformat(), "hora_desde": "16:00", "hora_hasta": "15:00"})
+chequear("bloqueo por horas: al revés no", len(TABLAS["bloqueos"]) == 1)
+
+# pausa
+reset()
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "activo": True})
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+TABLAS["turnos"] = [turno("z1", "t1", datetime.now(timezone.utc) + timedelta(days=2))]
+panel_c.post("/agenda/pausa", data={"csrf_token": "tok", "pausar": "1", "mensaje_pausa": "Vuelvo el 2 de marzo"})
+chequear("pausa: se guarda", _t1["pausado"] is True and _t1["mensaje_pausa"] == "Vuelvo el 2 de marzo")
+web4 = app.app.test_client()
+html = web4.get("/marcos").data.decode()
+chequear("pausa: la página no ofrece horarios y deja anotarse", "no toma turnos nuevos" in html and "Vuelvo el 2 de marzo" in html
+         and "reservar/z1" not in html and "Anotarme" in html)
+r = web4.post("/marcos/reservar/z1", data={"nombre": "X", "telefono": "5491100002222", "confirmado": "1"})
+chequear("pausa: no se puede reservar por id", r.status_code == 302 and TABLAS["turnos"][0]["estado"] == "libre")
+_conv_resp = _conv.responder(dict(_t1), "5491100002222", "turnos")
+chequear("pausa: el bot tampoco ofrece", "no está tomando turnos nuevos" in _conv_resp and "Vuelvo el 2 de marzo" in _conv_resp)
+chequear("pausa: /turnos lo muestra pausado", "Por ahora no toma turnos nuevos" in web4.get("/turnos").data.decode())
+panel_c.post("/agenda/pausa", data={"csrf_token": "tok", "pausar": "0"})
+chequear("pausa: se reactiva", _t1["pausado"] is False and "reservar/z1" in web4.get("/marcos").data.decode())
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")

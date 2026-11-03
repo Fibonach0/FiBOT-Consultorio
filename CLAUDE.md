@@ -226,6 +226,14 @@ libre de verdad se le ofrece al primero de la lista que hoy no recibió otro.
 `eventos_pagina` cuenta visitas (sin bots, sólo la semana inicial), reservas,
 cancelaciones, cambios y anotados de la web: «Este mes» en «Tu página de
 turnos». `hueco` va en `db._LIBERADO` y reservar lo limpia.
+`migrations/051`: `tenants.hueco_vence_horas` (0 = nunca) + `hueco_por_defecto`
+(liberar / tomar): `cancelaciones.vencer_huecos`, desde el tick del scheduler,
+aplica lo elegido a los retenidos con `turnos.hueco_desde` vencido y avisa.
+`tenants.pausado` + `mensaje_pausa`: la página pública no muestra horarios (la
+lista de espera queda abierta), reservar por id y cambiar de horario se
+rechazan, el bot no lista ni reserva, y /turnos lo muestra pausado. Lo ya
+reservado no se toca. Los bloqueos aceptan horas (`hora_desde`/`hora_hasta`):
+mismo `bloqueos.desde/hasta`, sólo cambia cómo se cargan y se muestran.
 
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin

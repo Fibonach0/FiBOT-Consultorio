@@ -378,6 +378,7 @@ _LIBERADO = {
     "token_calendario": None,
     "confirmacion_recordada_at": None,
     "hueco": None,
+    "hueco_desde": None,
 }
 
 
@@ -1325,8 +1326,9 @@ def sin_confirmar(tenant_id: str) -> list[dict]:
 def marcar_hueco(tenant_id: str, turno_id: str, valor: str | None) -> None:
     """None = se ofrece normal; 'pendiente' = retenido esperando que el
     profesional decida; 'propio' = se lo tomó. Sólo sobre horarios libres."""
-    _client.table("turnos").update({"hueco": valor}).eq("tenant_id", tenant_id).eq("id", turno_id).eq(
-        "estado", "libre").execute()
+    desde = datetime.now(timezone.utc).isoformat() if valor == "pendiente" else None
+    _client.table("turnos").update({"hueco": valor, "hueco_desde": desde}).eq("tenant_id", tenant_id).eq(
+        "id", turno_id).eq("estado", "libre").execute()
 
 
 def huecos(tenant_id: str) -> list[dict]:
