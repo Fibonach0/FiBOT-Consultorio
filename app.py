@@ -146,13 +146,26 @@ app.jinja_env.filters["pesos"] = lambda v: f"$ {v:,}".replace(",", ".")
 
 
 @app.before_request
+def ir_al_dominio_principal():
+    """Con dominio propio, la dirección vieja de Railway redirige. Las llaves
+    de acceso quedan atadas al dominio: conviene que todos entren por uno solo.
+    308 conserva el método (un POST sigue siendo POST)."""
+    principal = config.DOMINIO_PRINCIPAL
+    if not principal or request.host.split(":")[0].lower() == principal:
+        return None
+    if request.path.startswith(("/webhook", "/health")):
+        return None
+    return redirect(f"https://{principal}{request.full_path.rstrip('?')}", code=308)
+
+
+@app.before_request
 def verificar_csrf():
     """Toda acción del panel tiene que traer el token de la sesión, para que
     otra página no pueda disparar un POST con la cookie del profesional. El
     webhook tiene su firma y la reserva pública no usa sesión."""
     # /login/qr/<token> es la aprobación desde el celular (con sesión): necesita token.
     if request.method != "POST" or not request.path.startswith(("/agenda", "/admin", "/login/qr/")) \
-            or request.path == "/admin/login":
+            or request.path.startswith("/admin/login"):
         return None
     esperado = session.get("csrf_token")
     recibido = request.form.get("csrf_token") or ""
@@ -243,6 +256,8 @@ def clave_nueva(token):
     db.cerrar_sesiones(tenant["id"])
     db.borrar_intentos_login(f"panel:{tenant['panel_user'].casefold()}")
     db.registrar_actividad(tenant["nombre"], "puso una clave nueva con el link de la administración", tenant["id"])
+    _avisar_cuenta(tenant, "Se puso una clave nueva en tu cuenta",
+                   "Se puso una clave nueva con un link de recuperación y se cerraron todas las sesiones.")
     return render_template("clave_nueva.html", valido=False, listo=True, error=None)
 
 
@@ -353,42 +368,91 @@ def _rp() -> tuple[str, str]:
     return request.host.split(":")[0], f"{request.scheme}://{request.host}"
 
 
+def _opciones_registro(clave_reto: str, user_id: bytes, usuario: str, nombre: str, existentes: list[str]):
+    rp_id, _ = _rp()
+    opciones = webauthn.generate_registration_options(
+        rp_id=rp_id, rp_name="FiBOT Consultorio", user_name=usuario, user_display_name=nombre, user_id=user_id,
+        authenticator_selection=AuthenticatorSelectionCriteria(resident_key=ResidentKeyRequirement.REQUIRED,
+                                                               user_verification=UserVerificationRequirement.REQUIRED),
+        exclude_credentials=[PublicKeyCredentialDescriptor(id=base64url_to_bytes(x)) for x in existentes])
+    session[clave_reto] = bytes_to_base64url(opciones.challenge)
+    return app.response_class(webauthn.options_to_json(opciones), mimetype="application/json")
+
+
+def _verificar_registro(clave_reto: str):
+    """Devuelve lo verificado o None. El reto se usa una sola vez."""
+    reto = session.pop(clave_reto, None)
+    rp_id, origen = _rp()
+    try:
+        if not reto:
+            raise ValueError("sin reto pendiente")
+        return webauthn.verify_registration_response(credential=request.form.get("credencial") or "",
+                                                     expected_challenge=base64url_to_bytes(reto),
+                                                     expected_rp_id=rp_id, expected_origin=origen,
+                                                     require_user_verification=True)
+    except Exception:
+        logger.info("Registro de llave rechazado", exc_info=True)
+        return None
+
+
+def _opciones_login(clave_reto: str):
+    rp_id, _ = _rp()
+    opciones = webauthn.generate_authentication_options(rp_id=rp_id, user_verification=UserVerificationRequirement.REQUIRED)
+    session[clave_reto] = bytes_to_base64url(opciones.challenge)
+    return app.response_class(webauthn.options_to_json(opciones), mimetype="application/json")
+
+
+def _verificar_login(clave_reto: str, buscar):
+    """buscar(llave_id) -> fila de la llave o None. Devuelve (fila, nuevo
+    contador) o None; cuenta el intento fallido por IP."""
+    claves = [f"ip:{request.remote_addr or 'desconocida'}"]
+    reto = session.pop(clave_reto, None)
+    crudo = request.form.get("credencial") or ""
+    try:
+        llave_id = json.loads(crudo)["id"]
+    except (ValueError, KeyError, TypeError):
+        llave_id = ""
+    fila = buscar(llave_id) if llave_id else None
+    rp_id, origen = _rp()
+    try:
+        if not (fila and reto):
+            raise ValueError("llave desconocida")
+        v = webauthn.verify_authentication_response(credential=crudo, expected_challenge=base64url_to_bytes(reto),
+                                                    expected_rp_id=rp_id, expected_origin=origen,
+                                                    credential_public_key=base64url_to_bytes(fila["clave_publica"]),
+                                                    credential_current_sign_count=fila["contador"] or 0,
+                                                    require_user_verification=True)
+    except Exception:
+        _registrar_fallo(claves)
+        return None
+    return fila, v.new_sign_count
+
+
+ERROR_LLAVE = "No se reconoció la llave. Probá de nuevo o entrá con tu clave."
+
+
 @app.post("/agenda/llaves/opciones")
 @login_required
 def agenda_llave_opciones():
     tenant = db.get_tenant_by_id(session["tenant_id"])
-    rp_id, _ = _rp()
-    opciones = webauthn.generate_registration_options(
-        rp_id=rp_id, rp_name="FiBOT Consultorio", user_name=tenant["panel_user"], user_display_name=tenant["nombre"],
-        user_id=tenant["id"].encode(),
-        authenticator_selection=AuthenticatorSelectionCriteria(resident_key=ResidentKeyRequirement.REQUIRED,
-                                                               user_verification=UserVerificationRequirement.REQUIRED),
-        exclude_credentials=[PublicKeyCredentialDescriptor(id=base64url_to_bytes(x["id"])) for x in db.llaves_de(tenant["id"])])
-    session["llave_reto"] = bytes_to_base64url(opciones.challenge)
-    return app.response_class(webauthn.options_to_json(opciones), mimetype="application/json")
+    return _opciones_registro("llave_reto", tenant["id"].encode(), tenant["panel_user"], tenant["nombre"],
+                              [x["id"] for x in db.llaves_de(tenant["id"])])
 
 
 @app.post("/agenda/llaves/registrar")
 @login_required
 def agenda_llave_registrar():
     tenant = db.get_tenant_by_id(session["tenant_id"])
-    reto = session.pop("llave_reto", None)
-    rp_id, origen = _rp()
-    try:
-        if not reto:
-            raise ValueError("sin reto pendiente")
-        v = webauthn.verify_registration_response(credential=request.form.get("credencial") or "",
-                                                  expected_challenge=base64url_to_bytes(reto or ""),
-                                                  expected_rp_id=rp_id, expected_origin=origen,
-                                                  require_user_verification=True)
-    except Exception:
-        logger.info("Registro de llave rechazado", exc_info=True)
+    v = _verificar_registro("llave_reto")
+    if not v:
         return jsonify(ok=False, error="No se pudo guardar la llave. Probá de nuevo."), 400
     nombre = seguridad.dispositivo(request.headers.get("User-Agent"))
     db.agregar_llave({"id": bytes_to_base64url(v.credential_id), "tenant_id": tenant["id"],
                       "clave_publica": bytes_to_base64url(v.credential_public_key), "contador": v.sign_count,
                       "nombre": nombre})
     db.registrar_actividad(tenant["nombre"], f"agregó una llave de acceso ({nombre})", tenant["id"])
+    _avisar_cuenta(tenant, "Se agregó una llave de acceso a tu cuenta",
+                   f"Se agregó una llave de acceso en {nombre}. Con ella se puede entrar a tu panel sin clave.")
     return jsonify(ok=True)
 
 
@@ -404,41 +468,40 @@ def agenda_llave_borrar(llave_id):
 
 @app.post("/login/llave/opciones")
 def login_llave_opciones():
-    rp_id, _ = _rp()
-    opciones = webauthn.generate_authentication_options(rp_id=rp_id, user_verification=UserVerificationRequirement.REQUIRED)
-    session["llave_reto_login"] = bytes_to_base64url(opciones.challenge)
-    return app.response_class(webauthn.options_to_json(opciones), mimetype="application/json")
+    return _opciones_login("llave_reto_login")
 
 
 @app.post("/login/llave")
 def login_llave():
-    claves = [f"ip:{request.remote_addr or 'desconocida'}"]
-    bloqueo = _bloqueo_login(claves)
+    bloqueo = _bloqueo_login([f"ip:{request.remote_addr or 'desconocida'}"])
     if bloqueo:
         return jsonify(ok=False, error=bloqueo), 429
-    reto = session.pop("llave_reto_login", None)
-    crudo = request.form.get("credencial") or ""
-    try:
-        llave_id = json.loads(crudo)["id"]
-    except (ValueError, KeyError, TypeError):
-        llave_id = ""
-    fila = db.llave(llave_id) if llave_id else None
-    tenant = db.get_tenant_by_id(fila["tenant_id"]) if fila else None
-    rp_id, origen = _rp()
-    try:
-        if not (fila and tenant and tenant.get("activo") is not False and reto):
-            raise ValueError("llave desconocida")
-        v = webauthn.verify_authentication_response(credential=crudo, expected_challenge=base64url_to_bytes(reto),
-                                                    expected_rp_id=rp_id, expected_origin=origen,
-                                                    credential_public_key=base64url_to_bytes(fila["clave_publica"]),
-                                                    credential_current_sign_count=fila["contador"] or 0,
-                                                    require_user_verification=True)
-    except Exception:
-        _registrar_fallo(claves)
-        return jsonify(ok=False, error="No se reconoció la llave. Probá de nuevo o entrá con tu clave."), 400
-    db.usar_llave(fila["id"], v.new_sign_count, datetime.now(ZoneInfo("UTC")).isoformat())
-    _abrir_sesion(tenant, "llave de acceso")
+
+    def buscar(llave_id):
+        fila = db.llave(llave_id)
+        tenant = db.get_tenant_by_id(fila["tenant_id"]) if fila else None
+        return fila if tenant and tenant.get("activo") is not False else None
+
+    r = _verificar_login("llave_reto_login", buscar)
+    if not r:
+        return jsonify(ok=False, error=ERROR_LLAVE), 400
+    fila, contador = r
+    db.usar_llave(fila["id"], contador, datetime.now(ZoneInfo("UTC")).isoformat())
+    _abrir_sesion(db.get_tenant_by_id(fila["tenant_id"]), "llave de acceso")
     return jsonify(ok=True, destino=url_for("agenda"))
+
+
+def _avisar_cuenta(tenant: dict, asunto: str, que_paso: str) -> None:
+    """Mail de seguridad a la profesional (si cargó su mail y hay proveedor).
+    Sin datos de pacientes ni IP: qué pasó, cuándo y qué hacer si no fue ella."""
+    if not tenant.get("email") or not mail.disponible():
+        return
+    cuando = datetime.now(_tz_de(tenant)).strftime("%d/%m/%Y a las %H:%M")
+    mail.enviar(tenant["email"], f"FiBOT Consultorio: {asunto.lower()}",
+                f"Hola. {que_paso}\n\nCuándo: {cuando}.\n\n"
+                "Si fuiste vos, no hace falta que hagas nada.\n"
+                "Si no fuiste vos: entrá a tu panel, en «Ajustes» cambiá la clave y cerrá las sesiones que no reconozcas, "
+                "o pedile ayuda a la administración.")
 
 
 # --- Entrar leyendo un QR con el celular ---
@@ -639,6 +702,7 @@ def admin_panel():
     for a in actividad:
         a["_cuando"] = datetime.fromisoformat(a["cuando"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if "T" in str(a["cuando"]) else a["cuando"]
     return render_template("admin.html", admin=db.admin_por_id(session["admin_id"]), tenants=tenants,
+                           admin_llaves=db.admin_llaves_de(session["admin_id"]),
                            actividad=actividad, filtro=filtro,
                            biblioteca=biblioteca, rubros=RUBROS_ALTA,
                            mes_actual=datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%Y-%m"))
@@ -736,6 +800,7 @@ def agenda_clave():
                      bcrypt.hashpw(request.form["nueva"].encode(), bcrypt.gensalt()).decode(), version)
     db.cerrar_sesiones(tenant["id"], excepto=session.get("sesion_id"))  # esta sigue; las demás se cierran
     db.registrar_actividad(tenant["nombre"], "cambió su clave", tenant["id"])
+    _avisar_cuenta(tenant, "Se cambió la clave de tu cuenta", "Se cambió la clave de tu panel y se cerraron las demás sesiones.")
     flash("Listo, cambiaste la clave. Se cerraron las sesiones abiertas en otros dispositivos.")
     return _volver_a_agenda()
 
@@ -831,6 +896,8 @@ def agenda_doble_factor():
             db.guardar_totp_tenant(tenant["id"], {"totp_secreto": secreto, "totp_ultimo_paso": paso})
             session.pop("totp_nuevo", None)
             db.registrar_actividad(tenant["nombre"], "activó el doble factor", tenant["id"])
+            _avisar_cuenta(tenant, "Se activó el doble factor en tu cuenta",
+                           "Se activó el doble factor: al entrar con la clave, el panel pide además un código del celular.")
             flash("Doble factor activado: desde ahora, al entrar con la clave te va a pedir el código de la app.")
             return redirect(url_for("agenda"))
         error = "Ese código no coincide. Fijate que la hora del celular esté bien y probá con el próximo."
@@ -856,8 +923,71 @@ def agenda_doble_factor_desactivar():
         return _volver_a_agenda()
     db.guardar_totp_tenant(tenant["id"], {"totp_secreto": None, "totp_ultimo_paso": None})
     db.registrar_actividad(tenant["nombre"], "desactivó el doble factor", tenant["id"])
+    _avisar_cuenta(tenant, "Se desactivó el doble factor en tu cuenta",
+                   "Se desactivó el doble factor: ahora alcanza con la clave para entrar a tu panel.")
     flash("Doble factor desactivado.")
     return _volver_a_agenda()
+
+
+# Llaves de la administración: misma verificación, otra tabla. Entrar con
+# llave reemplaza clave + código (la llave ya exige huella, cara o PIN).
+
+@app.post("/admin/llaves/opciones")
+@admin_requerido
+def admin_llave_opciones():
+    admin = db.admin_completo(session["admin_id"])
+    return _opciones_registro("admin_llave_reto", f"admin:{admin['id']}".encode(), admin["usuario"],
+                              f"{admin['usuario']} (administración)", [x["id"] for x in db.admin_llaves_de(admin["id"])])
+
+
+@app.post("/admin/llaves/registrar")
+@admin_requerido
+def admin_llave_registrar():
+    admin = db.admin_completo(session["admin_id"])
+    v = _verificar_registro("admin_llave_reto")
+    if not v:
+        return jsonify(ok=False, error="No se pudo guardar la llave. Probá de nuevo."), 400
+    nombre = seguridad.dispositivo(request.headers.get("User-Agent"))
+    db.agregar_admin_llave({"id": bytes_to_base64url(v.credential_id), "admin_id": admin["id"],
+                            "clave_publica": bytes_to_base64url(v.credential_public_key), "contador": v.sign_count,
+                            "nombre": nombre})
+    db.registrar_actividad(_actor_admin(), f"agregó una llave de acceso de administración ({nombre})")
+    return jsonify(ok=True)
+
+
+@app.post("/admin/llaves/<path:llave_id>/borrar")
+@admin_requerido
+def admin_llave_borrar(llave_id):
+    db.borrar_admin_llave(session["admin_id"], llave_id)
+    db.registrar_actividad(_actor_admin(), "borró una llave de acceso de administración")
+    flash("Se borró la llave.")
+    return redirect(url_for("admin_panel"))
+
+
+@app.post("/admin/login/llave/opciones")
+def admin_login_llave_opciones():
+    return _opciones_login("admin_llave_reto_login")
+
+
+@app.post("/admin/login/llave")
+def admin_login_llave():
+    bloqueo = _bloqueo_login([f"ip:{request.remote_addr or 'desconocida'}"])
+    if bloqueo:
+        return jsonify(ok=False, error=bloqueo), 429
+    r = _verificar_login("admin_llave_reto_login", db.admin_llave)
+    if not r:
+        return jsonify(ok=False, error=ERROR_LLAVE), 400
+    fila, contador = r
+    admin = db.admin_completo(fila["admin_id"])
+    if not admin:
+        return jsonify(ok=False, error=ERROR_LLAVE), 400
+    db.usar_admin_llave(fila["id"], contador, datetime.now(ZoneInfo("UTC")).isoformat())
+    session.clear()
+    session["admin_id"] = admin["id"]
+    session["admin_version"] = admin.get("sesion_version") or 0
+    db.marcar_ingreso("admins", admin["id"], datetime.now(ZoneInfo("UTC")).isoformat())
+    db.registrar_actividad(f"administración ({admin['usuario']})", "entró a administración con llave de acceso")
+    return jsonify(ok=True, destino=url_for("admin_panel"))
 
 
 @app.get("/logout")

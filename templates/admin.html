@@ -85,6 +85,33 @@
   </div>
 
   <div class="card">
+    <h3>Tus llaves de acceso <span class="contador">{{ admin_llaves|length }}</span></h3>
+    <p class="tenue" style="margin-top:0">Entrás a administración con la huella, la cara o el PIN del dispositivo, sin clave ni código.</p>
+    {% for x in admin_llaves %}
+    <div class="ficha-item">
+      <span><strong>{{ x.nombre or 'Llave' }}</strong> <span class="tenue">· último uso {{ x.ultima[:10] if x.ultima else 'nunca' }}</span></span>
+      <form method="post" action="{{ url_for('admin_llave_borrar', llave_id=x.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="quitar" type="submit" onclick="return confirm('¿Borrar esta llave?')">×</button>
+      </form>
+    </div>
+    {% endfor %}
+    <button class="btn chico secundario" type="button" id="llave-agregar">Agregar llave en este dispositivo</button>
+    <div class="tenue" id="llave-estado" style="margin-top:6px"></div>
+    {% with prefijo_llaves="admin_", prefijo_llaves_login="admin_" %}{% include "_llaves_js.html" %}{% endwith %}
+    <script>
+    (() => {
+      const b = document.getElementById('llave-agregar');
+      if (!fibotLlaves.disponible()) { b.disabled = true; return; }
+      b.addEventListener('click', async () => {
+        const r = await fibotLlaves.registrar('{{ csrf_token() }}');
+        if (r.ok) location.reload(); else document.getElementById('llave-estado').textContent = r.error || 'No se pudo.';
+      });
+    })();
+    </script>
+  </div>
+
+  <div class="card">
     <h3>Tu clave</h3>
     <form method="post" action="{{ url_for('admin_clave') }}" class="fila">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

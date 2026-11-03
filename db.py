@@ -1098,6 +1098,29 @@ def borrar_llave(tenant_id: str, llave_id: str) -> None:
     _client.table("llaves_acceso").delete().eq("tenant_id", tenant_id).eq("id", llave_id).execute()
 
 
+def admin_llaves_de(admin_id: str) -> list[dict]:
+    res = _client.table("admin_llaves").select("*").eq("admin_id", admin_id).order("creada").execute()
+    return res.data
+
+
+def admin_llave(llave_id: str) -> dict | None:
+    res = _client.table("admin_llaves").select("*").eq("id", llave_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def agregar_admin_llave(datos: dict) -> None:
+    from datetime import datetime, timezone
+    _client.table("admin_llaves").insert({"creada": datetime.now(timezone.utc).isoformat(), **datos}).execute()
+
+
+def usar_admin_llave(llave_id: str, contador: int, cuando: str) -> None:
+    _client.table("admin_llaves").update({"contador": contador, "ultima": cuando}).eq("id", llave_id).execute()
+
+
+def borrar_admin_llave(admin_id: str, llave_id: str) -> None:
+    _client.table("admin_llaves").delete().eq("admin_id", admin_id).eq("id", llave_id).execute()
+
+
 def limpiar_vencidos(ahora: str, hace_un_dia: str, hace_una_semana: str, hace_un_mes: str, hace_tres_meses: str,
                      hace_un_anio: str) -> None:
     """Limpieza diaria: lo que ya no sirve para nada. Nunca toca datos de pacientes."""

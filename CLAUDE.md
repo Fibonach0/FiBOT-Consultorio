@@ -331,6 +331,14 @@ llave reemplaza clave + doble factor. rp_id = el host del pedido: si cambia el
 dominio, las llaves registradas dejan de servir. `templates/_llaves_js.html`
 convierte base64url sin librerías. Probado con firma real usando un
 autenticador de software (`soft-webauthn`, con la marca de verificación puesta).
+Admin tiene sus propias llaves (`admin_llaves`, `migrations/042`): entran a /admin
+sin clave ni código. Las rutas `/admin/login/*` no piden CSRF (no hay sesión).
+`_avisar_cuenta` manda un mail de seguridad (llave nueva, clave cambiada, doble
+factor) si hay proveedor y la profesional cargó su mail: sin IP ni pacientes.
+`DOMINIO_PRINCIPAL` (ej. consultorio.fibot.ar): cualquier otro host redirige con
+308, salvo `/webhook` (Meta sigue apuntando a la URL de Railway) y `/health`.
+Cargarla recién cuando el dominio tenga certificado; las llaves creadas en la
+dirección vieja dejan de servir.
 
 ### Límite de intentos de login (`migrations/038`)
 

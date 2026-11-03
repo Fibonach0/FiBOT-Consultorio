@@ -71,3 +71,7 @@ LISTA_ESPERA_TEMPLATE = os.environ.get("LISTA_ESPERA_TEMPLATE", "")
 # el link que genera administración.
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "")
 MAIL_REMITENTE = os.environ.get("MAIL_REMITENTE", "")  # ej. "FiBOT Consultorio <avisos@tudominio.com>"
+
+# Dominio principal (ej. consultorio.fibot.ar). Si está cargado, cualquier otro
+# host redirige ahí, salvo el webhook de Meta y /health. Vacío = sin redirección.
+DOMINIO_PRINCIPAL = os.environ.get("DOMINIO_PRINCIPAL", "").strip().lower()

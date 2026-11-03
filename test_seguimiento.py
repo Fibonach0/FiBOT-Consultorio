@@ -241,6 +241,7 @@ def reset():
     TABLAS["enlaces_clave"] = []
     TABLAS["qr_logins"] = []
     TABLAS["llaves_acceso"] = []
+    TABLAS["admin_llaves"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",
@@ -2609,6 +2610,88 @@ celu.post(f"/agenda/llaves/{llave_id}/borrar", data={"csrf_token": "tok"})
 chequear("borra la propia", not any(x["id"] == llave_id for x in TABLAS["llaves_acceso"]))
 chequear("la actividad registra las llaves", any("agregó una llave de acceso" in a["accion"] for a in TABLAS["actividad"])
          and any("entró al panel (llave de acceso" in a["accion"] for a in TABLAS["actividad"]))
+
+# --- Llaves de administración, avisos por mail y dominio principal ---
+reset()
+TABLAS["login_intentos"] = []
+SEC4 = seguridad.nuevo_secreto()
+TABLAS["admins"] = [{"id": "a7", "usuario": "igna", "pass_hash": _bcrypt.hashpw(b"clave-admin-larga", _bcrypt.gensalt(4)).decode(), "totp_secreto": SEC4}]
+adm = app.app.test_client()
+adm.post("/admin/login", data={"usuario": "igna", "clave": "clave-admin-larga"})
+with adm.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+adm.post("/admin/codigo", data={"csrf_token": "tok", "codigo": seguridad._codigo(SEC4, int(_time.time() // 30))})
+with adm.session_transaction() as ses:
+    ses["csrf_token"] = "tok"
+html = adm.get("/admin").data.decode()
+chequear("admin ofrece agregar llave", "Tus llaves de acceso" in html and "/admin/llaves/opciones" in html)
+o = adm.post("/admin/llaves/opciones", data={"csrf_token": "tok"}).get_json()
+chequear("opciones de llave para admin", o["user"]["name"] == "igna" and o["authenticatorSelection"]["userVerification"] == "required")
+app.webauthn.verify_registration_response = lambda **k: SimpleNamespace(credential_id=b"llave-admin", credential_public_key=b"pub", sign_count=0)
+r = adm.post("/admin/llaves/registrar", data={"csrf_token": "tok", "credencial": "{}"}).get_json()
+chequear("guarda la llave del admin aparte", r["ok"] and TABLAS["admin_llaves"][0]["admin_id"] == "a7" and not TABLAS["llaves_acceso"])
+lid = TABLAS["admin_llaves"][0]["id"]
+chequear("una profesional no registra llaves de admin", app.app.test_client().post("/admin/llaves/opciones").status_code in (302, 403))
+nuevo_adm = app.app.test_client()
+chequear("el login de admin ofrece la llave", "/admin/login/llave/opciones" in nuevo_adm.get("/admin/login").data.decode())
+nuevo_adm.post("/admin/login/llave/opciones")
+app.webauthn.verify_authentication_response = lambda **k: SimpleNamespace(new_sign_count=3)
+r = nuevo_adm.post("/admin/login/llave", data={"credencial": json.dumps({"id": lid})}).get_json()
+chequear("entra a admin con la llave, sin código", r["ok"] and r["destino"].endswith("/admin") and nuevo_adm.get("/admin").status_code == 200
+         and TABLAS["admin_llaves"][0]["contador"] == 3)
+TABLAS["llaves_acceso"].append({"id": "llave-de-profesional", "tenant_id": "t1", "clave_publica": "x", "contador": 0, "creada": "2026-11-01T00:00:00+00:00"})
+otro_adm = app.app.test_client()
+otro_adm.post("/admin/login/llave/opciones")
+chequear("la llave de una profesional no entra a admin", otro_adm.post("/admin/login/llave", data={"credencial": json.dumps({"id": "llave-de-profesional"})}).status_code == 400
+         and otro_adm.get("/admin").status_code == 302)
+pro = app.app.test_client()
+pro.post("/login/llave/opciones")
+chequear("ni la de admin entra al panel de profesional", pro.post("/login/llave", data={"credencial": json.dumps({"id": lid})}).status_code == 400)
+adm.post(f"/admin/llaves/{lid}/borrar", data={"csrf_token": "tok"})
+chequear("borra la llave de admin", not TABLAS["admin_llaves"])
+
+# avisos por mail a la profesional
+mails = []
+_mail.enviar = lambda para, asunto, texto: mails.append((para, asunto, texto)) or True
+app.config.RESEND_API_KEY, app.config.MAIL_REMITENTE = "re_prueba", "FiBOT <avisos@ejemplo.com>"
+TABLAS["tenants"][0].update({"email": "marcos@ejemplo.com", "panel_user": "marcos",
+                             "panel_pass_hash": _bcrypt.hashpw(b"clave-de-marcos", _bcrypt.gensalt(4)).decode()})
+pc = app.app.test_client()
+with pc.session_transaction() as ses:
+    ses["tenant_id"] = "t1"
+    ses["sesion_id"] = _sesion_de("t1")
+    ses["csrf_token"] = "tok"
+pc.post("/agenda/llaves/opciones", data={"csrf_token": "tok"})
+pc.post("/agenda/llaves/registrar", data={"csrf_token": "tok", "credencial": "{}"}, headers={"User-Agent": "Mozilla/5.0 (iPhone) Version/17 Safari/604"})
+chequear("avisa por mail la llave nueva", mails and mails[-1][0] == "marcos@ejemplo.com" and "llave de acceso" in mails[-1][1] and "Safari en iPhone" in mails[-1][2]
+         and "Si no fuiste vos" in mails[-1][2])
+pc.post("/agenda/clave", data={"csrf_token": "tok", "actual": "clave-de-marcos", "nueva": "clave-nueva-larga", "repetir": "clave-nueva-larga"})
+chequear("avisa el cambio de clave", "Se cambió la clave" in mails[-1][1] or "se cambió la clave" in mails[-1][1])
+pagina = pc.get("/agenda/doble-factor")
+with pc.session_transaction() as ses:
+    s5 = ses["totp_nuevo"]
+pc.post("/agenda/doble-factor", data={"csrf_token": "tok", "codigo": seguridad._codigo(s5, int(_time.time() // 30))})
+chequear("avisa el doble factor", "doble factor" in mails[-1][1])
+chequear("los mails no llevan clave ni datos de pacientes", not any("clave-nueva-larga" in m[2] or "Paciente" in m[2] for m in mails))
+n = len(mails)
+TABLAS["tenants"][0]["email"] = None
+pc.post("/agenda/llaves/opciones", data={"csrf_token": "tok"})
+pc.post("/agenda/llaves/registrar", data={"csrf_token": "tok", "credencial": "{}"})
+chequear("sin mail cargado no manda nada", len(mails) == n)
+app.config.RESEND_API_KEY = ""
+
+# dominio principal
+app.config.DOMINIO_PRINCIPAL = "consultorio.fibot.ar"
+r = app.app.test_client().get("/login?x=1", headers={"Host": "fibot-consultorio-production.up.railway.app"})
+chequear("la dirección vieja redirige al dominio", r.status_code == 308 and r.headers["Location"] == "https://consultorio.fibot.ar/login?x=1")
+r = app.app.test_client().post("/login", headers={"Host": "otra.cosa"})
+chequear("un POST también (308)", r.status_code == 308)
+r = app.app.test_client().get("/webhook?hub.mode=subscribe", headers={"Host": "fibot-consultorio-production.up.railway.app"})
+chequear("el webhook de Meta no se redirige", r.status_code != 308)
+r = app.app.test_client().get("/login", headers={"Host": "consultorio.fibot.ar"})
+chequear("en el dominio principal no redirige", r.status_code == 200)
+app.config.DOMINIO_PRINCIPAL = ""
+chequear("sin dominio cargado no redirige", app.app.test_client().get("/login").status_code == 200)
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
