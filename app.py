@@ -687,7 +687,7 @@ def admin_uso_csv():
                               headers={"Content-Disposition": f'attachment; filename="uso-{primero:%Y-%m}.csv"'})
 
 
-SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario"}
+SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad"}
 RUBROS_ALTA = ["psicología", "psicopedagogía"]
 
 
@@ -2976,6 +2976,13 @@ def _con_hora_local(turnos: list[dict], tz: ZoneInfo) -> list[dict]:
             }
         )
     return resultado
+
+
+@app.get("/privacidad")
+def privacidad():
+    """Política de privacidad pública (la pide Meta para publicar la app de WhatsApp)."""
+    return render_template("privacidad.html", actualizada="3 de noviembre de 2026",
+                           contacto=os.environ.get("CONTACTO_PRIVACIDAD") or "la administración de FiBOT")
 
 
 @app.get("/<slug>")

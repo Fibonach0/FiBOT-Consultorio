@@ -82,4 +82,8 @@ r = client.post(
 assert r.status_code == 200 and "no está disponible".encode() in r.data
 print("POST sobre un turno ya tomado -> redirige con aviso OK")
 
+r = client.get("/privacidad")
+assert r.status_code == 200 and "Política de privacidad" in r.data.decode() and "Ley 25.326" in r.data.decode(), "privacidad"
+print("GET /privacidad -> 200 OK, sin login")
+
 print("\nTODOS LOS SMOKE TESTS DE LA PÁGINA PÚBLICA PASARON")
