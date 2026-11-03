@@ -19,7 +19,9 @@
       <label for="telefono">WhatsApp (con código de país, ej. 5491123456789)</label>
       <input type="tel" id="telefono" name="telefono" required placeholder="5491123456789">
 
-      {% if (tenant.modalidades_publicas or 'presencial') == 'ambas' %}
+      {% if turno.solo_modalidad %}
+      <p style="color:var(--muted);margin-bottom:0">Este horario es {{ 'por videollamada' if turno.solo_modalidad == 'virtual' else 'en el consultorio' }}.</p>
+      {% elif (tenant.modalidades_publicas or 'presencial') == 'ambas' %}
       <label>¿Cómo preferís?</label>
       <div style="display:flex;gap:16px;flex-wrap:wrap">
         <label style="margin:0;color:inherit"><input type="radio" name="modalidad" value="presencial" checked> En el consultorio</label>

@@ -14,6 +14,15 @@
           color:var(--green); text-decoration:none; font-weight:600; }
   .hora:hover { background:var(--green); color:#fff; }
   .nada { color:var(--muted); font-size:.85rem; }
+  .vistas { display:flex; gap:6px; justify-content:flex-end; margin-bottom:8px; font-size:.9rem; }
+  .vistas a, .vistas span { padding:4px 10px; border-radius:6px; text-decoration:none; }
+  .vistas span { background:var(--green); color:#fff; }
+  .mes { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:4px; text-align:center; }
+  .mes .cab { font-size:.75rem; color:var(--muted); }
+  .mes .dia { padding:8px 2px; border-radius:6px; font-size:.95rem; color:var(--muted); }
+  .mes .dia.otro { opacity:.3; }
+  .mes a.dia { background:var(--green-bg); color:var(--green); font-weight:700; text-decoration:none; border:1px solid var(--green); }
+  .mes a.dia small { display:block; font-weight:400; font-size:.7rem; }
   @media (max-width: 720px) {
     .semana { grid-template-columns:1fr; }
     .dia-col { min-height:0; }
@@ -52,7 +61,7 @@
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
       {% for x in tipos %}
       <a class="btn {{ '' if (i_tipo is not none and i_tipo == loop.index0) else 'secundario' }}" style="text-decoration:none"
-         href="{{ url_for('publico', slug=tenant.slug, tipo=loop.index0) }}">{{ x.nombre }} · {{ x.minutos }} min</a>
+         href="{{ url_for('publico', slug=tenant.slug, tipo=loop.index0) }}">{{ x.nombre }} · {{ x.minutos }} min{% if x.precio %} · {{ x.precio|pesos }}{% endif %}</a>
       {% endfor %}
     </div>
   </div>
@@ -66,6 +75,27 @@
   </div>
   {% else %}
   <div class="card">
+    {% if not cambiar %}
+    <div class="vistas">
+      {% if vista_mes %}<a href="{{ url_for('publico', slug=tenant.slug, tipo=i_tipo) }}">Semana</a><span>Mes</span>
+      {% else %}<span>Semana</span><a href="{{ url_for('publico', slug=tenant.slug, vista='mes', tipo=i_tipo) }}">Mes</a>{% endif %}
+    </div>
+    {% endif %}
+    {% if vista_mes %}
+    <div class="semana-nav">
+      {% if mes_anterior %}<a class="btn secundario" href="{{ url_for('publico', slug=tenant.slug, vista='mes', mes=mes_anterior, tipo=i_tipo) }}" style="text-decoration:none">‹ Anterior</a>{% else %}<span></span>{% endif %}
+      <strong>{{ titulo_mes }}</strong>
+      <a class="btn secundario" href="{{ url_for('publico', slug=tenant.slug, vista='mes', mes=mes_siguiente, tipo=i_tipo) }}" style="text-decoration:none">Siguiente ›</a>
+    </div>
+    <div class="mes" style="margin-top:12px">
+      {% for c in ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'] %}<div class="cab">{{ c }}</div>{% endfor %}
+      {% for semana in semanas_mes %}{% for d in semana %}
+        {% if d.libres and d.del_mes %}<a class="dia" href="{{ url_for('publico', slug=tenant.slug, semana=d.lunes, tipo=i_tipo) }}">{{ d.numero }}<small>{{ d.libres }} libre{{ 's' if d.libres > 1 }}</small></a>
+        {% else %}<div class="dia{% if not d.del_mes %} otro{% endif %}">{{ d.numero }}</div>{% endif %}
+      {% endfor %}{% endfor %}
+    </div>
+    {% if not hay_en_mes %}<p style="color:var(--muted);margin-bottom:0">No hay horarios libres este mes. Probá el siguiente o anotate en la lista de espera.</p>{% endif %}
+    {% else %}
     <div class="semana-nav">
       {% if anterior %}<a class="btn secundario" href="{{ url_semana(anterior) }}" style="text-decoration:none">‹ Anterior</a>{% else %}<span></span>{% endif %}
       <strong>Semana del {{ titulo_semana }}</strong>
@@ -77,7 +107,7 @@
         <h4>{{ d.nombre }} <span>{{ d.numero }}</span></h4>
         <div class="horas">
         {% for t in d.turnos %}
-          <a class="hora" href="{{ url_hora(t) }}">{{ t._hora }}</a>
+          <a class="hora" href="{{ url_hora(t) }}"{% if t.solo_modalidad %} title="{{ 'Por videollamada' if t.solo_modalidad == 'virtual' else 'En el consultorio' }}"{% endif %}>{{ t._hora }}{% if t.solo_modalidad == 'virtual' %} <small>· video</small>{% elif t.solo_modalidad == 'presencial' and tenant.modalidades_publicas in ('ambas', 'virtual') %} <small>· consultorio</small>{% endif %}</a>
         {% else %}
           <span class="nada">—</span>
         {% endfor %}
@@ -90,6 +120,7 @@
       No hay horarios libres esta semana.
       {% if proximo_despues %}El próximo es el <a href="{{ url_semana(proximo_despues._semana) }}">{{ proximo_despues._dia }} a las {{ proximo_despues._hora }}</a>.{% else %}Volvé a pasar más tarde.{% endif %}
     </p>
+    {% endif %}
     {% endif %}
   </div>
 

@@ -246,6 +246,15 @@ vuelve a chequear (`_entra`), y la reserva guarda `turnos.tipo` y alarga `fin`
 (la vista ya oculta los libres que se pisan). Cambiar de horario conserva la
 duración y el tipo (`reprogramar_turno` copia `tipo`). El bot reserva el tipo
 de siempre.
+`migrations/053`: `tenants.descanso_minutos`: los horarios arrancan cada
+duración + descanso (45 + 15 desde 9:15 → 9:15, 10:15…, terminan en punto); lo
+usan el horario semanal y la generación a mano, y `_cabe` deja que un turno largo
+salte el descanso hasta el horario siguiente. Cada franja del horario puede fijar
+la modalidad: queda en `turnos.solo_modalidad` (del HORARIO, no va en
+`_LIBERADO`; la vista la expone) y manda sobre lo que elija el paciente. Los tipos
+pueden tener `precio` (se carga como `valor` al reservar). `scheduler.cuando_de`
+agrega «(tipo de N min)», así sale en confirmación y recordatorios. La página del
+paciente tiene vista mensual (`?vista=mes&mes=AAAA-MM`, `_mes_libre`).
 
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin

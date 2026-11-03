@@ -31,6 +31,11 @@ def cuando_de(turno: dict, tenant: dict, tz: ZoneInfo) -> str:
     """Va dentro del parámetro {{2}} de las plantillas ya aprobadas: así las
     virtuales llevan el link sin tener que aprobar plantillas nuevas."""
     cuando = _fmt(turno["inicio"], tz)
+    if turno.get("tipo"):
+        # «Primera entrevista de 100 min»: para que el paciente reserve el tiempo.
+        minutos = int((datetime.fromisoformat(turno["fin"]) - datetime.fromisoformat(turno["inicio"])).total_seconds() // 60) \
+            if turno.get("fin") else None
+        cuando += f" ({turno['tipo']}" + (f" de {minutos} min" if minutos else "") + ")"
     if turno.get("modalidad") == "virtual" and tenant.get("link_videollamada"):
         return f"{cuando}, por videollamada: {tenant['link_videollamada']}"
     return cuando
@@ -301,15 +306,16 @@ def avisar_profesional(tenant: dict, texto: str) -> bool:
         return False
 
 
-def rangos_horario(tenant: dict) -> list[tuple[int, str, str]]:
-    """(día 0-6, desde, hasta) válidos del horario semanal guardado."""
+def rangos_horario(tenant: dict) -> list[tuple[int, str, str, str | None]]:
+    """(día 0-6, desde, hasta, modalidad o None) válidos del horario semanal."""
     salida = []
     for r in tenant.get("horario_semanal") or []:
         try:
             dia, desde, hasta = int(r["dia"]), str(r["desde"]), str(r["hasta"])
+            modalidad = r.get("modalidad") if r.get("modalidad") in ("presencial", "virtual") else None
             from datetime import time as _t
             if 0 <= dia <= 6 and _t.fromisoformat(desde) < _t.fromisoformat(hasta):
-                salida.append((dia, desde, hasta))
+                salida.append((dia, desde, hasta, modalidad))
         except (KeyError, TypeError, ValueError):
             continue
     return salida
@@ -326,20 +332,22 @@ def generar_desde_horario(tenant: dict, ahora: datetime | None = None) -> int:
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     ahora = ahora or datetime.now(timezone.utc)
     duracion = tenant.get("duracion_turno_minutos") or 50
+    paso_min = duracion + (tenant.get("descanso_minutos") or 0)
     hoy = ahora.astimezone(tz).date()
-    inicios = []
+    por_modalidad: dict = {}
     for i in range(7 * (tenant.get("horario_semanas") or 4)):
         dia = hoy + timedelta(days=i)
-        for d, desde, hasta in rangos:
+        for d, desde, hasta, modalidad in rangos:
             if dia.weekday() != d:
                 continue
             paso = datetime.combine(dia, _t.fromisoformat(desde), tzinfo=tz)
             fin = datetime.combine(dia, _t.fromisoformat(hasta), tzinfo=tz)
             while paso + timedelta(minutes=duracion) <= fin:
                 if paso > ahora:
-                    inicios.append(paso.astimezone(timezone.utc))
-                paso += timedelta(minutes=duracion)
-    return db.crear_turnos_libres(tenant["id"], inicios, duracion) if inicios else 0
+                    por_modalidad.setdefault(modalidad, []).append(paso.astimezone(timezone.utc))
+                paso += timedelta(minutes=paso_min)
+    return sum(db.crear_turnos_libres(tenant["id"], inicios, duracion, modalidad)
+               for modalidad, inicios in por_modalidad.items())
 
 
 _generado: dict[str, object] = {}
