@@ -138,7 +138,12 @@ def _limpiar() -> None:
     db.limpiar_vencidos(ahora.isoformat(), hace(1), hace(7), hace(30), hace(90), hace(365))
 
 
+_ultimo_tick = None
+
+
 def _tick() -> None:
+    global _ultimo_tick
+    _ultimo_tick = datetime.now(timezone.utc)
     try:
         _limpiar()
     except Exception:

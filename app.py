@@ -518,14 +518,15 @@ def login_qr_nuevo():
     db.crear_qr_login(seguridad.hash_token(token), seguridad.hash_token(nonce),
                       seguridad.dispositivo(request.headers.get("User-Agent")), vence.isoformat())
     link = url_for("login_qr_aprobar", token=token, _external=True)
-    return jsonify(token=token, svg=seguridad.qr_svg(link, escala=4), segundos=int(QR_VIGENCIA.total_seconds()))
+    return jsonify(token=token, svg=seguridad.qr_svg(link, escala=4), segundos=int(QR_VIGENCIA.total_seconds()),
+                   estado=url_for("login_qr_estado", token=token))
 
 
 @app.get("/login/qr/<token>/estado")
 def login_qr_estado(token):
     q = db.qr_login(seguridad.hash_token(token))
     nonce = session.get("qr_nonce") or ""
-    if not q or not hmac.compare_digest(q["nonce_hash"], seguridad.hash_token(nonce)):
+    if not q or (q.get("tipo") or "panel") != "panel" or not hmac.compare_digest(q["nonce_hash"], seguridad.hash_token(nonce)):
         return jsonify(estado="invalido"), 404
     if datetime.fromisoformat(q["vence"]) <= datetime.now(ZoneInfo("UTC")) or q.get("usado_at"):
         return jsonify(estado="vencido")
@@ -545,7 +546,8 @@ def login_qr_aprobar(token):
     mostró el QR una sesión de esta misma cuenta."""
     tenant = db.get_tenant_by_id(session["tenant_id"])
     q = db.qr_login(seguridad.hash_token(token))
-    vigente = q and not q.get("aprobado_at") and datetime.fromisoformat(q["vence"]) > datetime.now(ZoneInfo("UTC"))
+    vigente = q and (q.get("tipo") or "panel") == "panel" and not q.get("aprobado_at") \
+        and datetime.fromisoformat(q["vence"]) > datetime.now(ZoneInfo("UTC"))
     if request.method == "POST" and vigente:
         if request.form.get("respuesta") == "aprobar" and \
                 db.aprobar_qr_login(q["token_hash"], tenant["id"], datetime.now(ZoneInfo("UTC")).isoformat()):
@@ -562,7 +564,8 @@ def admin_requerido(vista):
     def envoltorio(*args, **kwargs):
         admin = db.admin_completo(session["admin_id"]) if session.get("admin_id") else None
         if not admin:
-            return redirect(url_for("admin_login"))
+            volver = request.path if request.method == "GET" and request.path.startswith("/admin/qr/") else None
+            return redirect(url_for("admin_login", siguiente=volver))
         if (admin.get("sesion_version") or 0) != session.get("admin_version", 0):
             session.clear()
             return redirect(url_for("admin_login"))
@@ -590,10 +593,13 @@ def admin_login_post():
         _registrar_fallo(claves)
         return render_template("admin_login.html", error="Usuario o clave incorrectos."), 401
     db.borrar_intentos_login(claves[0])
+    siguiente = request.form.get("siguiente") or ""
     session.clear()
     if admin.get("totp_secreto"):
         # Falta el código: todavía no es una sesión de admin.
         session["admin_pendiente"] = admin["id"]
+        if siguiente.startswith("/admin/qr/") and "//" not in siguiente:
+            session["siguiente_admin"] = siguiente
         return redirect(url_for("admin_codigo"))
     session["admin_id"] = admin["id"]
     session["admin_version"] = admin.get("sesion_version") or 0
@@ -618,12 +624,13 @@ def admin_codigo():
         return render_template("admin_codigo.html", error="Código incorrecto o ya usado."), 401
     db.borrar_intentos_login(claves[0])
     db.guardar_totp(admin["id"], {"totp_ultimo_paso": paso})
+    siguiente = session.get("siguiente_admin")
     session.clear()
     session["admin_id"] = admin["id"]
     session["admin_version"] = admin.get("sesion_version") or 0
     db.marcar_ingreso("admins", admin["id"], datetime.now(ZoneInfo("UTC")).isoformat())
     db.registrar_actividad(f"administración ({admin['usuario']})", "entró a administración")
-    return redirect(url_for("admin_panel"))
+    return redirect(siguiente or url_for("admin_panel"))
 
 
 @app.route("/admin/doble-factor", methods=["GET", "POST"])
@@ -697,15 +704,45 @@ def admin_panel():
         t["_ingreso"] = datetime.fromisoformat(t["ultimo_ingreso"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if t.get("ultimo_ingreso") else "nunca"
     biblioteca = [dict(e, titulo=e["contenido"]["nombre"] + (f" · {e['contenido']['version']}" if e["contenido"].get("version") else ""))
                   for e in db.biblioteca()]
+    estado = _estado_plataforma(tenants, tz)
     filtro = request.args.get("actividad_de") or None
     actividad = db.actividad_reciente(200, filtro)
     for a in actividad:
         a["_cuando"] = datetime.fromisoformat(a["cuando"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if "T" in str(a["cuando"]) else a["cuando"]
     return render_template("admin.html", admin=db.admin_por_id(session["admin_id"]), tenants=tenants,
                            admin_llaves=db.admin_llaves_de(session["admin_id"]),
-                           actividad=actividad, filtro=filtro,
+                           actividad=actividad, filtro=filtro, estado=estado,
                            biblioteca=biblioteca, rubros=RUBROS_ALTA,
                            mes_actual=datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%Y-%m"))
+
+
+def _estado_plataforma(tenants: list[dict], tz: ZoneInfo) -> list[dict]:
+    """Qué está configurado y qué falta, de un vistazo. Sólo dice si las
+    variables están cargadas, nunca sus valores."""
+    host = request.host.split(":")[0]
+    ok = lambda nombre, bien, detalle: {"nombre": nombre, "ok": bien, "detalle": detalle}
+    principal = config.DOMINIO_PRINCIPAL
+    whatsapp_real = bool(config.META_ACCESS_TOKEN) and config.META_ACCESS_TOKEN != "fake"
+    plantillas = [n for n, v in (("recordatorio", config.RECORDATORIO_TEMPLATE), ("avisos", config.AVISO_TEMPLATE)) if v]
+    tick = scheduler._ultimo_tick
+    activos = [t for t in tenants if t.get("activo") is not False]
+    completos = db.estado_seguridad_tenants()
+    return [
+        ok("Dominio", bool(principal) and host == principal,
+           f"Entraste por {host}." + (f" Dominio principal: {principal}." if principal
+                                      else " Falta cargar DOMINIO_PRINCIPAL en Railway (por ahora no redirige).")),
+        ok("Mail", mail.disponible(), "Recuperar la clave y avisos de seguridad por mail." if mail.disponible()
+           else "Sin proveedor: faltan RESEND_API_KEY y MAIL_REMITENTE. La clave se recupera con el link de administración."),
+        ok("WhatsApp", whatsapp_real and bool(config.PLATAFORMA_PHONE_NUMBER_ID) and bool(plantillas),
+           ("Conectado" if whatsapp_real else "Sin credenciales reales de Meta")
+           + (f"; número de la plataforma cargado" if config.PLATAFORMA_PHONE_NUMBER_ID else "; falta el número de la plataforma")
+           + (f"; plantillas: {', '.join(plantillas)}." if plantillas else "; sin plantillas aprobadas.")),
+        ok("Recordatorios y limpieza", bool(tick) and datetime.now(ZoneInfo("UTC")) - tick < timedelta(minutes=30),
+           f"Última vuelta: {tick.astimezone(tz).strftime('%d/%m %H:%M')}." if tick else "Todavía no corrió desde que arrancó el servidor."),
+        ok("Respaldo", None, "Lo hace Supabase y desde la app no se puede ver: revisalo en Supabase → Database → Backups."),
+        ok("Profesionales", None, f"{len(activos)} activas · {completos['sin_mail']} sin mail cargado · "
+                                  f"{completos['con_doble_factor']} con doble factor · {completos['con_llave']} con llave de acceso."),
+    ]
 
 
 @app.post("/admin/profesionales")
@@ -988,6 +1025,61 @@ def admin_login_llave():
     db.marcar_ingreso("admins", admin["id"], datetime.now(ZoneInfo("UTC")).isoformat())
     db.registrar_actividad(f"administración ({admin['usuario']})", "entró a administración con llave de acceso")
     return jsonify(ok=True, destino=url_for("admin_panel"))
+
+
+# QR para entrar a administración: igual que el del panel, pero lo aprueba un
+# celular con sesión de ADMINISTRACIÓN y abre una sesión de administración.
+# Crear y consultar viven bajo /admin/login (sin sesión, sin CSRF); aprobar
+# vive en /admin/qr/<token>, que sí pide sesión de admin y token.
+
+@app.post("/admin/login/qr")
+def admin_login_qr_nuevo():
+    token, nonce = seguridad.nuevo_token(), seguridad.nuevo_token()
+    session["admin_qr_nonce"] = nonce
+    vence = datetime.now(ZoneInfo("UTC")) + QR_VIGENCIA
+    db.crear_qr_login(seguridad.hash_token(token), seguridad.hash_token(nonce),
+                      seguridad.dispositivo(request.headers.get("User-Agent")), vence.isoformat(), tipo="admin")
+    link = url_for("admin_qr_aprobar", token=token, _external=True)
+    return jsonify(token=token, svg=seguridad.qr_svg(link, escala=4), segundos=int(QR_VIGENCIA.total_seconds()),
+                   estado=url_for("admin_login_qr_estado", token=token))
+
+
+@app.get("/admin/login/qr/<token>/estado")
+def admin_login_qr_estado(token):
+    q = db.qr_login(seguridad.hash_token(token))
+    nonce = session.get("admin_qr_nonce") or ""
+    if not q or q.get("tipo") != "admin" or not hmac.compare_digest(q["nonce_hash"], seguridad.hash_token(nonce)):
+        return jsonify(estado="invalido"), 404
+    if datetime.fromisoformat(q["vence"]) <= datetime.now(ZoneInfo("UTC")) or q.get("usado_at"):
+        return jsonify(estado="vencido")
+    if not q.get("aprobado_at"):
+        return jsonify(estado="esperando")
+    admin = db.admin_completo(q["admin_id"]) if q.get("admin_id") else None
+    if not admin or not db.usar_qr_login(q["token_hash"], datetime.now(ZoneInfo("UTC")).isoformat()):
+        return jsonify(estado="vencido")
+    session.clear()
+    session["admin_id"] = admin["id"]
+    session["admin_version"] = admin.get("sesion_version") or 0
+    db.marcar_ingreso("admins", admin["id"], datetime.now(ZoneInfo("UTC")).isoformat())
+    db.registrar_actividad(f"administración ({admin['usuario']})", f"entró a administración con QR ({q.get('dispositivo')})")
+    return jsonify(estado="listo", destino=url_for("admin_panel"))
+
+
+@app.route("/admin/qr/<token>", methods=["GET", "POST"])
+@admin_requerido
+def admin_qr_aprobar(token):
+    admin = db.admin_completo(session["admin_id"])
+    q = db.qr_login(seguridad.hash_token(token))
+    vigente = q and q.get("tipo") == "admin" and not q.get("aprobado_at") \
+        and datetime.fromisoformat(q["vence"]) > datetime.now(ZoneInfo("UTC"))
+    datos = {"tenant": {"nombre": f"Administración · {admin['usuario']}"}, "q": q, "volver": url_for("admin_panel")}
+    if request.method == "POST" and vigente:
+        if request.form.get("respuesta") == "aprobar" and \
+                db.aprobar_qr_admin(q["token_hash"], admin["id"], datetime.now(ZoneInfo("UTC")).isoformat()):
+            db.registrar_actividad(_actor_admin(), f"aprobó entrar a administración con QR en {q.get('dispositivo')}")
+            return render_template("login_qr.html", estado="aprobado", **datos)
+        return render_template("login_qr.html", estado="rechazado", **datos)
+    return render_template("login_qr.html", estado="pregunta" if vigente else "vencido", **datos)
 
 
 @app.get("/logout")

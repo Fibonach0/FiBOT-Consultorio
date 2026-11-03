@@ -7,6 +7,7 @@
     <h2>Administración</h2>
     {% if error %}<div class="error">{{ error }}</div>{% endif %}
     <form method="post">
+      {% if request.args.get('siguiente') %}<input type="hidden" name="siguiente" value="{{ request.args.get('siguiente') }}">{% endif %}
       <label>Usuario</label><input type="text" name="usuario" autocomplete="username" required>
       <label>Clave</label><input type="password" name="clave" autocomplete="current-password" required>
       <button class="btn" type="submit" style="margin-top:12px">Entrar</button>
@@ -25,6 +26,9 @@
       });
     }
     </script>
+  </div>
+  <div style="max-width:380px;margin:0 auto">
+  {% with url_crear_qr=url_for("admin_login_qr_nuevo"), texto_qr="Si ya tenés administración abierta en el celular, escaneá un código con la cámara y aprobá. No hace falta clave ni código." %}{% include "_qr_login.html" %}{% endwith %}
   </div>
 </main>
 {% endblock %}
