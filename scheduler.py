@@ -187,7 +187,14 @@ def _tick() -> None:
         except Exception:
             logger.exception("Fallo venciendo horarios retenidos de tenant %s", tenant["id"])
         try:
-            pendientes = db.turnos_para_recordar(tenant["id"], horas_antes)
+            import pagos  # acá: pagos importa db y config, y de acá sólo esto
+            pagos.vencer(tenant)
+        except Exception:
+            logger.exception("Fallo venciendo pagos de tenant %s", tenant["id"])
+        try:
+            # Una reserva web sin pagar todavía no está aceptada: no se recuerda.
+            pendientes = [t for t in db.turnos_para_recordar(tenant["id"], horas_antes)
+                          if t.get("pago_web") not in ("esperando", "comprobante")]
         except Exception:
             logger.exception("Fallo consultando recordatorios de tenant %s", tenant["id"])
             continue

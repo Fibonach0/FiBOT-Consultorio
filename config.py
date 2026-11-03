@@ -85,6 +85,14 @@ WHATSAPP_SOLO_A = [n.strip() for n in os.environ.get("WHATSAPP_SOLO_A", "").spli
 # Vacía = no se manda confirmación.
 CONFIRMACION_TEMPLATE = os.environ.get("CONFIRMACION_TEMPLATE", "")
 
+# Mercado Pago (cobro de las reservas web). Son de la APLICACIÓN de la
+# plataforma en Mercado Pago Developers; cada profesional conecta su propia
+# cuenta con «Conectar Mercado Pago» (OAuth) y cobra en ella. MP_PRUEBA=1 usa
+# las credenciales y el checkout de prueba.
+MP_CLIENT_ID = os.environ.get("MP_CLIENT_ID", "")
+MP_CLIENT_SECRET = os.environ.get("MP_CLIENT_SECRET", "")
+MP_PRUEBA = os.environ.get("MP_PRUEBA", "") in ("1", "true", "si")
+
 # Mails (recuperar la clave). Proveedor: Resend (API HTTP). Sin las dos
 # variables, el sistema no manda mails y la recuperación sigue siendo por
 # el link que genera administración.

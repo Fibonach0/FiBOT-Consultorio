@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block titulo %}Pagar turno — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<header><span>FiBOT Consultorio · {{ tenant.nombre }}</span></header>
+<main>
+  <div class="card" style="max-width:560px;margin:30px auto">
+    {% with mensajes = get_flashed_messages() %}{% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}{% endwith %}
+    <p style="margin-top:0">Turno con <strong>{{ tenant.nombre }}</strong></p>
+    {% for t in turnos %}<div class="turno"><span>{{ t._dia }} — {{ t._hora }}</span><strong>{% if t.tipo %}{{ t.tipo }}{% endif %}</strong></div>{% endfor %}
+
+    {% if pago.estado == 'aprobado' %}
+      <h2>¡Listo, tu turno está confirmado!</h2>
+      <p>Recibimos el pago de <strong>{{ pago.monto|pesos }}</strong>. Te mandamos la confirmación por WhatsApp.</p>
+      {% if agendar %}<a class="btn" style="text-decoration:none" href="{{ url_for('agendar', token=agendar) }}">Agendalo en tu calendario</a>{% endif %}
+    {% elif pago.estado == 'comprobante' %}
+      <h2>Recibimos tu comprobante</h2>
+      <p>{{ tenant.nombre }} lo va a revisar y te confirma el turno por WhatsApp. Mientras tanto, el horario queda reservado para vos.</p>
+    {% elif pago.estado in ('vencido', 'rechazado') %}
+      <h2>Este turno ya no está reservado</h2>
+      <p>{% if pago.estado == 'vencido' %}Pasó el tiempo para pagarlo y el horario se liberó.{% else %}{{ tenant.nombre }} no pudo validar el pago y el horario se liberó.{% endif %}</p>
+      {% if tenant.slug %}<a class="btn secundario" style="text-decoration:none" href="{{ url_for('publico', slug=tenant.slug) }}">Elegir otro horario</a>{% endif %}
+    {% elif pago.estado == 'aprobado_tarde' %}
+      <h2>Recibimos tu pago, pero el horario se había liberado</h2>
+      <p>{{ tenant.nombre }} ya está avisado y se va a comunicar con vos para darte otro turno o devolverte el dinero.</p>
+    {% else %}
+      <h2>Para confirmar tu turno, pagá {{ pago.monto|pesos }}</h2>
+      {% if vuelta_mp in ('pending', 'in_process') %}<div class="aviso">Tu pago está en proceso. Apenas Mercado Pago lo apruebe, se confirma el turno.</div>{% endif %}
+      {% if vuelta_mp in ('rejected', 'failure', 'null') %}<div class="error">El pago no se pudo hacer. Probá de nuevo o con otro medio.</div>{% endif %}
+      <p style="color:var(--muted)">El horario queda reservado para vos hasta las <strong>{{ vence }}</strong>. Si no se paga, se libera.</p>
+      {% if 'mercadopago' in medios %}
+      <form method="post" action="{{ url_for('pago_mercadopago', token=pago.token) }}" style="margin:14px 0">
+        <button class="btn" type="submit" style="width:100%">Pagar con Mercado Pago</button>
+        <div style="color:var(--muted);font-size:.85rem;margin-top:4px">Tarjeta, débito o dinero en cuenta. Se confirma al instante.</div>
+      </form>
+      {% endif %}
+      {% if 'transferencia' in medios %}
+      <div style="border-top:1px solid var(--rule);padding-top:12px;margin-top:6px">
+        <strong>{{ 'O pagá' if 'mercadopago' in medios else 'Pagá' }} por transferencia</strong>
+        <div style="white-space:pre-wrap;background:var(--cream);padding:10px;border-radius:6px;margin:8px 0">{{ tenant.transferencia_datos }}</div>
+        <form method="post" action="{{ url_for('pago_comprobante', token=pago.token) }}" enctype="multipart/form-data">
+          <label for="comprobante">Subí el comprobante (foto o PDF)</label>
+          <input type="file" id="comprobante" name="comprobante" accept="image/png,image/jpeg,application/pdf" required>
+          <button class="btn secundario" type="submit" style="margin-top:8px">Enviar comprobante</button>
+        </form>
+      </div>
+      {% endif %}
+    {% endif %}
+  </div>
+</main>
+{% endblock %}

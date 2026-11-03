@@ -31,6 +31,7 @@ from openpyxl import Workbook
 
 import config
 import cancelaciones
+import pagos
 import conversation
 import db
 import rubros
@@ -785,7 +786,7 @@ def admin_uso_csv():
                               headers={"Content-Disposition": f'attachment; filename="uso-{primero:%Y-%m}.csv"'})
 
 
-SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar"}
+SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar", "pago", "mercadopago"}
 RUBROS_ALTA = ["psicología", "psicopedagogía"]
 
 
@@ -1866,6 +1867,9 @@ def agenda():
         "horario_por_dia": {d: [r for r in scheduler.rangos_horario(tenant) if r[0] == d] for d in range(7)},
         "dias_label": DIAS_LABEL,
         "estadisticas": _estadisticas_pagina(tenant, tz),
+        "pagos_revisar": _pagos_para_revisar(tenant, tz),
+        "mp_disponible": pagos.mp_disponible(),
+        "cobro_activo": pagos.activo(tenant),
         "bloqueos": bloqueos,
         "hoy_iso": ahora.date().isoformat(),
         "mes_actual": ahora.strftime("%Y-%m"),
@@ -3745,6 +3749,7 @@ def publico_reservar(slug, turno_id):
             return redirect(url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
         return render_template("publico_revisar.html", tenant=tenant, turno=_con_hora_local([turno], tz)[0],
                                nombre=nombre, telefono=telefono, modalidad=modalidad, tipo=tipo, i_tipo=i_tipo,
+                               a_pagar=pagos.monto_de(tenant, (tipo or {}).get("precio")) if pagos.activo(tenant) else None,
                                confirma_por_whatsapp=bool(config.CONFIRMACION_TEMPLATE))
     previo = db.turno_por_id(tenant["id"], turno_id)
     if tenant.get("pausado") or (previo or {}).get("hueco") or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre):
@@ -3759,6 +3764,15 @@ def publico_reservar(slug, turno_id):
         if tipo.get("precio"):
             campos["valor"] = tipo["precio"]
         campos["fin"] = (datetime.fromisoformat(turno["inicio"]) + timedelta(minutes=tipo["minutos"])).isoformat()
+    if turno and not campos.get("valor") and tenant.get("precio_sesion"):
+        campos["valor"] = tenant["precio_sesion"]
+    monto = pagos.monto_de(tenant, (tipo or {}).get("precio")) if pagos.activo(tenant) else None
+    if turno and monto:
+        # Se cobra: la reserva queda apartada hasta que pague (no se confirma
+        # todavía ni le llega el WhatsApp de confirmación).
+        db.actualizar_reserva(tenant["id"], turno_id, campos)
+        pago = pagos.iniciar(tenant, [{**turno, **campos}], monto)
+        return redirect(url_for("pago_paciente", token=pago["token"]))
     enviada = scheduler.mandar_confirmacion(tenant, {**turno, **campos}, tz) if turno else False
     if enviada:
         campos["confirmacion_enviada_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
@@ -3968,6 +3982,185 @@ def agendar_cambiar_a(token, turno_id):
     _evento(tenant, "cambio")
     db.actualizar_reserva(tenant["id"], nuevo["id"], {"reserva_avisada": True})
     return redirect(url_for("agendar", token=token, cambiado=1))
+
+
+# ---------- pago de las reservas web ----------
+
+def _base() -> str:
+    return f"https://{config.DOMINIO_PRINCIPAL}" if config.DOMINIO_PRINCIPAL else request.host_url.rstrip("/")
+
+
+def _pago_y_tenant(token: str):
+    pago = db.pago_por_token(token)
+    tenant = db.get_tenant_by_id(pago["tenant_id"]) if pago else None
+    return (pago, tenant) if pago and tenant else (None, None)
+
+
+@app.get("/pago/<token>")
+def pago_paciente(token):
+    """La página del paciente para pagar su reserva. Al volver de Mercado
+    Pago trae `payment_id`: se consulta ahí mismo (además del aviso)."""
+    pago, tenant = _pago_y_tenant(token)
+    if not pago:
+        return _sin_indexar(app.make_response(("Este link ya no sirve.", 404)))
+    if pago["estado"] in ("esperando", "vencido") and request.args.get("payment_id"):
+        pagos.revisar_pago_mp(tenant, request.args["payment_id"])
+        pago = db.pago_por_token(token)
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    turnos = [t for t in (db.turno_por_id(tenant["id"], tid) for tid in pago["turnos"]) if t]
+    return _sin_indexar(app.make_response(render_template(
+        "pago.html", tenant=tenant, pago=pago, turnos=_con_hora_local(sorted(turnos, key=lambda t: t["inicio"]), tz),
+        medios=pagos.metodos(tenant), vuelta_mp=request.args.get("status"),
+        vence=datetime.fromisoformat(str(pago["vence"])).astimezone(tz).strftime("%H:%M"),
+        agendar=next((t.get("token_calendario") for t in turnos if t.get("token_calendario")), None))))
+
+
+@app.post("/pago/<token>/mercadopago")
+def pago_mercadopago(token):
+    pago, tenant = _pago_y_tenant(token)
+    if not pago or pago["estado"] != "esperando" or "mercadopago" not in pagos.metodos(tenant):
+        return redirect(url_for("pago_paciente", token=token))
+    link = pagos.preferencia(tenant, pago, f"Turno con {tenant['nombre']}", _base())
+    if not link:
+        flash("No se pudo abrir Mercado Pago. Probá de nuevo en un momento.")
+        return redirect(url_for("pago_paciente", token=token))
+    return redirect(link)
+
+
+@app.post("/pago/<token>/comprobante")
+def pago_comprobante(token):
+    pago, tenant = _pago_y_tenant(token)
+    if not pago or pago["estado"] != "esperando" or "transferencia" not in pagos.metodos(tenant):
+        return redirect(url_for("pago_paciente", token=token))
+    archivo = request.files.get("comprobante")
+    error = pagos.subir_comprobante(tenant, pago, archivo.read(pagos.COMPROBANTE_MAX + 1) if archivo else b"")
+    if error:
+        flash(error)
+    return redirect(url_for("pago_paciente", token=token))
+
+
+@app.post("/webhook/mercadopago")
+def webhook_mercadopago():
+    """Aviso de Mercado Pago. No se confía en el contenido: se consulta el pago
+    con el token del profesional (`t` lo identifica) y se compara referencia y
+    monto. Siempre 200, si no Mercado Pago reintenta cada 15 minutos."""
+    tenant = db.get_tenant_by_id(request.args.get("t") or "")
+    cuerpo = request.get_json(silent=True) or {}
+    tipo = cuerpo.get("type") or request.args.get("type") or request.args.get("topic")
+    pago_id = (cuerpo.get("data") or {}).get("id") or request.args.get("data.id") or request.args.get("id")
+    if tenant and tipo == "payment" and pago_id:
+        try:
+            pagos.revisar_pago_mp(tenant, str(pago_id))
+        except Exception:
+            logger.exception("Falló el aviso de Mercado Pago del tenant %s", tenant["id"])
+    return "", 200
+
+
+# ---------- cobro: panel ----------
+
+@app.post("/agenda/cobros")
+@login_required
+def agenda_cobros():
+    f = request.form
+    modo = f.get("cobro_web") if f.get("cobro_web") in ("no", "mercadopago", "transferencia", "ambos") else "no"
+    numero = lambda clave: int("".join(ch for ch in f.get(clave) or "" if ch.isdigit()) or 0) or None
+    campos = {"cobro_web": modo, "cobro_modo": "sena" if f.get("cobro_modo") == "sena" else "total",
+              "sena_monto": numero("sena_monto"), "precio_sesion": numero("precio_sesion"),
+              "transferencia_datos": (f.get("transferencia_datos") or "").strip()[:300] or None}
+    db.guardar_ajustes(session["tenant_id"], campos)
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    if modo == "no":
+        flash("Listo: las reservas web no se cobran.")
+    elif not pagos.activo(tenant):
+        flash("Guardado, pero todavía no se cobra: " + (
+            "conectá Mercado Pago" if modo == "mercadopago" else "cargá tu alias o CBU" if modo == "transferencia"
+            else "conectá Mercado Pago o cargá tu alias/CBU") + ".")
+    elif not (tenant.get("precio_sesion") or any(t.get("precio") for t in tipos_de(tenant))):
+        flash("Guardado, pero falta el precio: cargalo acá o en tus tipos de turno. Sin precio, la reserva no se cobra.")
+    else:
+        flash("Listo: cada reserva web se acepta cuando se paga.")
+    return _volver_a_agenda()
+
+
+@app.get("/agenda/mercadopago/conectar")
+@login_required
+def agenda_mp_conectar():
+    if not pagos.mp_disponible():
+        flash("Mercado Pago todavía no está habilitado en la plataforma.")
+        return _volver_a_agenda()
+    session["mp_state"] = secrets.token_urlsafe(16)
+    return redirect(pagos.url_conectar(session["mp_state"], url_for("mp_vuelta", _external=True, _scheme="https")))
+
+
+@app.get("/mercadopago/vuelta")
+@login_required
+def mp_vuelta():
+    """Vuelta del login de Mercado Pago. El `state` tiene que ser el que se
+    guardó en la sesión de ESTE profesional."""
+    state = session.pop("mp_state", None)
+    if not state or not hmac.compare_digest(state, request.args.get("state") or "") or not request.args.get("code"):
+        flash("No se pudo conectar Mercado Pago. Probá de nuevo.")
+        return redirect(url_for("agenda"))
+    error = pagos.conectar(session["tenant_id"], request.args["code"], url_for("mp_vuelta", _external=True, _scheme="https"))
+    flash(error or "Listo, conectaste tu cuenta de Mercado Pago: los pagos van a tu cuenta.")
+    db.registrar_actividad("profesional", "conectó Mercado Pago" if not error else "intentó conectar Mercado Pago",
+                           session["tenant_id"])
+    return redirect(url_for("agenda") + "#cobros")
+
+
+@app.post("/agenda/mercadopago/desconectar")
+@login_required
+def agenda_mp_desconectar():
+    pagos.desconectar(session["tenant_id"])
+    flash("Desconectaste Mercado Pago.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/pago-web/<pago_id>/<accion>")
+@login_required
+def agenda_pago_web(pago_id, accion):
+    """Validar un comprobante de transferencia (aceptar / rechazar), o dar por
+    resuelto un pago que llegó tarde."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    pago = db.pago_de(tenant["id"], pago_id)
+    if not pago:
+        return _volver_a_agenda()
+    if accion == "aceptar" and pago["estado"] == "comprobante":
+        resultado = pagos.aprobar(tenant, pago)
+        flash("Aceptada: el turno quedó confirmado y pagado." if resultado == "aprobado"
+              else "El turno ya se había liberado: devolvé la transferencia o reprogramalo.")
+    elif accion == "rechazar" and pago["estado"] == "comprobante":
+        pagos.rechazar(tenant, pago)
+        flash("Rechazaste el comprobante: el horario quedó libre.")
+    elif accion == "resuelto" and pago["estado"] == "aprobado_tarde":
+        db.actualizar_pago(pago["id"], {"estado": "aprobado"})
+        flash("Listo, lo sacamos de la lista.")
+    return _volver_a_agenda()
+
+
+@app.get("/agenda/pago-web/<pago_id>/comprobante")
+@login_required
+def agenda_pago_comprobante(pago_id):
+    pago = db.pago_de(session["tenant_id"], pago_id)
+    if not pago or not (pago.get("comprobante") or "").startswith("data:"):
+        return "No hay comprobante.", 404
+    cabecera, datos = pago["comprobante"].split(",", 1)
+    r = app.response_class(base64.b64decode(datos), mimetype=cabecera[5:].split(";")[0])
+    r.headers["Content-Disposition"] = "inline"
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    return r
+
+
+def _pagos_para_revisar(tenant: dict, tz: ZoneInfo) -> list[dict]:
+    try:
+        lista = db.pagos_para_revisar(tenant["id"])
+    except Exception:
+        return []
+    for p in lista:
+        turnos = [t for t in (db.turno_por_id(tenant["id"], tid) for tid in p["turnos"]) if t]
+        p["_turnos"] = _con_hora_local(sorted(turnos, key=lambda t: t["inicio"]), tz)
+        p["_quien"] = next((t.get("paciente_nombre") for t in turnos if t.get("paciente_nombre")), None)
+    return lista
 
 
 @app.get("/agendar/<token>.ics")
