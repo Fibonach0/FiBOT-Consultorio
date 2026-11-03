@@ -278,6 +278,21 @@ pagado: 30 min con Mercado Pago, 2 h para subir comprobante. Variables:
 `MP_CLIENT_ID`, `MP_CLIENT_SECRET` (de la app de la plataforma en Mercado Pago
 Developers, con redirect `https://<dominio>/mercadopago/vuelta`) y `MP_PRUEBA=1`
 para credenciales y checkout de prueba.
+Varias sesiones desde la web (mismo día y hora, 4 u 8 semanas): sólo con cobro
+activo (se paga todo junto). `app._serie` busca los libres exactos; se reservan
+los que haya (con `frecuencia = 'semanal'` y la ficha del primero) y un solo
+`pagos` cubre todos.
+
+`migrations/055`: `tenants.feriados` ('bloquear' por defecto / 'atender').
+`feriados.py` trae los de Argentina embebidos (fuente argentinadatos.com) y una
+vez por día los actualiza de la API; `scheduler.sincronizar_feriados` los carga
+como bloqueos con motivo «Feriado: …» (idempotente; con 'atender' los borra).
+`tenants.sedes` ([{nombre, direccion}], hasta 3): cada franja del horario elige
+consultorio y queda en `turnos.sede` (del horario, como `solo_modalidad`; la
+vista la expone). Se muestra en el calendario con más de una sede, en el
+formulario con la dirección, y `cuando_de` agrega «en X (dirección)» si no es
+virtual. `/agenda/imprimir?semana=` es la hoja de la semana: hora, paciente,
+tipo, modalidad o consultorio y pago; sin notas ni teléfonos.
 
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin

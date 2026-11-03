@@ -9,6 +9,7 @@
     <h2>Tus datos</h2>
     <p>Turno con <strong>{{ tenant.nombre }}</strong>{% if tenant.rubro %} <span style="color:var(--muted);">({{ tenant.rubro }})</span>{% endif %}</p>
     <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}{% if tipo %} · {{ tipo.nombre }} ({{ tipo.minutos }} min){% endif %}</p>
+    {% if turno.sede %}{% set sd = (tenant.sedes or [])|selectattr('nombre', 'equalto', turno.sede)|first %}<p>En <strong>{{ turno.sede }}</strong>{% if sd and sd.direccion %} — {{ sd.direccion }}{% endif %}</p>{% endif %}
     {% with mensajes = get_flashed_messages() %}{% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}{% endwith %}
 
     <form method="post" action="{{ url_for('publico_reservar', slug=tenant.slug, turno_id=turno.id) }}">
@@ -19,6 +20,14 @@
       <label for="telefono">WhatsApp (con código de país, ej. 5491123456789)</label>
       <input type="tel" id="telefono" name="telefono" required placeholder="5491123456789">
 
+      {% if serie_posible %}
+      <label for="sesiones">¿Cuántas sesiones?</label>
+      <select id="sesiones" name="sesiones">
+        <option value="1">Sólo esta</option>
+        {% for n in (4, 8) %}<option value="{{ n }}">{{ n }}: el mismo día y hora, {{ n }} semanas seguidas</option>{% endfor %}
+      </select>
+      <p style="color:var(--muted);margin:4px 0 0;font-size:.85rem">Varias sesiones se pagan juntas por adelantado.</p>
+      {% endif %}
       {% if turno.solo_modalidad %}
       <p style="color:var(--muted);margin-bottom:0">Este horario es {{ 'por videollamada' if turno.solo_modalidad == 'virtual' else 'en el consultorio' }}.</p>
       {% elif (tenant.modalidades_publicas or 'presencial') == 'ambas' %}

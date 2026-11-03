@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Semana {{ titulo }} — {{ tenant.nombre }}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color:#1c1b19; background:#fff; margin:24px; font-size:14px; }
+    h1 { font-size:1.3rem; margin:0 0 2px; }
+    .sub { color:#5b584f; margin:0 0 18px; }
+    h2 { font-size:1rem; margin:18px 0 6px; border-bottom:2px solid #1c1b19; padding-bottom:2px; }
+    table { width:100%; border-collapse:collapse; }
+    td { padding:6px 8px 6px 0; border-bottom:1px solid #ccc; vertical-align:top; }
+    td.hora { width:110px; font-weight:700; white-space:nowrap; }
+    td.check { width:90px; color:#5b584f; }
+    .tenue { color:#5b584f; }
+    .boton { margin-bottom:16px; }
+    @media print { .boton { display:none; } body { margin:12mm; } }
+  </style>
+</head>
+<body>
+  <div class="boton"><button onclick="window.print()">Imprimir</button></div>
+  <h1>{{ tenant.nombre }} · Semana del {{ titulo }}</h1>
+  <p class="sub">{{ total }} sesi{{ 'ón' if total == 1 else 'ones' }}. Sin notas ni teléfonos.</p>
+  {% for d in dias %}
+  <h2>{{ d.titulo }}</h2>
+  <table>
+    {% for t in d.sesiones %}
+    <tr>
+      <td class="hora">{{ t._hora }}{% if t._fin %}–{{ t._fin }}{% endif %}</td>
+      <td><strong>{{ t.paciente_nombre or 'Sin nombre' }}</strong>
+        <span class="tenue">{% if t.tipo %} · {{ t.tipo }}{% endif %}{% if t.modalidad == 'virtual' %} · videollamada{% elif t.sede %} · {{ t.sede }}{% endif %}{% if t.pago_web == 'esperando' %} · esperando pago{% elif t.pago == 'pagado' %} · pagó{% endif %}</span></td>
+      <td class="check">☐ vino</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}
+  <p>No hay sesiones esta semana.</p>
+  {% endfor %}
+</body>
+</html>

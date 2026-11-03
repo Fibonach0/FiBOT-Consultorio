@@ -36,6 +36,9 @@ def cuando_de(turno: dict, tenant: dict, tz: ZoneInfo) -> str:
         minutos = int((datetime.fromisoformat(turno["fin"]) - datetime.fromisoformat(turno["inicio"])).total_seconds() // 60) \
             if turno.get("fin") else None
         cuando += f" ({turno['tipo']}" + (f" de {minutos} min" if minutos else "") + ")"
+    if turno.get("sede") and turno.get("modalidad") != "virtual":
+        direccion = next((x.get("direccion") for x in (tenant.get("sedes") or []) if x.get("nombre") == turno["sede"]), None)
+        cuando += f", en {turno['sede']}" + (f" ({direccion})" if direccion else "")
     if turno.get("modalidad") == "virtual" and tenant.get("link_videollamada"):
         return f"{cuando}, por videollamada: {tenant['link_videollamada']}"
     return cuando
@@ -313,16 +316,19 @@ def avisar_profesional(tenant: dict, texto: str) -> bool:
         return False
 
 
-def rangos_horario(tenant: dict) -> list[tuple[int, str, str, str | None]]:
-    """(día 0-6, desde, hasta, modalidad o None) válidos del horario semanal."""
+def rangos_horario(tenant: dict) -> list[tuple]:
+    """(día 0-6, desde, hasta, modalidad o None, sede o None) válidos del
+    horario semanal. La sede tiene que existir en `tenants.sedes`."""
+    sedes = {str(x.get("nombre")) for x in (tenant.get("sedes") or []) if x.get("nombre")}
     salida = []
     for r in tenant.get("horario_semanal") or []:
         try:
             dia, desde, hasta = int(r["dia"]), str(r["desde"]), str(r["hasta"])
             modalidad = r.get("modalidad") if r.get("modalidad") in ("presencial", "virtual") else None
+            sede = r.get("sede") if r.get("sede") in sedes else None
             from datetime import time as _t
             if 0 <= dia <= 6 and _t.fromisoformat(desde) < _t.fromisoformat(hasta):
-                salida.append((dia, desde, hasta, modalidad))
+                salida.append((dia, desde, hasta, modalidad, sede))
         except (KeyError, TypeError, ValueError):
             continue
     return salida
@@ -341,20 +347,49 @@ def generar_desde_horario(tenant: dict, ahora: datetime | None = None) -> int:
     duracion = tenant.get("duracion_turno_minutos") or 50
     paso_min = duracion + (tenant.get("descanso_minutos") or 0)
     hoy = ahora.astimezone(tz).date()
-    por_modalidad: dict = {}
+    por_grupo: dict = {}
     for i in range(7 * (tenant.get("horario_semanas") or 4)):
         dia = hoy + timedelta(days=i)
-        for d, desde, hasta, modalidad in rangos:
+        for d, desde, hasta, modalidad, sede in rangos:
             if dia.weekday() != d:
                 continue
             paso = datetime.combine(dia, _t.fromisoformat(desde), tzinfo=tz)
             fin = datetime.combine(dia, _t.fromisoformat(hasta), tzinfo=tz)
             while paso + timedelta(minutes=duracion) <= fin:
                 if paso > ahora:
-                    por_modalidad.setdefault(modalidad, []).append(paso.astimezone(timezone.utc))
+                    por_grupo.setdefault((modalidad, sede), []).append(paso.astimezone(timezone.utc))
                 paso += timedelta(minutes=paso_min)
-    return sum(db.crear_turnos_libres(tenant["id"], inicios, duracion, modalidad)
-               for modalidad, inicios in por_modalidad.items())
+    return sum(db.crear_turnos_libres(tenant["id"], inicios, duracion, modalidad, sede)
+               for (modalidad, sede), inicios in por_grupo.items())
+
+
+PREFIJO_FERIADO = "Feriado: "
+
+
+def sincronizar_feriados(tenant: dict, hoy) -> int:
+    """Con `feriados = 'bloquear'`, cada feriado de los próximos 12 meses es un
+    bloqueo (y así lo respetan la página, el bot y la generación). Con
+    'atender', se borran los bloqueos de feriado futuros. Idempotente.
+    Devuelve cuántos agregó o quitó."""
+    import feriados
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    existentes = {datetime.fromisoformat(b["desde"]).astimezone(tz).date(): b
+                  for b in db.bloqueos_vigentes(tenant["id"], datetime.now(timezone.utc))
+                  if (b.get("motivo") or "").startswith(PREFIJO_FERIADO)}
+    cambios = 0
+    if (tenant.get("feriados") or "bloquear") == "atender":
+        for b in existentes.values():
+            db.borrar_bloqueo(tenant["id"], b["id"])
+            cambios += 1
+        return cambios
+    for dia, nombre in feriados.entre(hoy, hoy + timedelta(days=365)):
+        if dia in existentes:
+            continue
+        desde = datetime.combine(dia, datetime.min.time(), tzinfo=tz)
+        db.agregar_bloqueo(tenant["id"], desde.astimezone(timezone.utc), (desde + timedelta(days=1)).astimezone(timezone.utc),
+                           PREFIJO_FERIADO + nombre)
+        cambios += 1
+    return cambios
 
 
 _generado: dict[str, object] = {}
@@ -365,6 +400,12 @@ def _generar_una_vez_por_dia(tenant: dict, tz: ZoneInfo) -> None:
     if _generado.get(tenant["id"]) == hoy:
         return
     _generado[tenant["id"]] = hoy
+    try:
+        import feriados
+        feriados.actualizar(hoy)
+        sincronizar_feriados(tenant, hoy)
+    except Exception:
+        logger.exception("Fallo sincronizando feriados de tenant %s", tenant["id"])
     creados = generar_desde_horario(tenant)
     if creados:
         logger.info("Tenant %s: %s horarios nuevos desde su horario de atención", tenant["id"], creados)
