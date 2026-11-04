@@ -97,13 +97,27 @@ def _directorio() -> list[dict]:
 @app.get("/")
 def inicio():
     """La main para futuros pacientes: qué es, búsqueda, temas, algunos
-    profesionales del directorio (los mismos que /turnos) y cómo funciona."""
+    profesionales del directorio (los mismos que /turnos) y cómo funciona.
+    Con «Para mi hijo/a» cambian los temas y los profesionales que se ven."""
     visibles = _directorio()
     # Primero los que pueden tomar turnos y tienen foto: es lo que más invita a entrar.
     visibles.sort(key=lambda t: (bool(t.get("pausado")), not t.get("foto"), t["nombre"].casefold()))
-    return render_template("inicio.html", profesionales=visibles[:INICIO_PROFESIONALES],
+    de_chicos = [t for t in visibles
+                 if any(directorio.trabaja_tema(t, k) for k in directorio.TEMAS_CHICOS + ("infancia",))]
+    para_mi = visibles[:INICIO_PROFESIONALES]
+    para_hijo = de_chicos[:INICIO_PROFESIONALES] or para_mi
+    # Una sola tarjeta por profesional, marcada con en qué vista aparece.
+    ids_mi, ids_hijo = {t["id"] for t in para_mi}, {t["id"] for t in para_hijo}
+    tarjetas = [dict(t, _para=" ".join(p for p, ids in (("yo", ids_mi), ("hijo", ids_hijo)) if t["id"] in ids))
+                for t in visibles if t["id"] in ids_mi | ids_hijo]
+    # Quién trabaja cada tema (hasta 3), para el panel que se abre al tocarlo.
+    por_tema = {k: [{"nombre": t["nombre"], "url": url_for("publico", slug=t["slug"])}
+                    for t in visibles if directorio.trabaja_tema(t, k)][:3]
+                for k in directorio.TEMAS}
+    return render_template("inicio.html", profesionales=tarjetas,
                            hay_mas=len(visibles) > INICIO_PROFESIONALES, temas=directorio.TEMAS,
-                           anio=datetime.now().year)
+                           temas_adultos=directorio.TEMAS_ADULTOS, temas_chicos=directorio.TEMAS_CHICOS,
+                           por_tema=por_tema, total=len(visibles), anio=datetime.now().year)
 
 
 @app.get("/robots.txt")

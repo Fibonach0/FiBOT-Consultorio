@@ -172,7 +172,7 @@ pública no es un camino paralelo, es la misma operación atómica (filtra por
 WhatsApp y panel como siempre.
 
 `/` es la portada del sitio para futuros pacientes (`templates/inicio.html`,
-página suelta, no extiende `base.html`): buscador (tema, modalidad, obra social →
+página suelta, no extiende `base.html`): diseño de Claude Design (proyecto «Home», archivo `Home.dc.html`), con «Para mí / Para mi hijo/a» que cambia frases, temas (`directorio.TEMAS_ADULTOS` / `TEMAS_CHICOS`), profesionales e ilustraciones (`static/portada/<tema>.webp`; si falta una, queda la figura de color). buscador (tema, modalidad, obra social →
 `/turnos`), temas que llevan a `/turnos?tema=…`, hasta `INICIO_PROFESIONALES` del
 directorio (primero los que toman turnos y tienen foto), cómo funciona,
 modalidades, preguntas frecuentes y el bloque «¿Sos profesional?» → `/sumate`.

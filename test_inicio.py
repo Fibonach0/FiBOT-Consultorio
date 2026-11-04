@@ -41,7 +41,7 @@ db.tenants_activos = lambda: TENANTS
 
 # ---- portada
 html = client.get("/").data.decode()
-assert "Encontrá a tu psicólogo" in html
+assert "Encontrá a tu profesional" in html and "Para mi hijo/a" in html
 assert "Lic. Ana Pérez" in html and "/anaperez" in html and "Psicóloga clínica" in html
 assert "Lic. Oculto" not in html and "Sin Página" not in html
 assert html.index("Lic. Ana Pérez") < html.index("Lic. Beto Pausa")
@@ -49,6 +49,11 @@ assert "/turnos?tema=ansiedad" in html and 'name="obra"' in html
 assert 'href="/sumate"' in html
 ld = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.S).group(1))
 assert ld["@type"] == "WebSite"
+# Para mi hijo/a: sólo Beto (psicopedagogía) está en esa vista; Ana sólo en «Para mí».
+assert re.search(r'href="/anaperez" data-para-en="yo"', html)
+assert re.search(r'href="/beto" data-para-en="yo hijo"', html)
+assert "/turnos?tema=aprendizaje" in html and "Trabajan ansiedad:" in html
+assert 'src="/static/portada/ansiedad.webp"' in html
 print("GET / -> portada con buscador, temas que filtran, profesionales y JSON-LD OK")
 
 # ---- filtros
