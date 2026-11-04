@@ -1,6 +1,7 @@
 """Mails transaccionales por Resend (https://resend.com/docs/api-reference/emails/send-email).
 
-Sólo para cosas de la cuenta (recuperar la clave). Nunca datos de pacientes.
+Cosas de la cuenta (recuperar la clave, avisos de seguridad) y, al paciente que
+lo dejó al reservar, el link de su recibo. Nunca datos de la ficha ni notas.
 """
 import logging
 

@@ -219,6 +219,7 @@ def _tick() -> None:
         try:
             import pagos  # acá: pagos importa db y config, y de acá sólo esto
             pagos.vencer(tenant)
+            pagos.verificar_conexion(tenant, datetime.now(tz).date())
             pagos.avisar_por_vencer(tenant, f"https://{config.DOMINIO_PRINCIPAL}" if config.DOMINIO_PRINCIPAL else None)
         except Exception:
             logger.exception("Fallo venciendo pagos de tenant %s", tenant["id"])

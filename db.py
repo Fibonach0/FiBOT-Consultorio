@@ -1059,7 +1059,7 @@ def guardar_totp(admin_id: str, campos: dict) -> None:
 
 
 def todos_los_tenants() -> list[dict]:
-    res = (_client.table("tenants").select("id,nombre,rubro,slug,panel_user,activo,moderador,ultimo_ingreso,created_at")
+    res = (_client.table("tenants").select("id,nombre,rubro,slug,panel_user,activo,moderador,ultimo_ingreso,created_at,cobro_web,mp_user_id,mp_caido_at")
            .order("nombre").execute())
     return res.data
 

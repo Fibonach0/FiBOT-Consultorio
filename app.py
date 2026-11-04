@@ -4461,6 +4461,12 @@ def publico_reservar(slug, turno_id):
     telefono = "".join(ch for ch in (request.form.get("telefono") or "") if ch.isdigit())
     if not nombre or not telefono:
         return _error_reserva("Completá nombre y teléfono.", url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
+    # Email opcional, sólo cuando la reserva se paga: Mercado Pago lo usa
+    # para aprobar el pago y se le manda el recibo. No va a la ficha.
+    email = (request.form.get("email") or "").strip()[:120] if pagos.activo(tenant) else ""
+    if email and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+        return _error_reserva("Revisá el email (o dejalo vacío: es opcional).",
+                              url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     modalidad = _modalidad_publica(tenant, request.form.get("modalidad"), db.turno_por_id(tenant["id"], turno_id))
     i_tipo, tipo = _tipo_elegido(tenant, request.form.get("tipo"))
@@ -4484,7 +4490,7 @@ def publico_reservar(slug, turno_id):
             return _error_reserva("Revisá el WhatsApp: tiene que ir completo, con código de país (ej. 5491123456789).",
                                   url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
         return render_template("_reserva_revisar.html" if _parcial() else "publico_revisar.html", tenant=tenant, turno=_con_hora_local([turno], tz)[0],
-                               nombre=nombre, telefono=telefono, modalidad=modalidad, tipo=tipo, i_tipo=i_tipo,
+                               nombre=nombre, telefono=telefono, email=email, modalidad=modalidad, tipo=tipo, i_tipo=i_tipo,
                                a_pagar=pagos.monto_de(tenant, (tipo or {}).get("precio"), 1 + len(serie)) if pagos.activo(tenant) else None,
                                sesiones=sesiones, serie=_con_hora_local(serie, tz), faltan=faltan,
                                confirma_por_whatsapp=bool(config.CONFIRMACION_TEMPLATE))
@@ -4517,7 +4523,7 @@ def publico_reservar(slug, turno_id):
                     extra["fin"] = (datetime.fromisoformat(t["inicio"]) + timedelta(minutes=tipo["minutos"])).isoformat()
                 db.actualizar_reserva(tenant["id"], t["id"], extra)
                 reservados.append({**t, **extra})
-        pago = pagos.iniciar(tenant, reservados, monto * len(reservados))
+        pago = pagos.iniciar(tenant, reservados, monto * len(reservados), email or None)
         if _parcial():  # reserva desde la misma página: el navegador va al pago
             return "", 200, {"X-Ir-A": url_for("pago_paciente", token=pago["token"])}
         return redirect(url_for("pago_paciente", token=pago["token"]))

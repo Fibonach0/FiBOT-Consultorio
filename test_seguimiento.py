@@ -2242,6 +2242,7 @@ with client.session_transaction() as ses:
     chequear("la sesión de admin no es de un profesional", "tenant_id" not in ses)
 html = client.get("/admin").data.decode()
 chequear("lista profesionales con su uso", "Lic. Marcos" in html and "Dra. Otra" in html and "Alta de profesional" in html)
+chequear("admin: columna de Mercado Pago", "<th>Mercado Pago</th>" in html)
 chequear("no muestra pacientes", "Paciente Secreto" not in html and "5491100000001" not in html)
 chequear("el admin no entra al panel de un profesional", client.get("/agenda").status_code == 302)
 html = client.post("/admin/profesionales", data={"nombre": "Lic. Nueva", "rubro": "psicopedagogía", "slug": "nueva", "panel_user": "nueva",
@@ -3872,6 +3873,61 @@ chequear("novedades: misma firma si no cambió nada y otra si cambió un pago", 
 _html = client.get("/agenda").data.decode()
 chequear("novedades: el panel trae el aviso y su versión", 'id="novedades"' in _html and _v1 in _html)
 chequear("novedades: sin sesión no responde", app.app.test_client().get("/agenda/novedades").status_code in (302, 401, 403))
+
+# email opcional al reservar con cobro, recibo por mail y conexión caída
+TABLAS["turnos"][2].update(db._LIBERADO)
+chequear("email: el form lo ofrece cuando se cobra", 'name="email"' in w.get("/marcos/reservar/p3").data.decode())
+html = w.post("/marcos/reservar/p3", data={"nombre": "Fede Paz", "telefono": "5491100008888", "email": "no-es-mail"},
+              follow_redirects=True).data.decode()
+chequear("email: uno mal escrito se rechaza", "Revisá el email" in html, html[-300:])
+html = w.post("/marcos/reservar/p3", data={"nombre": "Fede Paz", "telefono": "5491100008888", "email": "fede@ejemplo.com"}).data.decode()
+chequear("email: se muestra al revisar", "fede@ejemplo.com" in html and 'name="email"' in html)
+w.post("/marcos/reservar/p3", data={"nombre": "Fede Paz", "telefono": "5491100008888", "email": "fede@ejemplo.com", "confirmado": "1"})
+pago6 = TABLAS["pagos"][-1]
+chequear("email: queda sólo en el pago", pago6.get("paciente_email") == "fede@ejemplo.com"
+         and not any("fede@ejemplo.com" in str(f) for f in TABLAS["pacientes"]))
+_pg.requests.post = _mp_post
+w.post(f"/pago/{pago6['token']}/mercadopago")
+chequear("email: va a Mercado Pago con nombre y apellido", _mp["pref"][1]["payer"] == {"name": "Fede", "surname": "Paz", "email": "fede@ejemplo.com"})
+import mail as _mail
+_mails = []
+_md, _me, _dom = _mail.disponible, _mail.enviar, _pg.config.DOMINIO_PRINCIPAL
+_mail.disponible = lambda: True
+_mail.enviar = lambda para, asunto, texto: _mails.append((para, asunto, texto)) or True
+_pg.config.DOMINIO_PRINCIPAL = "consultorio.fibot.ar"
+_mp["pagos"]["114"] = {"status": "approved", "external_reference": pago6["token"], "transaction_amount": 25000}
+app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "114"}})
+chequear("recibo: al aprobar le llega el link por mail", pago6["estado"] == "aprobado" and len(_mails) == 1
+         and _mails[0][0] == "fede@ejemplo.com" and f"/pago/{pago6['token']}/recibo" in _mails[0][2]
+         and "Fede" not in _mails[0][2], _mails)
+chequear("recibo: sin email no manda nada", _pg.mandar_recibo(_t1, {**pago6, "paciente_email": None}) is False)
+_mail.disponible, _mail.enviar, _pg.config.DOMINIO_PRINCIPAL = _md, _me, _dom
+_avs_mp = []
+_va_mp = scheduler.avisar_profesional
+scheduler.avisar_profesional = lambda tenant, texto: _avs_mp.append(texto) or True
+_pg.requests.post = lambda url, json=None, headers=None, timeout=None: _RMP(401, {"message": "invalid access token"})
+chequear("caída: si Mercado Pago rechaza el permiso no hay link", _pg.preferencia(_t1, pago6, "x", "http://x") is None)
+_pg.preferencia(_t1, pago6, "x", "http://x")
+chequear("caída: se marca y avisa una sola vez", _t1.get("mp_caido_at") and len(_avs_mp) == 1 and "Conectar Mercado Pago" in _avs_mp[0])
+chequear("caída: deja de ofrecer Mercado Pago", "mercadopago" not in _pg.metodos(_t1))
+chequear("caída: el panel pide reconectar", "Se cortó la conexión con Mercado Pago" in panel_c.get("/agenda").data.decode())
+_pg._guardar_tokens("t1", {"access_token": "TEST-token-del-profesional", "user_id": 99})
+chequear("caída: reconectar la limpia", not _t1.get("mp_caido_at") and "mercadopago" in _pg.metodos(_t1))
+_get_prev2 = _pg.requests.get
+_pg.requests.get = lambda url, headers=None, timeout=None: _RMP(401, {})
+_pg.verificar_conexion(_t1, datetime.now(timezone.utc).date())
+chequear("caída: el chequeo diario la detecta", bool(_t1.get("mp_caido_at")) and len(_avs_mp) == 2)
+_pg._guardar_tokens("t1", {"access_token": "TEST-token-del-profesional", "user_id": 99})
+_pg.verificar_conexion(_t1, datetime.now(timezone.utc).date())
+chequear("caída: el chequeo es una vez por día", not _t1.get("mp_caido_at"))
+_pg.requests.get = _get_prev2
+_t1.update({"mp_vence": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(), "mp_refresh_cifrado": _pg.cifrar("TG-refresh")})
+_pg.requests.post = lambda url, json=None, headers=None, timeout=None: _RMP(400, {"error": "invalid_grant"})
+chequear("caída: si no se puede renovar el permiso", _pg._token(_t1) is None and bool(_t1.get("mp_caido_at")))
+_pg._guardar_tokens("t1", {"access_token": "TEST-token-del-profesional", "user_id": 99})
+_t1.update({"mp_vence": (datetime.now(timezone.utc) + timedelta(days=100)).isoformat(), "mp_refresh_cifrado": None})
+_pg.requests.post = _mp_post
+scheduler.avisar_profesional = _va_mp
 
 # token de prueba pegado a mano (solo con MP_PRUEBA)
 _guardado = {k: _t1.get(k) for k in ("mp_user_id", "mp_token_cifrado", "mp_refresh_cifrado", "mp_vence", "cobro_web")}
