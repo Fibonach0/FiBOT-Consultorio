@@ -137,6 +137,25 @@ def conectar(tenant_id: str, code: str, redirect_uri: str) -> str | None:
     return None
 
 
+def conectar_con_token(tenant_id: str, token: str) -> str | None:
+    """Solo con MP_PRUEBA: guarda a mano el Access Token de una cuenta de
+    prueba (las cuentas de prueba no tienen Client Secret, así que el OAuth no
+    se puede probar). Antes lo valida contra Mercado Pago. None si salió bien."""
+    if not config.MP_PRUEBA:
+        return "Esto solo se puede usar en modo de prueba."
+    token = (token or "").strip()
+    if not token.startswith(("APP_USR-", "TEST-")) or len(token) > 200 or any(c.isspace() for c in token):
+        return "Eso no parece un Access Token de Mercado Pago (empieza con APP_USR-)."
+    try:
+        r = requests.get(f"{API}/users/me", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+    except requests.RequestException:
+        return "No se pudo conectar con Mercado Pago."
+    if r.status_code >= 300 or not r.json().get("id"):
+        return "Mercado Pago no reconoció ese Access Token."
+    _guardar_tokens(tenant_id, {"access_token": token, "user_id": r.json()["id"]})
+    return None
+
+
 def desconectar(tenant_id: str) -> None:
     db.guardar_ajustes(tenant_id, {"mp_user_id": None, "mp_token_cifrado": None, "mp_refresh_cifrado": None,
                                    "mp_vence": None})

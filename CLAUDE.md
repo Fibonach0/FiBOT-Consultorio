@@ -278,6 +278,11 @@ pagado: 30 min con Mercado Pago, 2 h para subir comprobante. Variables:
 `MP_CLIENT_ID`, `MP_CLIENT_SECRET` (de la app de la plataforma en Mercado Pago
 Developers, con redirect `https://<dominio>/mercadopago/vuelta`) y `MP_PRUEBA=1`
 para credenciales y checkout de prueba.
+Las cuentas de prueba de Mercado Pago no tienen Client Secret, así que el OAuth
+no se puede probar con ellas. Con `MP_PRUEBA=1` el panel muestra además «Access
+Token de la cuenta vendedor de prueba» (`pagos.conectar_con_token`): lo valida con
+`/users/me` y lo guarda cifrado igual que el OAuth (sin refresh). Sin `MP_PRUEBA`
+la ruta lo rechaza.
 Varias sesiones desde la web (mismo día y hora, 4 u 8 semanas): sólo con cobro
 activo (se paga todo junto). `app._serie` busca los libres exactos; se reservan
 los que haya (con `frecuencia = 'semanal'` y la ficha del primero) y un solo

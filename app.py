@@ -1874,6 +1874,7 @@ def agenda():
                                   tz, revisar),
         "devolucion_horas": DEVOLUCION_HORAS,
         "mp_disponible": pagos.mp_disponible(),
+        "mp_prueba": config.MP_PRUEBA,
         "cobro_activo": pagos.activo(tenant),
         "bloqueos": bloqueos,
         "hoy_iso": ahora.date().isoformat(),
@@ -4261,6 +4262,16 @@ def mp_vuelta():
     flash(error or "Listo, conectaste tu cuenta de Mercado Pago: los pagos van a tu cuenta.")
     db.registrar_actividad("profesional", "conectó Mercado Pago" if not error else "intentó conectar Mercado Pago",
                            session["tenant_id"])
+    return redirect(url_for("agenda") + "#cobros")
+
+
+@app.post("/agenda/mercadopago/token-prueba")
+@login_required
+def agenda_mp_token_prueba():
+    error = pagos.conectar_con_token(session["tenant_id"], request.form.get("token", ""))
+    flash(error or "Listo, quedó conectada la cuenta de prueba de Mercado Pago.")
+    if not error:
+        db.registrar_actividad("profesional", "conectó Mercado Pago (cuenta de prueba)", session["tenant_id"])
     return redirect(url_for("agenda") + "#cobros")
 
 

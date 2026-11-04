@@ -712,6 +712,13 @@
       {% elif mp_disponible %}
         <a class="btn chico" style="text-decoration:none" href="{{ url_for('agenda_mp_conectar') }}">Conectar Mercado Pago</a>
         <span class="tenue">Entrás con tu usuario de Mercado Pago; no hace falta copiar ninguna clave.</span>
+        {% if mp_prueba %}
+        <form method="post" action="{{ url_for('agenda_mp_token_prueba') }}" class="fila" style="margin-top:8px" autocomplete="off">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="ancho"><label>Modo prueba: Access Token de la cuenta vendedor de prueba</label><input type="password" name="token" maxlength="200" placeholder="APP_USR-…" autocomplete="off"></div>
+          <div class="al-pie"><button class="btn chico secundario" type="submit">Conectar con el token</button></div>
+        </form>
+        {% endif %}
       {% else %}
         <span class="tenue">Mercado Pago todavía no está habilitado en la plataforma. Podés cobrar por transferencia.</span>
       {% endif %}
