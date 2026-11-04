@@ -186,7 +186,8 @@ def plantillas_configuradas() -> dict[str, str]:
     usos = {"Recordatorio": config.RECORDATORIO_TEMPLATE, "Reprogramado": config.REPROGRAMADO_TEMPLATE,
             "Resumen al profesional": config.AVISO_TEMPLATE, "Recordatorio de pago": config.RECORDATORIO_PAGO_TEMPLATE,
             "Lista de espera": config.LISTA_ESPERA_TEMPLATE,
-            "Confirmación de reserva web": config.CONFIRMACION_TEMPLATE}
+            "Confirmación de reserva web": config.CONFIRMACION_TEMPLATE,
+            "Pago por vencer": config.PAGO_PENDIENTE_TEMPLATE}
     return {uso: nombre for uso, nombre in usos.items() if nombre}
 
 

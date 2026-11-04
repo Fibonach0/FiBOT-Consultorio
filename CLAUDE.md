@@ -237,7 +237,7 @@ mismo `bloqueos.desde/hasta`, sólo cambia cómo se cargan y se muestran.
 `migrations/052`: `pausado_hasta` (la pausa se levanta sola ese día desde el
 scheduler, `cancelaciones.reactivar_si_toca`, y se le ofrece el próximo horario a
 la lista de espera). `horario_semanal` (lista de {dia 0-6, desde, hasta}, hasta
-dos franjas por día) + `horario_semanas`: `scheduler.generar_desde_horario` crea
+`MAX_FRANJAS` por día) + `horario_semanas`: `scheduler.generar_desde_horario` crea
 los libres con `crear_turnos_libres` (idempotente) al guardar y una vez por día.
 `tipos_turno` (lista de {nombre, minutos}): con más de uno el paciente elige en
 la página; el calendario sólo muestra horarios donde entra (`app._cabe`: si dura
@@ -287,12 +287,36 @@ los que haya (con `frecuencia = 'semanal'` y la ficha del primero) y un solo
 `feriados.py` trae los de Argentina embebidos (fuente argentinadatos.com) y una
 vez por día los actualiza de la API; `scheduler.sincronizar_feriados` los carga
 como bloqueos con motivo «Feriado: …» (idempotente; con 'atender' los borra).
-`tenants.sedes` ([{nombre, direccion}], hasta 3): cada franja del horario elige
+`tenants.sedes` ([{nombre, direccion}], hasta `app.MAX_SEDES`): cada franja del horario elige
 consultorio y queda en `turnos.sede` (del horario, como `solo_modalidad`; la
 vista la expone). Se muestra en el calendario con más de una sede, en el
 formulario con la dirección, y `cuando_de` agrega «en X (dirección)» si no es
 virtual. `/agenda/imprimir?semana=` es la hoja de la semana: hora, paciente,
 tipo, modalidad o consultorio y pago; sin notas ni teléfonos.
+
+Devoluciones, recibo y aviso (`migrations/056`): `turnos.pago_id` dice qué pago
+cubre la reserva (va en `_LIBERADO` y viaja al reprogramar si ya estaba
+pagada). `pagos.al_cancelar` aplica la política (`tenants.devolucion_modo`:
+todo / menos_sena / nada, si cancela con al menos `devolucion_horas`); una
+serie se reparte en partes iguales. Con Mercado Pago devuelve sola
+(`pagos.devolver`: `/v1/payments/{id}/refunds` con `X-Idempotency-Key`); si
+falla, o fue transferencia, o canceló el profesional, suma `pagos.a_devolver` y
+aparece en «Pagos para revisar» con «Devolver» / «Ya lo devolví». `devuelto`
+acumula; al llegar al monto, estado `devuelto`. Recibo: `/pago/<token>/recibo`
+(no es factura; usa `pagos.paciente_nombre` y `pagos.sesiones`, guardados al
+crear el pago, así sobrevive a la cancelación). «Lo que entró por la web» del
+panel es `app._cobros_web` del mes mirado. `pagos.avisar_por_vencer` (tick) le
+manda una vez al paciente `PAGO_PENDIENTE_TEMPLATE` ({{1}} profesional, {{2}}
+cuándo, {{3}} link) cuando queda un tercio del plazo; sin plantilla o sin
+`DOMINIO_PRINCIPAL` no manda.
+
+Panel: lo de abajo del calendario son `<details class="card plegable"
+data-plegable>` agrupados (Tu agenda / Tu página y cobros / Tu cuenta); lo que
+pide acción (pagos para revisar, horarios cancelados) queda siempre abierto
+arriba. Cada sección recuerda si quedó abierta (localStorage, sólo comodidad) y
+el `#id` de la URL la abre. Horario (`MAX_FRANJAS` por día, sin pisarse),
+tipos (`MAX_TIPOS`) y consultorios (`MAX_SEDES`) muestran los renglones
+cargados y «+ otro…» destapa el siguiente.
 
 Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin

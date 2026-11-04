@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Recibo {{ numero }} — {{ tenant.nombre }}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, "Segoe UI", sans-serif; color:#1c1b19; background:#fff; margin:24px auto; max-width:620px; padding:0 16px; font-size:15px; }
+    h1 { font-size:1.35rem; margin:0 0 2px; }
+    .sub { color:#5b584f; margin:0 0 20px; }
+    table { width:100%; border-collapse:collapse; margin:10px 0 18px; }
+    td { padding:8px 8px 8px 0; border-bottom:1px solid #ddd; vertical-align:top; }
+    td:first-child { color:#5b584f; width:40%; }
+    .total td { font-weight:700; font-size:1.1rem; border-bottom:2px solid #1c1b19; }
+    .nota { color:#5b584f; font-size:.85rem; }
+    .boton { margin-bottom:18px; }
+    @media print { .boton { display:none; } body { margin:12mm auto; } }
+  </style>
+</head>
+<body>
+  <div class="boton"><button onclick="window.print()">Imprimir o guardar en PDF</button></div>
+  <h1>Recibo de pago</h1>
+  <p class="sub">N.º {{ numero }} · {{ fecha }}</p>
+  <table>
+    <tr><td>Profesional</td><td><strong>{{ tenant.nombre }}</strong>{% if tenant.matricula %}<br>Matrícula {{ tenant.matricula }}{% endif %}</td></tr>
+    {% if pago.paciente_nombre %}<tr><td>Paciente</td><td>{{ pago.paciente_nombre }}</td></tr>{% endif %}
+    <tr><td>Concepto</td><td>{{ 'Sesiones' if sesiones|length > 1 else 'Sesión' }}{% if (tenant.cobro_modo or 'total') == 'sena' %} (seña){% endif %}
+      {% for s in sesiones %}<br>{{ s }}{% endfor %}</td></tr>
+    <tr><td>Medio de pago</td><td>{{ 'Mercado Pago' if pago.metodo == 'mercadopago' else 'Transferencia' }}{% if pago.mp_pago_id %} (operación {{ pago.mp_pago_id }}){% endif %}</td></tr>
+    <tr class="total"><td>Pagado</td><td>{{ pago.monto|pesos }}</td></tr>
+    {% if pago.devuelto %}<tr><td>Devuelto</td><td>{{ pago.devuelto|pesos }}</td></tr>{% endif %}
+  </table>
+  <p class="nota">Este recibo es un comprobante del pago del turno. No es una factura.</p>
+</body>
+</html>

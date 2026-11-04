@@ -11,7 +11,14 @@
     {% if pago.estado == 'aprobado' %}
       <h2>¡Listo, tu turno está confirmado!</h2>
       <p>Recibimos el pago de <strong>{{ pago.monto|pesos }}</strong>. Te mandamos la confirmación por WhatsApp.</p>
-      {% if agendar %}<a class="btn" style="text-decoration:none" href="{{ url_for('agendar', token=agendar) }}">Agendalo en tu calendario</a>{% endif %}
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        {% if agendar %}<a class="btn" style="text-decoration:none" href="{{ url_for('agendar', token=agendar) }}">Agendalo en tu calendario</a>{% endif %}
+        <a class="btn secundario" style="text-decoration:none" href="{{ url_for('pago_recibo', token=pago.token) }}" target="_blank" rel="noopener">Ver tu recibo</a>
+      </div>
+      {% if politica %}<p style="color:var(--muted);font-size:.9rem">{{ politica }}</p>{% endif %}
+    {% elif pago.estado == 'devuelto' %}
+      <h2>Este pago se devolvió</h2>
+      <p>Te devolvimos {{ pago.devuelto|pesos }}. Puede tardar unos días en verse en tu cuenta.</p>
     {% elif pago.estado == 'comprobante' %}
       <h2>Recibimos tu comprobante</h2>
       <p>{{ tenant.nombre }} lo va a revisar y te confirma el turno por WhatsApp. Mientras tanto, el horario queda reservado para vos.</p>
@@ -27,6 +34,7 @@
       {% if vuelta_mp in ('pending', 'in_process') %}<div class="aviso">Tu pago está en proceso. Apenas Mercado Pago lo apruebe, se confirma el turno.</div>{% endif %}
       {% if vuelta_mp in ('rejected', 'failure', 'null') %}<div class="error">El pago no se pudo hacer. Probá de nuevo o con otro medio.</div>{% endif %}
       <p style="color:var(--muted)">El horario queda reservado para vos hasta las <strong>{{ vence }}</strong>. Si no se paga, se libera.</p>
+      {% if politica %}<p style="color:var(--muted);font-size:.9rem">{{ politica }}</p>{% endif %}
       {% if 'mercadopago' in medios %}
       <form method="post" action="{{ url_for('pago_mercadopago', token=pago.token) }}" style="margin:14px 0">
         <button class="btn" type="submit" style="width:100%">Pagar con Mercado Pago</button>

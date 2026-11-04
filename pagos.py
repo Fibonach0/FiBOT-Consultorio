@@ -10,8 +10,15 @@ Cada profesional elige en el panel (`tenants.cobro_web`):
 
 La reserva queda apartada (`turnos.pago_web = 'esperando'`) hasta que se paga:
 `MINUTOS_PARA_PAGAR` con Mercado Pago, `HORAS_PARA_COMPROBANTE` para subir el
-comprobante. Si vence, se libera (`vencer`). Un pago que llega tarde queda en
-'aprobado_tarde' y se le avisa al profesional para que lo devuelva.
+comprobante. Si vence, se libera (`vencer`); antes se le avisa al paciente una
+vez (`avisar_por_vencer`). Un pago que llega tarde queda en 'aprobado_tarde' y
+se le avisa al profesional para que lo devuelva.
+
+Devoluciones: con Mercado Pago se hacen desde el panel (`devolver`, la API de
+reintegros con el token del profesional); una transferencia se devuelve por
+fuera y se anota (`a_devolver`). Si el paciente cancela una sesión pagada,
+`al_cancelar` aplica la política del profesional (`tenants.devolucion_modo` y
+`devolucion_horas`).
 
 Nunca se confía en lo que dice el aviso de Mercado Pago: se consulta el pago
 con el token del profesional y se compara la referencia y el monto.
@@ -164,9 +171,12 @@ def iniciar(tenant: dict, turnos: list[dict], monto: int) -> dict:
     vence = datetime.now(timezone.utc) + plazo
     pago = db.crear_pago({"tenant_id": tenant["id"], "token": secrets.token_urlsafe(18), "turnos": [t["id"] for t in turnos],
                           "monto": monto, "vence": vence.isoformat(), "estado": "esperando",
-                          "metodo": medios[0] if len(medios) == 1 else None})
+                          "metodo": medios[0] if len(medios) == 1 else None,
+                          "paciente_nombre": next((t.get("paciente_nombre") for t in turnos if t.get("paciente_nombre")), None),
+                          "sesiones": sorted(str(t["inicio"]) for t in turnos)})
     for t in turnos:
-        db.actualizar_reserva(tenant["id"], t["id"], {"pago_web": "esperando", "pago_vence": vence.isoformat()})
+        db.actualizar_reserva(tenant["id"], t["id"], {"pago_web": "esperando", "pago_vence": vence.isoformat(),
+                                                      "pago_id": pago["id"]})
     return pago
 
 
@@ -316,3 +326,166 @@ def vencer(tenant: dict, ahora: datetime | None = None) -> int:
         db.actualizar_pago(pago["id"], {"estado": "vencido", "resuelto": ahora.isoformat()})
         vencidos += 1
     return vencidos
+
+
+# --- Aviso antes de que venza el plazo ---
+
+def avisar_por_vencer(tenant: dict, base: str | None, ahora: datetime | None = None) -> int:
+    """Una vez por pago, cuando queda un tercio del plazo (10 minutos con
+    Mercado Pago, 40 para subir el comprobante), le manda al paciente el link
+    para terminar de pagar. Necesita `PAGO_PENDIENTE_TEMPLATE` (el paciente no
+    nos escribió: estamos fuera de la ventana de 24 h)."""
+    if not config.PAGO_PENDIENTE_TEMPLATE or not base:
+        return 0
+    import scheduler
+    import whatsapp
+    from zoneinfo import ZoneInfo
+    ahora = ahora or datetime.now(timezone.utc)
+    numero = whatsapp.numero_de(tenant)
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    avisados = 0
+    for pago in db.pagos_esperando(tenant["id"]):
+        if pago.get("avisado_at"):
+            continue
+        vence = datetime.fromisoformat(str(pago["vence"]))
+        plazo = vence - datetime.fromisoformat(str(pago["creado"]))
+        falta = vence - ahora
+        if not timedelta(minutes=2) < falta <= plazo / 3:
+            continue
+        turnos = sorted((t for t in (db.turno_por_id(tenant["id"], tid) for tid in pago["turnos"])
+                         if t and t["estado"] == "reservado" and t.get("pago_web") == "esperando"),
+                        key=lambda t: t["inicio"])
+        if not turnos or not numero:
+            continue
+        db.actualizar_pago(pago["id"], {"avisado_at": ahora.isoformat()})   # antes de mandar: una sola vez
+        try:
+            whatsapp.enviar_plantilla(numero, turnos[0]["paciente_telefono"], config.PAGO_PENDIENTE_TEMPLATE,
+                                      config.RECORDATORIO_TEMPLATE_LANG,
+                                      [tenant["nombre"], scheduler.cuando_de(turnos[0], tenant, tz),
+                                       f"{base}/pago/{pago['token']}"])
+            avisados += 1
+        except Exception:
+            logger.warning("No se pudo avisar el pago por vencer %s", pago["id"], exc_info=True)
+    return avisados
+
+
+# --- Devoluciones ---
+
+def devolvible(pago: dict) -> int:
+    """Cuánto queda por devolver de un pago cobrado."""
+    if pago.get("estado") not in ("aprobado", "aprobado_tarde"):
+        return 0
+    return max(0, int(pago["monto"]) - int(pago.get("devuelto") or 0))
+
+
+def puede_devolver_mp(pago: dict) -> bool:
+    return pago.get("metodo") == "mercadopago" and bool(pago.get("mp_pago_id")) and devolvible(pago) > 0
+
+
+def devolver(tenant: dict, pago: dict, monto: int | None = None) -> str | None:
+    """Reintegro por Mercado Pago (todo lo que queda, o `monto`). Devuelve
+    None si salió bien o el motivo."""
+    queda = devolvible(pago)
+    monto = min(int(monto or queda), queda)
+    if not puede_devolver_mp(pago) or monto <= 0:
+        return "Este pago no se puede devolver por Mercado Pago."
+    token = _token(tenant)
+    if not token:
+        return "Tu Mercado Pago no está conectado: conectalo para devolver."
+    try:
+        r = requests.post(f"{API}/v1/payments/{pago['mp_pago_id']}/refunds", json={"amount": float(monto)},
+                          headers={"Authorization": f"Bearer {token}",
+                                   # La misma devolución dos veces (doble clic) no se duplica.
+                                   "X-Idempotency-Key": f"{pago['id']}-{int(pago.get('devuelto') or 0) + monto}"},
+                          timeout=20)
+    except requests.RequestException:
+        return "No se pudo conectar con Mercado Pago. Probá de nuevo."
+    if r.status_code >= 300:
+        logger.warning("Mercado Pago no hizo la devolución (%s): %s", r.status_code, r.text[:300])
+        return "Mercado Pago no aceptó la devolución (puede que no tengas saldo disponible). Probá más tarde o devolvelo desde tu cuenta."
+    _anotar_devolucion(pago, monto)
+    return None
+
+
+def anotar_devuelto(pago: dict) -> None:
+    """El profesional devolvió por fuera (transferencia) lo que debía."""
+    _anotar_devolucion(pago, int(pago.get("a_devolver") or 0) or devolvible(pago), a_mano=True)
+
+
+def _anotar_devolucion(pago: dict, monto: int, a_mano: bool = False) -> None:
+    devuelto = int(pago.get("devuelto") or 0) + monto
+    campos = {"devuelto": devuelto, "a_devolver": max(0, int(pago.get("a_devolver") or 0) - monto),
+              "devuelto_at": datetime.now(timezone.utc).isoformat()}
+    if devuelto >= int(pago["monto"]):
+        campos["estado"] = "devuelto"
+    elif pago.get("estado") == "aprobado_tarde":
+        campos["estado"] = "aprobado"
+    db.actualizar_pago(pago["id"], campos)
+    pago.update(campos)
+
+
+def politica(tenant: dict) -> str | None:
+    """La política de devolución en una frase, para el paciente. None si no
+    se cobra por la web."""
+    if not activo(tenant):
+        return None
+    modo = tenant.get("devolucion_modo") or "todo"
+    horas = tenant.get("devolucion_horas") if tenant.get("devolucion_horas") is not None else 24
+    if modo == "nada":
+        return "Si cancelás, lo pagado no se devuelve."
+    que = "te devolvemos todo" if modo == "todo" else "te devolvemos todo menos la seña"
+    if (tenant.get("cobro_modo") or "total") == "sena" and modo == "menos_sena":
+        return "Si cancelás, la seña no se devuelve."
+    cuando = f"con {horas} horas o más de anticipación" if horas else "antes de que empiece el turno"
+    return f"Si cancelás {cuando}, {que}." + (" Después, no se devuelve." if horas else "")
+
+
+def cuanto_devolver(tenant: dict, turno: dict, ahora: datetime | None = None) -> tuple[dict | None, int]:
+    """Si el paciente cancela `turno` ahora: (el pago que lo cubre, cuánto le
+    corresponde según la política). Una serie se reparte en partes iguales."""
+    if not turno.get("pago_id") or turno.get("pago_web") != "aprobado":
+        return None, 0
+    pago = db.pago_de(tenant["id"], turno["pago_id"])
+    if not pago or devolvible(pago) <= 0:
+        return pago, 0
+    ahora = ahora or datetime.now(timezone.utc)
+    modo = tenant.get("devolucion_modo") or "todo"
+    horas = tenant.get("devolucion_horas") if tenant.get("devolucion_horas") is not None else 24
+    if modo == "nada" or datetime.fromisoformat(str(turno["inicio"])) - ahora < timedelta(hours=horas):
+        return pago, 0
+    parte = int(pago["monto"]) // max(1, len(pago["turnos"]))
+    if modo == "menos_sena":
+        if (tenant.get("cobro_modo") or "total") == "sena":
+            return pago, 0
+        parte -= min(parte, int(tenant.get("sena_monto") or 0))
+    return pago, max(0, min(parte, devolvible(pago)))
+
+
+def al_cancelar(tenant: dict, turno: dict, quien: str = "paciente") -> tuple[int, bool]:
+    """Después de cancelar una sesión pagada por la web (`turno` es la fila
+    de antes de liberarla). Con el paciente se aplica la política; si cancela
+    el profesional, se devuelve su parte entera. Con Mercado Pago se devuelve
+    sola; si no se puede (o fue transferencia) queda para devolver a mano.
+    Devuelve (monto, si ya se devolvió)."""
+    if quien == "profesional":
+        if not turno.get("pago_id") or turno.get("pago_web") != "aprobado":
+            return 0, False
+        pago = db.pago_de(tenant["id"], turno["pago_id"])
+        monto = min(int(pago["monto"]) // max(1, len(pago["turnos"])), devolvible(pago)) if pago else 0
+    else:
+        pago, monto = cuanto_devolver(tenant, turno)
+    if not pago or monto <= 0:
+        return 0, False
+    import scheduler
+    texto = f"${monto:,}".replace(",", ".")
+    if quien == "profesional":
+        # Lo decide el profesional desde el panel: queda en «Pagos para revisar».
+        db.actualizar_pago(pago["id"], {"a_devolver": int(pago.get("a_devolver") or 0) + monto})
+        return monto, False
+    if puede_devolver_mp(pago) and devolver(tenant, pago, monto) is None:
+        scheduler.avisar_profesional(tenant, f"se le devolvieron {texto} por Mercado Pago a un paciente que canceló, según tu política")
+        return monto, True
+    db.actualizar_pago(pago["id"], {"a_devolver": int(pago.get("a_devolver") or 0) + monto})
+    scheduler.avisar_profesional(tenant, f"un paciente canceló una sesión pagada: según tu política le corresponden {texto}; "
+                                         "devolvéselos y marcalo en el panel")
+    return monto, False

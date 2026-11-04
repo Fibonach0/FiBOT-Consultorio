@@ -6,6 +6,7 @@
   <div class="card" style="max-width:520px;margin:30px auto">
     <h2>Listo, se canceló</h2>
     <p>Tu turno con <strong>{{ tenant.nombre }}</strong> del {{ turno._dia }} a las {{ turno._hora }} quedó cancelado. Si lo tenías agendado, borralo de tu calendario.</p>
+    {% if devolucion %}<p>{% if devolucion.hecho %}Te devolvimos <strong>{{ devolucion.monto|pesos }}</strong> por Mercado Pago: puede tardar unos días en verse en tu cuenta.{% else %}Te corresponde la devolución de <strong>{{ devolucion.monto|pesos }}</strong>: te la hace {{ tenant.nombre }}.{% endif %}</p>{% endif %}
     {% if tenant.slug %}<a class="btn secundario" style="text-decoration:none" href="{{ url_for('publico', slug=tenant.slug) }}">Sacar otro turno</a>{% endif %}
   </div>
 </main>

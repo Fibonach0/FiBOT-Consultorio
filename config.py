@@ -85,6 +85,11 @@ WHATSAPP_SOLO_A = [n.strip() for n in os.environ.get("WHATSAPP_SOLO_A", "").spli
 # Vacía = no se manda confirmación.
 CONFIRMACION_TEMPLATE = os.environ.get("CONFIRMACION_TEMPLATE", "")
 
+# Aviso al paciente de que se vence el plazo para pagar su reserva web:
+#   {{1}} nombre del profesional      {{2}} cuándo es      {{3}} link para pagar
+# Vacía = no se avisa (el horario igual se libera al vencer).
+PAGO_PENDIENTE_TEMPLATE = os.environ.get("PAGO_PENDIENTE_TEMPLATE", "")
+
 # Mercado Pago (cobro de las reservas web). Son de la APLICACIÓN de la
 # plataforma en Mercado Pago Developers; cada profesional conecta su propia
 # cuenta con «Conectar Mercado Pago» (OAuth) y cobra en ella. MP_PRUEBA=1 usa

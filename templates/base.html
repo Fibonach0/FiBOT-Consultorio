@@ -44,6 +44,31 @@
     details > summary { list-style:none; display:inline-block; }
     details > summary::-webkit-details-marker { display:none; }
     details[open] > form { margin-top:8px; flex-basis:100%; }
+    /* Secciones plegables del panel (horario, cobros, ajustes…) */
+    .grupo { font-size:.75rem; font-weight:600; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin:22px 4px 8px; }
+    .ajustes-col > .grupo:first-child { margin-top:0; }
+    details.plegable { padding:0; }
+    details.plegable > summary { display:flex; align-items:center; gap:10px; padding:13px 18px; cursor:pointer; border-radius:10px; }
+    details.plegable > summary:hover { background:var(--cream); }
+    details.plegable > summary:focus-visible { outline:2px solid var(--green); outline-offset:-2px; }
+    details.plegable > summary h3 { margin:0; font-size:1.02rem; white-space:nowrap; }
+    details.plegable > summary::after { content:""; width:7px; height:7px; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(-45deg); transition:transform .15s; flex:none; margin-left:2px; }
+    details.plegable[open] > summary::after { transform:rotate(45deg); }
+    details.plegable[open] > summary { border-bottom:1px solid var(--rule); border-radius:10px 10px 0 0; margin-bottom:12px; }
+    details.plegable > :not(summary) { margin-left:18px; margin-right:18px; }
+    details.plegable > :last-child:not(summary) { margin-bottom:16px; }
+    details.plegable[open] > form { margin-top:0; }
+    .plegable-resumen { flex:1; min-width:0; text-align:right; color:var(--muted); font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .fila[hidden], .agregar-fila[hidden] { display:none; }
+    .agregar-fila { background:none; border:none; color:var(--green); font-size:.88rem; padding:4px 0; cursor:pointer; font-weight:600; }
+    .agregar-fila:hover { text-decoration:underline; }
+    .dia-horario { display:grid; grid-template-columns:90px minmax(0,1fr); gap:6px; align-items:start; padding:6px 0; border-top:1px solid var(--rule); }
+    .dia-horario > strong { padding-top:9px; }
+    .dia-horario.sin-franjas { align-items:center; }
+    .dia-horario.sin-franjas > strong { padding-top:0; }
+    .dia-horario .franja { margin-bottom:4px; }
+    .encabezado-filas { font-size:.8rem; color:var(--muted); margin-bottom:2px; }
+    @media (max-width: 640px) { .dia-horario { grid-template-columns:minmax(0,1fr); } .dia-horario > strong { padding-top:0; } }
     .al-pie { display:flex; align-items:flex-end; }
     .semana-nav { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
     .semana-nav h3 { margin:0; flex:1; text-align:center; }

@@ -3622,6 +3622,148 @@ html = panel_c.get(f"/agenda/imprimir?semana={_lun.isoformat()}").data.decode()
 chequear("imprimir: la semana con hora, paciente y tipo", "10:00" in html and "Lola Pérez" in html and "Sesión" in html)
 chequear("imprimir: sin notas ni teléfonos", "Muy reservada" not in html and "5491166667777" not in html)
 
+# --- Devoluciones, política, recibo, resumen web y aviso de pago por vencer ---
+reset()
+TABLAS["pagos"] = []
+_t1 = TABLAS["tenants"][0]
+_t1.update({"slug": "marcos", "activo": True, "cobro_web": "mercadopago", "precio_sesion": 20000,
+            "aviso_telefono": "5491122223333", "devolucion_modo": "todo", "devolucion_horas": 24,
+            "mp_token_cifrado": _pg.cifrar("TEST-tok"), "mp_vence": (datetime.now(timezone.utc) + timedelta(days=100)).isoformat()})
+db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+_avd = []
+_va5 = scheduler.avisar_profesional
+scheduler.avisar_profesional = lambda tenant, texto: _avd.append(texto) or True
+_pg.config.MP_CLIENT_ID, _pg.config.MP_CLIENT_SECRET = "app", "secreto"
+_reint = []
+
+
+def _mp_post2(url, json=None, headers=None, timeout=None):
+    if url.endswith("/refunds"):
+        _reint.append((url, json, headers))
+        return _RMP(201, {"id": 1})
+    return _RMP(201, {"id": "pref", "init_point": "https://mp.example/pagar"})
+
+
+_pg.requests.post = _mp_post2
+_d = datetime.now(timezone.utc).replace(second=0, microsecond=0) + timedelta(days=3)
+TABLAS["turnos"] = [turno("d1", "t1", _d), turno("d2", "t1", _d + timedelta(hours=1)),
+                    turno("d3", "t1", datetime.now(timezone.utc).replace(microsecond=0) + timedelta(hours=5))]
+wd = app.app.test_client()
+
+
+def _pagar(tid, nombre, mp_id):
+    wd.post(f"/marcos/reservar/{tid}", data={"nombre": nombre, "telefono": "5491100003333", "confirmado": "1"})
+    pg = TABLAS["pagos"][-1]
+    _mp["pagos"][mp_id] = {"status": "approved", "external_reference": pg["token"], "transaction_amount": 20000}
+    _pg.revisar_pago_mp(dict(_t1), mp_id)
+    return pg
+
+
+pd1 = _pagar("d1", "Ana Recibo", "201")
+_td1 = TABLAS["turnos"][0]
+chequear("pago_id: la reserva sabe qué pago la cubre", _td1["pago_id"] == pd1["id"] and pd1["paciente_nombre"] == "Ana Recibo"
+         and pd1["sesiones"] == [_td1["inicio"]])
+html = wd.get(f"/pago/{pd1['token']}/recibo").data.decode()
+chequear("recibo: muestra profesional, paciente, monto y que no es factura",
+         "Ana Recibo" in html and "$ 20.000" in html and "No es una factura" in html and "5491100003333" not in html)
+chequear("recibo: sin pago aprobado no hay recibo", wd.get("/pago/inventado/recibo").status_code == 404)
+chequear("recibo: la página de pago lo ofrece", "Ver tu recibo" in wd.get(f"/pago/{pd1['token']}").data.decode())
+chequear("política: se le muestra al paciente", "con 24 horas o más de anticipación, te devolvemos todo"
+         in wd.get(f"/pago/{pd1['token']}").data.decode())
+html = wd.get(f"/agendar/{_td1['token_calendario']}/cancelar").data.decode()
+chequear("cancelar: avisa cuánto se le devuelve", "$ 20.000" in html and "devolución" in html)
+wd.post(f"/agendar/{_td1['token_calendario']}/cancelar")
+chequear("cancelar con anticipación: devuelve sola por Mercado Pago", _reint and _reint[-1][0].endswith("/v1/payments/201/refunds")
+         and _reint[-1][1] == {"amount": 20000.0} and pd1["estado"] == "devuelto" and pd1["devuelto"] == 20000
+         and any("devolvieron" in x for x in _avd) and _reint[-1][2]["X-Idempotency-Key"])
+chequear("recibo: dice lo devuelto", "Devuelto" in wd.get(f"/pago/{pd1['token']}/recibo").data.decode())
+
+# tarde para la política: no devuelve
+_t1["cancelar_hasta_horas"] = 0
+pd3 = _pagar("d3", "Beto Tarde", "203")
+_n = len(_reint)
+_tk = TABLAS["turnos"][2]["token_calendario"]
+chequear("cancelar tarde: avisa que no se devuelve", "no se devuelve" in wd.get(f"/agendar/{_tk}/cancelar").data.decode())
+wd.post(f"/agendar/{_tk}/cancelar")
+chequear("cancelar tarde: no devuelve nada", len(_reint) == _n and pd3["estado"] == "aprobado" and not pd3.get("devuelto"))
+
+# todo menos la seña, por transferencia: queda para devolver a mano
+_t1.update({"devolucion_modo": "menos_sena", "sena_monto": 5000})
+pd2 = _pagar("d2", "Ceci Trans", "202")
+pd2["metodo"] = "transferencia"
+_td2 = TABLAS["turnos"][1]
+chequear("menos la seña: calcula la parte", _pg.cuanto_devolver(dict(_t1), dict(_td2))[1] == 15000)
+wd.post(f"/agendar/{_td2['token_calendario']}/cancelar")
+chequear("transferencia: queda anotado para devolver y avisa", pd2["a_devolver"] == 15000 and any("devolvéselos" in x for x in _avd))
+html = panel_c.get("/agenda").data.decode()
+chequear("panel: lo muestra en «Pagos para revisar»", "hay que devolverle" in html and "Ya lo devolví" in html)
+panel_c.post(f"/agenda/pago-web/{pd2['id']}/devuelto", data={"csrf_token": "tok"})
+chequear("panel: «Ya lo devolví» lo anota", pd2["a_devolver"] == 0 and pd2["devuelto"] == 15000 and pd2["estado"] == "aprobado")
+
+# el profesional cancela una sesión pagada → para devolver desde el panel
+TABLAS["turnos"][0].update(db._LIBERADO)
+_t1.update({"devolucion_modo": "nada"})
+pd4 = _pagar("d1", "Dani Prof", "204")
+panel_c.post("/agenda/cancelar/d1", data={"csrf_token": "tok"})
+chequear("profesional cancela: queda su parte entera para devolver", pd4["a_devolver"] == 20000)
+_n = len(_reint)
+panel_c.post(f"/agenda/pago-web/{pd4['id']}/devolver", data={"csrf_token": "tok"})
+chequear("panel: «Devolver» hace el reintegro", len(_reint) == _n + 1 and pd4["estado"] == "devuelto" and pd4["a_devolver"] == 0)
+panel_c.post(f"/agenda/pago-web/{pd4['id']}/devolver", data={"csrf_token": "tok"})
+chequear("panel: no se devuelve dos veces", len(_reint) == _n + 1)
+chequear("política nada: lo dice", _pg.politica(dict(_t1)) == "Si cancelás, lo pagado no se devuelve.")
+
+# resumen web del mes
+html = panel_c.get("/agenda").data.decode()
+chequear("resumen web: separa Mercado Pago y transferencias", "Lo que entró por la web" in html and "Transferencias" in html
+         and "Devuelto" in html and "Recibo" in html)
+_cw = app._cobros_web(dict(_t1), datetime.now(app.ZoneInfo(TZ)).date().replace(day=1), app.ZoneInfo(TZ), [])
+chequear("resumen web: cuentas", _cw["mp"] == 60000 and _cw["transferencia"] == 20000 and _cw["devuelto"] == 55000
+         and _cw["neto"] == 25000)
+
+# aviso de pago por vencer
+_vt = _pg.config.PAGO_PENDIENTE_TEMPLATE
+_pg.config.PAGO_PENDIENTE_TEMPLATE = "pago_pendiente"
+_enviadas = []
+_vep = _wa.enviar_plantilla
+_wa.enviar_plantilla = lambda numero, tel, nombre, lang, params: _enviadas.append((tel, nombre, params)) or True
+TABLAS["turnos"][0].update(db._LIBERADO)
+wd.post("/marcos/reservar/d1", data={"nombre": "Eli", "telefono": "5491100008888", "confirmado": "1"})
+pd5 = TABLAS["pagos"][-1]
+_ahora = datetime.now(timezone.utc)
+chequear("por vencer: al principio no avisa", _pg.avisar_por_vencer(dict(_t1), "https://x.ar", _ahora) == 0)
+chequear("por vencer: en el último tercio avisa con el link", _pg.avisar_por_vencer(dict(_t1), "https://x.ar", _ahora + timedelta(minutes=22)) == 1
+         and _enviadas[-1][0] == "5491100008888" and _enviadas[-1][2][2] == f"https://x.ar/pago/{pd5['token']}")
+chequear("por vencer: una sola vez", _pg.avisar_por_vencer(dict(_t1), "https://x.ar", _ahora + timedelta(minutes=25)) == 0)
+_pg.config.PAGO_PENDIENTE_TEMPLATE = ""
+chequear("por vencer: sin plantilla no manda", _pg.avisar_por_vencer(dict(_t1), "https://x.ar", _ahora + timedelta(minutes=22)) == 0)
+_pg.config.PAGO_PENDIENTE_TEMPLATE = _vt
+_wa.enviar_plantilla = _vep
+_pg.config.MP_CLIENT_ID, _pg.config.MP_CLIENT_SECRET = _vc
+scheduler.avisar_profesional = _va5
+
+# panel: horario con más franjas, consultorios y tipos sin tope de 3/4
+reset()
+_t1 = TABLAS["tenants"][0]
+db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
+panel_c.post("/agenda/sedes", data={"csrf_token": "tok", **{f"sede{n}_nombre": f"Sede {n}" for n in range(1, 6)}})
+chequear("sedes: se pueden cargar más de 3", len(_t1["sedes"]) == 5)
+panel_c.post("/agenda/tipos", data={"csrf_token": "tok", **{f"tipo{n}_nombre": f"T{n}" for n in range(1, 7)},
+                                    **{f"tipo{n}_minutos": "50" for n in range(1, 7)}})
+chequear("tipos: se pueden cargar más de 4", len(_t1["tipos_turno"]) == 6)
+panel_c.post("/agenda/horario", data={"csrf_token": "tok", "dia0_desde1": "08:00", "dia0_hasta1": "09:00",
+                                      "dia0_desde2": "10:00", "dia0_hasta2": "11:00", "dia0_desde3": "15:00", "dia0_hasta3": "16:00",
+                                      "horario_semanas": "1"})
+chequear("horario: tres franjas en un día", len([r for r in _t1["horario_semanal"] if r["dia"] == 0]) == 3)
+_antes = list(_t1["horario_semanal"])
+panel_c.post("/agenda/horario", data={"csrf_token": "tok", "dia0_desde1": "08:00", "dia0_hasta1": "10:00",
+                                      "dia0_desde2": "09:30", "dia0_hasta2": "11:00", "horario_semanas": "1"})
+chequear("horario: franjas que se pisan no se guardan", _t1["horario_semanal"] == _antes)
+html = panel_c.get("/agenda").data.decode()
+chequear("panel: secciones plegables agrupadas", html.count("data-plegable") >= 9 and "Tu agenda" in html
+         and "+ otra franja" in html and "+ otro consultorio" in html and "Sede 1, Sede 2" in html)
+
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
 print("\nTODOS LOS TESTS DE SEGUIMIENTO DE SESIONES PASARON")
