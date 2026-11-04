@@ -1,5 +1,17 @@
 {% extends "base.html" %}
 {% block titulo %}Turnos — {{ tenant.nombre }}{% endblock %}
+{% block head %}
+{% set _desc = tenant.descripcion or ((tenant.titulo or tenant.rubro or 'Profesional') ~ (' en ' ~ tenant.ubicacion if tenant.ubicacion else '') ~ '. Mirá sus horarios libres y reservá tu turno online.') %}
+<meta name="description" content="{{ _desc }}">
+<link rel="canonical" href="{{ url_for('publico', slug=tenant.slug, _external=True) }}">
+<meta property="og:type" content="profile">
+<meta property="og:title" content="{{ tenant.nombre }} — Turnos online">
+<meta property="og:description" content="{{ _desc }}">
+<meta property="og:url" content="{{ url_for('publico', slug=tenant.slug, _external=True) }}">
+{% if tenant.portada_version %}<meta property="og:image" content="{{ url_for('publico_portada', slug=tenant.slug, v=tenant.portada_version, _external=True) }}">{% endif %}
+{% if cambiar or tenant.en_directorio is sameas false %}<meta name="robots" content="noindex">{% endif %}
+<script type="application/ld+json">{{ tenant | perfil_ld | tojson }}</script>
+{% endblock %}
 {% block cuerpo %}{% include "_color_pagina.html" %}
 {% macro url_semana(sem) %}{% if cambiar %}{{ url_for('agendar_cambiar', token=cambiar, semana=sem) }}{% else %}{{ url_for('publico', slug=tenant.slug, semana=sem, tipo=i_tipo) }}{% endif %}{% endmacro %}
 {% macro url_hora(t) %}{% if cambiar %}{{ url_for('agendar_cambiar_a', token=cambiar, turno_id=t.id) }}{% else %}{{ url_for('publico_reservar_form', slug=tenant.slug, turno_id=t.id, tipo=i_tipo) }}{% endif %}{% endmacro %}

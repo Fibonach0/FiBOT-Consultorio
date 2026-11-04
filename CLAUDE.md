@@ -172,12 +172,33 @@ pública no es un camino paralelo, es la misma operación atómica (filtra por
 WhatsApp y panel como siempre.
 
 `/` es la portada del sitio para futuros pacientes (`templates/inicio.html`,
-página suelta, no extiende `base.html`): qué es, temas, hasta
-`INICIO_PROFESIONALES` del directorio (mismo filtro que /turnos; primero los que
-toman turnos y tienen foto), cómo funciona, modalidades, preguntas frecuentes y
-el bloque «¿Sos profesional?». «Quiero sumarme» sólo aparece si está
-`CONTACTO_PROFESIONALES` (un `mailto:` o link de WhatsApp). Si la base falla, la
-página sale sin la grilla. El chequeo de vida es `/health`, no `/`.
+página suelta, no extiende `base.html`): buscador (tema, modalidad, obra social →
+`/turnos`), temas que llevan a `/turnos?tema=…`, hasta `INICIO_PROFESIONALES` del
+directorio (primero los que toman turnos y tienen foto), cómo funciona,
+modalidades, preguntas frecuentes y el bloque «¿Sos profesional?» → `/sumate`.
+Si la base falla, portada, /turnos y sitemap salen sin profesionales
+(`app._directorio`). El chequeo de vida es `/health`, no `/`.
+
+Directorio (`directorio.py`): `visibles` (con slug y sin `en_directorio = false`)
+y `filtrar` para `/turnos?tema=&modalidad=&obra=`. Los temas (`TEMAS`) se
+reconocen por palabras sueltas, sin tildes, en enfoques, descripción, sobre mí,
+título y rubro (psicopedagogía cae en «Infancia»): el perfil no tiene lista
+cerrada de temas a propósito. Valores desconocidos no filtran. Con modalidad u
+obra social la página va `noindex`; con tema sólo, es indexable (canonical).
+
+`/sumate` (`migrations/060`, tabla `interesados`, de la plataforma como
+`admins`): formulario para profesionales; pide nombre y WhatsApp o mail, tiene un
+campo trampa (`web`) para robots y cuenta 5 envíos por IP cada 15 minutos en
+`login_intentos` (`sumate:<ip>`). Avisa con `whatsapp.avisar_admin` y aparece en
+«Quieren sumarse» de /admin («Ya lo contacté»). El alta sigue siendo a mano.
+`sumate` está en `SLUGS_RESERVADOS`.
+
+SEO: `/robots.txt` (cierra panel, admin, login y los links con token) y
+`/sitemap.xml` (portada, /turnos, /sumate, /privacidad y cada `/<slug>` del
+directorio). La portada lleva JSON-LD `WebSite`; `/<slug>` lleva descripción,
+canonical, Open Graph (la portada como imagen, si hay) y JSON-LD `Person`
+(`app.perfil_ld`). La foto es un data URL y no sirve como `og:image`. `base.html`
+tiene `{% block head %}` para esto.
 
 `/turnos` es la puerta de entrada para pacientes: lista los profesionales
 activos con `slug` y cada uno lleva a su calendario. `/<slug>` muestra una

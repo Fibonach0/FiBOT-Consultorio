@@ -249,6 +249,7 @@ def reset():
     TABLAS["qr_logins"] = []
     TABLAS["llaves_acceso"] = []
     TABLAS["admin_llaves"] = []
+    TABLAS["interesados"] = []
     TABLAS["turnos"] = [
         turno("pasado", "t1", ayer, estado="reservado", paciente_nombre="Juan", paciente_telefono="5491100000001"),
         turno("futuro", "t1", manana, estado="reservado", paciente_nombre="Ana", paciente_telefono="5491100000002",

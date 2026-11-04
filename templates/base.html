@@ -11,6 +11,7 @@
     if (r.dataset.tema === 'noche') r.dataset.modo = window.modoDeNoche(); })();
   </script>
   <title>{% block titulo %}FiBOT Consultorio{% endblock %}</title>
+  {% block head %}{% endblock %}
   <style>
     :root { --ink:#1c1b19; --muted:#5b584f; --green:#2f5233; --green-solid:#2f5233; --on-green:#fff; --green-bg:#eef3ec; --green-mid:#6f8f63; --rule:#dcd6c7; --cream:#faf6ef; --card:#fff; --warn-bg:#fbeee4; --warn:#c1652f; --accent2:#b5533c; --chip-bg:#f0ece3; --hover:#faf7f0; --stripe:#f6f0e4; --paper:#fffdf5; --danger-bg:#fbeeee; color-scheme:light; }
     :root[data-modo="oscuro"] { --ink:#e7e3da; --muted:#aaa497; --green:#93c48f; --green-solid:#3e6a44; --on-green:#f4f2ec; --green-bg:#22302a; --green-mid:#4c6b48; --rule:#3a3832; --cream:#151412; --card:#1e1d1a; --warn-bg:#3a2a1f; --warn:#e8a073; --accent2:#d98a74; --chip-bg:#2c2a25; --hover:#25231f; --stripe:#2a2722; --paper:#22201c; --danger-bg:#3a2222; color-scheme:dark; }

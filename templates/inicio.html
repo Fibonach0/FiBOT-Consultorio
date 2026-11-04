@@ -5,6 +5,20 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>FiBOT Consultorio — Encontrá tu psicólogo y sacá turno online</title>
   <meta name="description" content="Encontrá un profesional de la salud mental, mirá sus horarios libres y reservá tu sesión online, presencial o por videollamada. Te confirmamos por WhatsApp.">
+  <link rel="canonical" href="{{ url_for('inicio', _external=True) }}">
+  <meta property="og:type" content="website">
+  <meta property="og:title" content="FiBOT Consultorio — Encontrá tu psicólogo y sacá turno online">
+  <meta property="og:description" content="Mirá los horarios libres y reservá tu sesión presencial o por videollamada. Te confirmamos por WhatsApp.">
+  <meta property="og:url" content="{{ url_for('inicio', _external=True) }}">
+  <meta property="og:locale" content="es_AR">
+  <script type="application/ld+json">{{ {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "FiBOT Consultorio",
+    "url": url_for('inicio', _external=True),
+    "inLanguage": "es-AR",
+    "description": "Directorio de profesionales de la salud mental con turnos online."
+  } | tojson }}</script>
   <style>
     :root { --ink:#1c1b19; --muted:#5b584f; --green:#2f5233; --green-bg:#eef3ec; --rule:#dcd6c7; --cream:#faf6ef; }
     * { box-sizing:border-box; }
@@ -37,9 +51,17 @@
     .portada .sellos { display:flex; gap:22px; flex-wrap:wrap; margin-top:32px; color:var(--muted); font-size:.92rem; padding:0; list-style:none; }
     .portada .sellos li::before { content:"✓ "; color:var(--green); font-weight:700; }
 
+    /* Buscador */
+    .buscador { display:grid; grid-template-columns:1.3fr 1fr 1.2fr auto; gap:10px; background:#fff; border:1px solid var(--rule); border-radius:12px; padding:14px; margin-top:28px; max-width:900px; }
+    .buscador label { display:block; font-size:.78rem; color:var(--muted); margin-bottom:4px; }
+    .buscador select, .buscador input { width:100%; padding:10px; border:1px solid var(--rule); border-radius:8px; font-size:1rem; background:#fff; color:var(--ink); }
+    .buscador .btn { align-self:end; }
+    @media (max-width:720px) { .buscador { grid-template-columns:1fr; } }
+
     /* Temas */
     .temas { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:12px; padding:0; list-style:none; margin:0; }
-    .temas li { background:#fff; border:1px solid var(--rule); border-radius:10px; padding:16px; }
+    .temas a { display:block; height:100%; background:#fff; border:1px solid var(--rule); border-radius:10px; padding:16px; color:inherit; text-decoration:none; }
+    .temas a:hover { border-color:var(--green); }
     .temas strong { display:block; margin-bottom:4px; }
     .temas span { color:var(--muted); font-size:.9rem; }
 
@@ -100,7 +122,7 @@
     <nav>
       <a class="opcional" href="#como-funciona">¿Cómo funciona?</a>
       <a class="opcional" href="{{ url_for('turnos_directorio') }}">Profesionales</a>
-      <a class="opcional" href="#para-profesionales">Soy profesional</a>
+      <a class="opcional" href="{{ url_for('sumate') }}">Soy profesional</a>
       <a class="ingresar" href="{{ url_for('login') }}">Ingresar</a>
     </nav>
   </div>
@@ -114,6 +136,19 @@
       <a class="btn" href="{{ url_for('turnos_directorio') }}">Buscar profesional</a>
       <a class="btn secundario" href="#como-funciona">Cómo funciona</a>
     </div>
+    <form class="buscador" method="get" action="{{ url_for('turnos_directorio') }}" role="search">
+      <div><label for="b-tema">¿Qué te pasa?</label>
+        <select id="b-tema" name="tema"><option value="">Cualquier tema</option>
+          {% for clave, t in temas.items() %}<option value="{{ clave }}">{{ t[0] }}</option>{% endfor %}
+        </select></div>
+      <div><label for="b-modalidad">¿Cómo?</label>
+        <select id="b-modalidad" name="modalidad"><option value="">Presencial o videollamada</option>
+          <option value="presencial">Presencial</option><option value="virtual">Por videollamada</option>
+        </select></div>
+      <div><label for="b-obra">Obra social o prepaga</label>
+        <input id="b-obra" name="obra" type="text" placeholder="Ej. OSDE, Swiss Medical" autocomplete="off"></div>
+      <button class="btn" type="submit">Buscar</button>
+    </form>
     <ul class="sellos">
       <li>Horarios libres a la vista</li>
       <li>Presencial o por videollamada</li>
@@ -125,16 +160,11 @@
 <section id="temas">
   <div class="envoltura">
     <h2>¿En qué te podemos ayudar?</h2>
-    <p class="bajada">Pedir ayuda es el primer paso. Estos son algunos de los motivos más comunes por los que alguien empieza terapia.</p>
+    <p class="bajada">Pedir ayuda es el primer paso. Estos son algunos de los motivos más comunes por los que alguien empieza terapia. Tocá uno y te mostramos quién lo trabaja.</p>
     <ul class="temas">
-      <li><strong>Ansiedad</strong><span>Preocupación constante, nervios, ataques de pánico.</span></li>
-      <li><strong>Ánimo</strong><span>Tristeza, desgano, sentir que nada tiene sentido.</span></li>
-      <li><strong>Estrés y cansancio</strong><span>Trabajo, estudio, sentir que no das más.</span></li>
-      <li><strong>Vínculos</strong><span>Pareja, familia, amistades, separaciones.</span></li>
-      <li><strong>Autoestima</strong><span>Inseguridades, cómo te ves y te tratás.</span></li>
-      <li><strong>Duelos y cambios</strong><span>Pérdidas, mudanzas, etapas nuevas.</span></li>
-      <li><strong>Infancia y adolescencia</strong><span>Aprendizaje, conducta, acompañar a tus hijos.</span></li>
-      <li><strong>Miedos</strong><span>Fobias, miedos que te frenan en el día a día.</span></li>
+      {% for clave, t in temas.items() %}
+      <li><a href="{{ url_for('turnos_directorio', tema=clave) }}"><strong>{{ t[0] }}</strong><span>{{ t[1] }}</span></a></li>
+      {% endfor %}
     </ul>
   </div>
 </section>
@@ -220,7 +250,7 @@
         </ul>
       </div>
       <div class="acciones">
-        {% if contacto_profesionales %}<a class="btn" href="{{ contacto_profesionales }}">Quiero sumarme</a>{% endif %}
+        <a class="btn" href="{{ url_for('sumate') }}">Quiero sumarme</a>
         <a class="btn secundario" href="{{ url_for('login') }}">Ya tengo cuenta</a>
       </div>
     </div>
@@ -230,7 +260,7 @@
 <footer>
   <div class="envoltura">
     <span>© {{ anio }} FiBOT Consultorio</span>
-    <span><a href="{{ url_for('turnos_directorio') }}">Profesionales</a> · <a href="{{ url_for('privacidad') }}">Privacidad</a> · <a href="{{ url_for('login') }}">Ingresar</a></span>
+    <span><a href="{{ url_for('turnos_directorio') }}">Profesionales</a> · <a href="{{ url_for('sumate') }}">Sumate como profesional</a> · <a href="{{ url_for('privacidad') }}">Privacidad</a> · <a href="{{ url_for('login') }}">Ingresar</a></span>
   </div>
 </footer>
 

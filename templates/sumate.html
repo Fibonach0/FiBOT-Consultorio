@@ -1,0 +1,67 @@
+{% extends "base.html" %}
+{% block titulo %}Sumate como profesional — FiBOT Consultorio{% endblock %}
+{% block head %}
+<meta name="description" content="Tu agenda, tus pacientes y tus cobros en un solo lugar, con turnos online y recordatorios por WhatsApp. Dejanos tus datos y te contactamos.">
+<link rel="canonical" href="{{ url_for('sumate', _external=True) }}">
+{% endblock %}
+{% block cuerpo %}
+<style>
+  .sumate { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
+  .sumate ul { padding-left:20px; margin:0; }
+  .sumate li { margin-bottom:8px; }
+  .trampa { position:absolute; left:-5000px; width:1px; height:1px; overflow:hidden; }
+  select, textarea, input[type=email], input[type=tel] { width:100%; padding:8px 10px; border:1px solid var(--rule); border-radius:6px; font-size:1rem; background:var(--card); color:var(--ink); font-family:inherit; }
+  @media (max-width:720px) { .sumate { grid-template-columns:1fr; } }
+</style>
+<header>
+  <a href="{{ url_for('inicio') }}">FiBOT Consultorio</a>
+  <a href="{{ url_for('login') }}">Ingresar</a>
+</header>
+<main>
+  <div class="card">
+    <h1 style="margin-bottom:4px">Sumate como profesional</h1>
+    <p class="tenue" style="margin-top:0">Para psicólogos, psicopedagogos y profesionales de la salud mental.</p>
+  </div>
+  <div class="sumate">
+    <div class="card">
+      <h3>Qué tenés</h3>
+      <ul>
+        <li><strong>Tu página de turnos</strong>: tus pacientes ven tus horarios libres y reservan solos, y aparecés en el directorio.</li>
+        <li><strong>WhatsApp automático</strong>: confirmación, recordatorio la noche anterior, cancelaciones y lista de espera.</li>
+        <li><strong>Cobros</strong>: Mercado Pago o transferencia al reservar, recibos, constancias y planilla para obra social.</li>
+        <li><strong>Fichas de pacientes</strong>: notas de cada sesión, fechas importantes, contactos de emergencia y cuestionarios por link.</li>
+        <li><strong>Tu agenda</strong>: horario semanal, pacientes fijos, feriados y días bloqueados.</li>
+      </ul>
+    </div>
+    <div class="card">
+      {% if enviado %}
+      <h3>¡Listo, gracias!</h3>
+      <p>Recibimos tus datos. Te escribimos en los próximos días para contarte cómo seguir.</p>
+      <a class="btn secundario" href="{{ url_for('inicio') }}" style="text-decoration:none">Volver al inicio</a>
+      {% else %}
+      <h3>Dejanos tus datos</h3>
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+      <form method="post" action="{{ url_for('sumate') }}">
+        <label for="s-nombre">Nombre y apellido</label>
+        <input id="s-nombre" type="text" name="nombre" value="{{ datos.nombre or '' }}" maxlength="80" autocomplete="name" required>
+        <label for="s-profesion">Profesión</label>
+        <select id="s-profesion" name="profesion">
+          {% for p in profesiones %}<option {% if datos.profesion == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+        </select>
+        <label for="s-whatsapp">WhatsApp</label>
+        <input id="s-whatsapp" type="tel" name="whatsapp" value="{{ datos.whatsapp or '' }}" placeholder="11 2345 6789" autocomplete="tel">
+        <label for="s-email">Mail</label>
+        <input id="s-email" type="email" name="email" value="{{ datos.email or '' }}" maxlength="120" autocomplete="email">
+        <label for="s-zona">¿Dónde atendés?</label>
+        <input id="s-zona" type="text" name="zona" value="{{ datos.zona or '' }}" maxlength="80" placeholder="Ej. Palermo, CABA · online">
+        <label for="s-mensaje">¿Algo que quieras contarnos? (opcional)</label>
+        <textarea id="s-mensaje" name="mensaje" rows="3" maxlength="600">{{ datos.mensaje or '' }}</textarea>
+        <div class="trampa" aria-hidden="true"><label>Web <input type="text" name="web" tabindex="-1" autocomplete="off"></label></div>
+        <p class="tenue">Con un WhatsApp o un mail alcanza. Sólo los usamos para contactarte por esto.</p>
+        <button class="btn" type="submit">Quiero sumarme</button>
+      </form>
+      {% endif %}
+    </div>
+  </div>
+</main>
+{% endblock %}

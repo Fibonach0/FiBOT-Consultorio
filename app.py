@@ -36,6 +36,7 @@ import conversation
 import db
 import rubros
 import cuestionarios
+import directorio
 import fluidez
 import informe
 import mail
@@ -83,22 +84,127 @@ def salud():
 INICIO_PROFESIONALES = 6
 
 
+def _directorio() -> list[dict]:
+    """Profesionales del directorio público. Si la base no responde, lista vacía:
+    las páginas de pacientes salen igual, sin profesionales."""
+    try:
+        return directorio.visibles(db.tenants_activos())
+    except Exception:
+        logger.exception("directorio: no se pudieron leer los profesionales")
+        return []
+
+
 @app.get("/")
 def inicio():
-    """La main para futuros pacientes: qué es, cómo se saca turno y algunos
-    profesionales del directorio (los mismos que /turnos). Si la base no
-    responde, la página sale igual, sin la grilla de profesionales."""
-    try:
-        visibles = [t for t in db.tenants_activos() if t.get("slug") and t.get("en_directorio", True) is not False]
-    except Exception:
-        logger.exception("inicio: no se pudieron leer los profesionales")
-        visibles = []
+    """La main para futuros pacientes: qué es, búsqueda, temas, algunos
+    profesionales del directorio (los mismos que /turnos) y cómo funciona."""
+    visibles = _directorio()
     # Primero los que pueden tomar turnos y tienen foto: es lo que más invita a entrar.
     visibles.sort(key=lambda t: (bool(t.get("pausado")), not t.get("foto"), t["nombre"].casefold()))
     return render_template("inicio.html", profesionales=visibles[:INICIO_PROFESIONALES],
-                           hay_mas=len(visibles) > INICIO_PROFESIONALES,
-                           contacto_profesionales=os.environ.get("CONTACTO_PROFESIONALES", "").strip(),
+                           hay_mas=len(visibles) > INICIO_PROFESIONALES, temas=directorio.TEMAS,
                            anio=datetime.now().year)
+
+
+@app.get("/robots.txt")
+def robots():
+    privadas = ["/agenda", "/admin", "/login", "/logout", "/olvide-la-clave", "/clave-nueva",
+                "/agendar/", "/pago/", "/entrega/", "/cuestionario/", "/webhook", "/mercadopago/"]
+    texto = "User-agent: *\n" + "".join(f"Disallow: {p}\n" for p in privadas)
+    texto += f"\nSitemap: {url_for('sitemap', _external=True)}\n"
+    return app.response_class(texto, mimetype="text/plain")
+
+
+@app.get("/sitemap.xml")
+def sitemap():
+    """Las páginas que tiene sentido que encuentre un buscador: portada,
+    directorio, sumate y la página de cada profesional del directorio."""
+    urls = [url_for("inicio", _external=True), url_for("turnos_directorio", _external=True),
+            url_for("sumate", _external=True), url_for("privacidad", _external=True)]
+    urls += [url_for("publico", slug=t["slug"], _external=True) for t in _directorio()]
+    from xml.sax.saxutils import escape
+    cuerpo = "".join(f"<url><loc>{escape(u)}</loc></url>" for u in urls)
+    xml = f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{cuerpo}</urlset>'
+    return app.response_class(xml, mimetype="application/xml")
+
+
+@app.template_filter("perfil_ld")
+def perfil_ld(tenant: dict) -> dict:
+    """Datos estructurados (schema.org) de la página de un profesional, para
+    que los buscadores entiendan quién es, qué trabaja y dónde atiende."""
+    url = url_for("publico", slug=tenant["slug"], _external=True)
+    datos = {"@context": "https://schema.org", "@type": "Person", "@id": url, "url": url,
+             "name": tenant["nombre"],
+             "jobTitle": tenant.get("titulo") or (tenant.get("rubro") or "").capitalize() or None,
+             "description": tenant.get("descripcion") or None,
+             "knowsAbout": list(tenant.get("enfoques") or []) or None}
+    if tenant.get("ubicacion"):
+        datos["workLocation"] = {"@type": "Place", "name": tenant["ubicacion"]}
+    if tenant.get("portada_version"):
+        datos["image"] = url_for("publico_portada", slug=tenant["slug"], v=tenant["portada_version"], _external=True)
+    return {k: v for k, v in datos.items() if v is not None}
+
+
+# ---------- sumate: profesionales que quieren entrar ----------
+
+PROFESIONES_SUMATE = ["Psicología", "Psicopedagogía", "Psiquiatría", "Otra"]
+
+
+@app.route("/sumate", methods=["GET", "POST"])
+def sumate():
+    """Formulario para profesionales que quieren usar FiBOT Consultorio. Queda
+    en `interesados` (lo ve administración) y avisa por WhatsApp. El alta sigue
+    siendo a mano: esto sólo junta los datos de contacto."""
+    if request.method == "GET":
+        return render_template("sumate.html", enviado=False, error=None, datos={}, profesiones=PROFESIONES_SUMATE)
+    f = request.form
+    datos = {
+        "nombre": " ".join((f.get("nombre") or "").split())[:80],
+        "profesion": (f.get("profesion") or "")[:40] if f.get("profesion") in PROFESIONES_SUMATE else None,
+        "whatsapp": "".join(ch for ch in f.get("whatsapp") or "" if ch.isdigit())[:20] or None,
+        "email": (f.get("email") or "").strip()[:120] or None,
+        "zona": " ".join((f.get("zona") or "").split())[:80] or None,
+        "mensaje": (f.get("mensaje") or "").strip()[:600] or None,
+    }
+    if f.get("web"):  # campo trampa, invisible para personas: lo llenan los robots
+        return render_template("sumate.html", enviado=True, error=None, datos={}, profesiones=PROFESIONES_SUMATE)
+    error = None
+    if not datos["nombre"]:
+        error = "Poné tu nombre."
+    elif not datos["whatsapp"] and not datos["email"]:
+        error = "Dejanos un WhatsApp o un mail para contactarte."
+    elif datos["whatsapp"] and len(datos["whatsapp"]) < 10:
+        error = "El WhatsApp tiene que tener la característica (ej. 11 2345 6789)."
+    elif datos["email"] and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", datos["email"]):
+        error = "Revisá el mail."
+    if error:
+        return render_template("sumate.html", enviado=False, error=error, datos=datos, profesiones=PROFESIONES_SUMATE), 400
+    claves = [f"sumate:{request.remote_addr or 'desconocida'}"]
+    bloqueo = _bloqueo_login(claves)
+    if bloqueo:
+        return render_template("sumate.html", enviado=False, error=bloqueo, datos=datos, profesiones=PROFESIONES_SUMATE), 429
+    _registrar_fallo(claves)  # cada envío cuenta: 5 por IP cada 15 minutos
+    try:
+        db.crear_interesado(datos)
+        guardado = True
+    except Exception:  # p. ej. falta aplicar migrations/060: que el contacto no se pierda
+        logger.exception("sumate: no se pudo guardar el interesado")
+        guardado = False
+    contacto = "" if guardado else f" · {datos['whatsapp'] or ''} {datos['email'] or ''}".rstrip()
+    try:
+        avisado = whatsapp.avisar_admin(f"quiere sumarse {datos['nombre']} ({datos['profesion'] or 'profesional'})"
+                                        + (". Está en administración" if guardado else contacto))
+    except Exception:
+        logger.warning("sumate: no se pudo avisar a administración", exc_info=True)
+        avisado = False
+    if not guardado and not avisado:
+        return render_template("sumate.html", enviado=False, error="No se pudo enviar. Probá de nuevo en un rato.",
+                               datos=datos, profesiones=PROFESIONES_SUMATE), 503
+    try:
+        db.registrar_actividad("sitio", f"pidió sumarse: {datos['nombre']} ({datos['profesion'] or 'sin profesión'})")
+    except Exception:
+        logger.warning("sumate: no se pudo registrar la actividad", exc_info=True)
+    return render_template("sumate.html", enviado=True, error=None, datos={}, profesiones=PROFESIONES_SUMATE)
 
 
 # ---------- webhook de Meta ----------
@@ -848,7 +954,7 @@ def admin_uso_csv():
                               headers={"Content-Disposition": f'attachment; filename="uso-{primero:%Y-%m}.csv"'})
 
 
-SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar", "pago", "mercadopago"}
+SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar", "pago", "mercadopago", "sumate"}
 RUBROS_ALTA = ["psicología", "psicopedagogía"]
 
 
@@ -873,8 +979,17 @@ def admin_panel():
     return render_template("admin.html", admin=db.admin_por_id(session["admin_id"]), tenants=tenants,
                            admin_llaves=db.admin_llaves_de(session["admin_id"]),
                            actividad=actividad, filtro=filtro, estado=estado,
-                           biblioteca=biblioteca, rubros=RUBROS_ALTA,
+                           biblioteca=biblioteca, rubros=RUBROS_ALTA, interesados=_interesados_o_nada(),
                            mes_actual=datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%Y-%m"))
+
+
+def _interesados_o_nada() -> list[dict] | None:
+    """None = la tabla no responde (falta aplicar migrations/060): /admin sale igual."""
+    try:
+        return db.interesados()
+    except Exception:
+        logger.warning("admin: no se pudieron leer los interesados", exc_info=True)
+        return None
 
 
 def _estado_plataforma(tenants: list[dict], tz: ZoneInfo) -> list[dict]:
@@ -1165,6 +1280,15 @@ def admin_activar(tenant_id, accion):
     db.registrar_actividad(_actor_admin(), f"{'activó' if accion == 'activar' else 'desactivó'} la cuenta de {t['nombre'] if t else '?'}", tenant_id)
     flash("Cuenta activada." if accion == "activar" else "Cuenta desactivada: ya no puede entrar al panel.")
     return redirect(url_for("admin_panel"))
+
+
+@app.post("/admin/interesados/<interesado_id>/<accion>")
+@admin_requerido
+def admin_interesado(interesado_id, accion):
+    if accion not in ("visto", "pendiente"):
+        return "No encontrado.", 404
+    db.marcar_interesado_visto(interesado_id, accion == "visto")
+    return redirect(url_for("admin_panel") + "#interesados")
 
 
 @app.post("/admin/biblioteca/<entrada_id>/<accion>")
@@ -3774,9 +3898,14 @@ def turnos_directorio():
     """La puerta de entrada para pacientes: todos los profesionales con página
     pública. Cada uno lleva a SU calendario (/<slug>), que es también el link
     que el profesional comparte."""
-    profesionales = sorted((t for t in db.tenants_activos() if t.get("slug") and t.get("en_directorio", True) is not False),
-                           key=lambda t: t["nombre"].casefold())
-    return render_template("turnos.html", profesionales=profesionales)
+    tema = request.args.get("tema", "") if request.args.get("tema") in directorio.TEMAS else ""
+    modalidad = request.args.get("modalidad", "") if request.args.get("modalidad") in directorio.MODALIDADES else ""
+    obra = " ".join((request.args.get("obra") or "").split())[:60]
+    todos = sorted(_directorio(), key=lambda t: t["nombre"].casefold())
+    profesionales = directorio.filtrar(todos, tema, modalidad, obra)
+    return render_template("turnos.html", profesionales=profesionales, hay_profesionales=bool(todos),
+                           temas=directorio.TEMAS, tema=tema, modalidad=modalidad, obra=obra,
+                           filtrando=bool(tema or modalidad or obra))
 
 
 def tipos_de(tenant: dict) -> list[dict]:

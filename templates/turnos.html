@@ -1,21 +1,50 @@
 {% extends "base.html" %}
-{% block titulo %}Sacar turno — FiBOT Consultorio{% endblock %}
+{% block titulo %}{% if tema %}{{ temas[tema][0] }} — {% endif %}Sacar turno — FiBOT Consultorio{% endblock %}
+{% block head %}
+<meta name="description" content="Profesionales de la salud mental con turnos online{% if tema %} que trabajan {{ temas[tema][0] | lower }}{% endif %}. Mirá su agenda y reservá presencial o por videollamada.">
+<link rel="canonical" href="{{ url_for('turnos_directorio', tema=tema or None, _external=True) }}">
+{% if modalidad or obra %}<meta name="robots" content="noindex, follow">{% endif %}
+{% endblock %}
 {% block cuerpo %}
 <style>
   .profesionales { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; }
   .profesional { display:flex; flex-direction:column; gap:6px; text-decoration:none; color:inherit; }
   .profesional:hover { border-color:var(--green); }
   .profesional .rubro { color:var(--muted); font-size:.9rem; }
+  .profesional .temas { display:flex; flex-wrap:wrap; gap:4px; }
+  .filtros { display:grid; grid-template-columns:1.2fr 1fr 1.2fr auto; gap:10px; align-items:end; }
+  .filtros select { width:100%; padding:8px 10px; border:1px solid var(--rule); border-radius:6px; font-size:1rem; background:var(--card); color:var(--ink); }
+  .filtros label { margin-top:0; }
+  @media (max-width:720px) { .filtros { grid-template-columns:1fr; } }
 </style>
 <header>
-  <span>FiBOT Consultorio · Turnos</span>
+  <a href="{{ url_for('inicio') }}">FiBOT Consultorio</a>
+  <span>Turnos</span>
 </header>
 <main>
   <div class="card">
-    <h1 style="margin-bottom:4px">Sacá tu turno</h1>
+    <h1 style="margin-bottom:4px">{% if tema %}{{ temas[tema][0] }}{% else %}Sacá tu turno{% endif %}</h1>
     <p style="color:var(--muted);margin-top:0">Elegí con quién y después el día y la hora. No hace falta escribir por WhatsApp.</p>
+    {% if hay_profesionales %}
+    <form class="filtros" method="get" action="{{ url_for('turnos_directorio') }}" role="search">
+      <div><label for="f-tema">Tema</label>
+        <select id="f-tema" name="tema"><option value="">Cualquier tema</option>
+          {% for clave, t in temas.items() %}<option value="{{ clave }}" {% if clave == tema %}selected{% endif %}>{{ t[0] }}</option>{% endfor %}
+        </select></div>
+      <div><label for="f-modalidad">Modalidad</label>
+        <select id="f-modalidad" name="modalidad"><option value="">Cualquiera</option>
+          <option value="presencial" {% if modalidad == 'presencial' %}selected{% endif %}>Presencial</option>
+          <option value="virtual" {% if modalidad == 'virtual' %}selected{% endif %}>Por videollamada</option>
+        </select></div>
+      <div><label for="f-obra">Obra social o prepaga</label>
+        <input id="f-obra" type="text" name="obra" value="{{ obra }}" placeholder="Ej. OSDE" autocomplete="off"></div>
+      <div style="display:flex;gap:8px"><button class="btn" type="submit">Buscar</button>
+        {% if filtrando %}<a class="btn secundario" href="{{ url_for('turnos_directorio') }}" style="text-decoration:none">Ver todos</a>{% endif %}</div>
+    </form>
+    {% endif %}
   </div>
   {% if profesionales %}
+  {% if filtrando %}<p class="tenue">{{ profesionales|length }} {{ 'profesional' if profesionales|length == 1 else 'profesionales' }}</p>{% endif %}
   <div class="profesionales">
     {% for t in profesionales %}
     <a class="card profesional" href="{{ url_for('publico', slug=t.slug) }}">
@@ -23,17 +52,21 @@
         {% if t.foto %}<img src="{{ t.foto }}" alt="" width="64" height="64" style="width:64px;height:64px;border-radius:50%;object-fit:cover;flex:none">{% endif %}
         <div>
           <strong style="font-size:1.1rem">{{ t.nombre }}</strong>
-          {% if t.rubro %}<div class="rubro">{{ t.rubro }}</div>{% endif %}
+          {% if t.titulo %}<div class="rubro">{{ t.titulo }}</div>{% elif t.rubro %}<div class="rubro" style="text-transform:capitalize">{{ t.rubro }}</div>{% endif %}
         </div>
       </div>
       {% if t.descripcion %}<span>{{ t.descripcion }}</span>{% endif %}
-      {% if t.modalidades_publicas == 'virtual' %}<span class="rubro">Por videollamada</span>{% elif t.modalidades_publicas == 'ambas' %}<span class="rubro">Presencial o videollamada</span>{% endif %}
+      {% if t.enfoques %}<div class="temas">{% for x in t.enfoques[:4] %}<span class="chip" style="margin-left:0">{{ x }}</span>{% endfor %}</div>{% endif %}
+      <span class="rubro">{% if t.ubicacion %}{{ t.ubicacion }} · {% endif %}{% if t.modalidades_publicas == 'virtual' %}Por videollamada{% elif t.modalidades_publicas == 'ambas' %}Presencial o videollamada{% else %}Presencial{% endif %}</span>
+      {% if t.obras_sociales %}<span class="rubro">Obras sociales: {{ t.obras_sociales }}</span>{% endif %}
       {% if t.pausado %}<span class="rubro">Por ahora no toma turnos nuevos</span>
       <span class="btn secundario" style="align-self:flex-start;margin-top:6px">Anotarme en la lista de espera</span>
       {% else %}<span class="btn" style="align-self:flex-start;margin-top:6px">Ver calendario</span>{% endif %}
     </a>
     {% endfor %}
   </div>
+  {% elif filtrando %}
+  <div class="card"><p style="color:var(--muted);margin:0">No encontramos profesionales con esa búsqueda. Probá sacando algún filtro o <a href="{{ url_for('turnos_directorio') }}">mirá todos</a>.</p></div>
   {% else %}
   <div class="card"><p style="color:var(--muted)">Todavía no hay profesionales con turnos online.</p></div>
   {% endif %}
