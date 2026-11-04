@@ -181,6 +181,12 @@ def marcar_caida(tenant: dict) -> None:
                                              "por ahí; entrá al panel y tocá «Conectar Mercado Pago» para reconectarla")
     except Exception:
         logger.exception("No se pudo avisar la conexión caída de Mercado Pago")
+    try:
+        import whatsapp
+        whatsapp.avisar_admin(f"se cortó la conexión con Mercado Pago de {tenant.get('nombre') or 'un profesional'}; "
+                              "ya le avisamos para que reconecte")
+    except Exception:
+        logger.exception("No se pudo avisar a administración la conexión caída de Mercado Pago")
 
 
 _verificado: dict[str, object] = {}

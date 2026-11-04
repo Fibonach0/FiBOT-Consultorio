@@ -15,11 +15,17 @@
     .total td { font-weight:700; font-size:1.1rem; border-bottom:2px solid #1c1b19; }
     .nota { color:#5b584f; font-size:.85rem; }
     .boton { margin-bottom:18px; }
+    .cabecera { display:flex; align-items:center; gap:12px; margin-bottom:16px; padding-bottom:12px; border-bottom:1px solid #ddd; }
+    .foto { width:64px; height:64px; border-radius:50%; object-fit:cover; }
     @media print { .boton { display:none; } body { margin:12mm auto; } }
   </style>
 </head>
 <body>
   <div class="boton"><button onclick="window.print()">Imprimir o guardar en PDF</button></div>
+  <div class="cabecera">
+    {% if foto %}<img src="{{ foto }}" alt="" class="foto">{% endif %}
+    <div><strong>{{ tenant.nombre }}</strong>{% if tenant.titulo %}<br><span class="sub">{{ tenant.titulo }}</span>{% endif %}</div>
+  </div>
   <h1>Recibo de pago</h1>
   <p class="sub">N.º {{ numero }} · {{ fecha }}</p>
   <table>

@@ -1042,8 +1042,9 @@ def _estado_plataforma(tenants: list[dict], tz: ZoneInfo) -> list[dict]:
         ok("Dominio", bool(principal) and host == principal,
            f"Entraste por {host}." + (f" Dominio principal: {principal}." if principal
                                       else " Falta cargar DOMINIO_PRINCIPAL en Railway (por ahora no redirige).")),
-        ok("Mail", mail.disponible(), "Recuperar la clave y avisos de seguridad por mail." if mail.disponible()
-           else "Sin proveedor: faltan RESEND_API_KEY y MAIL_REMITENTE. La clave se recupera con el link de administración."),
+        dict(ok("Mail", mail.disponible(), "Recuperar la clave, avisos de seguridad y recibos de pago por mail." if mail.disponible()
+                else "Sin proveedor: faltan RESEND_API_KEY y MAIL_REMITENTE. La clave se recupera con el link de administración."),
+             prueba_mail=True),
         dict(ok("WhatsApp", whatsapp_real and bool(config.PLATAFORMA_PHONE_NUMBER_ID) and bool(plantillas),
                 ("Conectado" if whatsapp_real else "Sin credenciales reales de Meta")
                 + (f"; número de la plataforma cargado" if config.PLATAFORMA_PHONE_NUMBER_ID else "; falta el número de la plataforma")
@@ -1271,6 +1272,24 @@ def admin_whatsapp_prueba():
                                                + ("aceptado" if ok and detalle != "frenado" else "no salió"))
     session["prueba_whatsapp"] = resultado
     return redirect(url_for("admin_whatsapp"))
+
+
+@app.post("/admin/mail/prueba")
+@admin_requerido
+def admin_mail_prueba():
+    """Manda un mail de prueba para confirmar que Resend anda antes de que
+    lo necesite un paciente (recibo) o un profesional (recuperar la clave)."""
+    para = (request.form.get("email") or "").strip()
+    if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", para) or len(para) > 200:
+        flash("Escribí un mail válido para la prueba.")
+        return redirect(url_for("admin_panel"))
+    ok, detalle = mail.enviar_detalle(para, "Prueba de FiBOT Consultorio",
+                                      "Si te llegó este mail, los recibos de pago y los avisos por mail funcionan.")
+    oculto = para[:2] + "…@" + para.split("@", 1)[1]
+    flash(f"Salió el mail de prueba a {oculto}: revisá la bandeja (y el spam)." if ok
+          else f"No salió el mail de prueba: {detalle}.")
+    db.registrar_actividad(_actor_admin(), f"mandó un mail de prueba a {oculto}: " + ("salió" if ok else "no salió"))
+    return redirect(url_for("admin_panel"))
 
 
 @app.post("/admin/profesionales")
@@ -4830,6 +4849,12 @@ def pago_comprobante(token):
     return redirect(url_for("pago_paciente", token=token))
 
 
+def _foto_valida(tenant: dict) -> str | None:
+    """La foto del perfil sólo si es una imagen PNG/JPG embebida como la guarda el panel."""
+    foto = tenant.get("foto") or ""
+    return foto if re.fullmatch(r"data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+", foto) else None
+
+
 @app.get("/pago/<token>/recibo")
 def pago_recibo(token):
     """Recibo del pago web para el paciente (no es factura). El token es la
@@ -4840,7 +4865,7 @@ def pago_recibo(token):
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     sesiones = [datetime.fromisoformat(str(x)).astimezone(tz) for x in pago.get("sesiones") or []]
     return _sin_indexar(app.make_response(render_template(
-        "recibo.html", tenant=tenant, pago=pago, sesiones=[f"{DIAS_LABEL[d.weekday()]} {d:%d/%m/%Y %H:%M}" for d in sesiones],
+        "recibo.html", tenant=tenant, pago=pago, foto=_foto_valida(tenant), sesiones=[f"{DIAS_LABEL[d.weekday()]} {d:%d/%m/%Y %H:%M}" for d in sesiones],
         fecha=datetime.fromisoformat(str(pago.get("resuelto") or pago["creado"])).astimezone(tz).strftime("%d/%m/%Y"),
         numero=str(pago["id"]).replace("-", "")[:8].upper())))
 
