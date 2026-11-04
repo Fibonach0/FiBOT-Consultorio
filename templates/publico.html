@@ -239,6 +239,10 @@
           <input class="s-campo" id="r-nombre" type="text" name="nombre" required maxlength="120" autocomplete="name" data-recordar="nombre">
           <label for="r-tel">WhatsApp (con código de país, ej. 5491123456789)</label>
           <input class="s-campo" id="r-tel" type="tel" name="telefono" required placeholder="5491123456789" autocomplete="tel" data-recordar="telefono">
+          {% if serie_posible %}
+          <label for="r-email">Email (opcional: te mandamos el recibo del pago)</label>
+          <input class="s-campo" id="r-email" type="email" name="email" maxlength="120" autocomplete="email" data-recordar="email">
+          {% endif %}
           {% if (tenant.modalidades_publicas or 'presencial') == 'ambas' %}
           <fieldset class="pf-modo" id="r-modo">
             <legend>¿Cómo preferís?</legend>

@@ -847,7 +847,10 @@
     {% endif %}
     {% endif %}
     <div style="margin-bottom:10px">
-      {% if tenant.mp_token_cifrado %}
+      {% if tenant.mp_token_cifrado and tenant.mp_caido_at %}
+        <div class="aviso"><strong>Se cortó la conexión con Mercado Pago</strong> (se revocó el permiso o venció). Mientras tanto, las reservas web no se cobran por ahí.
+          <a class="btn chico" style="text-decoration:none" href="{{ url_for('agenda_mp_conectar') }}">Conectar Mercado Pago</a></div>
+      {% elif tenant.mp_token_cifrado %}
         <strong>Mercado Pago conectado.</strong> Los pagos van a tu cuenta.
         <form method="post" action="{{ url_for('agenda_mp_desconectar') }}" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Desconectar</button></form>
       {% elif mp_disponible %}

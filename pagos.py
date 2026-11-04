@@ -78,7 +78,7 @@ def activo(tenant: dict) -> bool:
 def metodos(tenant: dict) -> list[str]:
     modo = tenant.get("cobro_web") or "no"
     salida = []
-    if modo in ("mercadopago", "ambos") and mp_disponible() and tenant.get("mp_token_cifrado"):
+    if modo in ("mercadopago", "ambos") and mp_disponible() and tenant.get("mp_token_cifrado") and not tenant.get("mp_caido_at"):
         salida.append("mercadopago")
     if modo in ("transferencia", "ambos") and (tenant.get("transferencia_datos") or "").strip():
         salida.append("transferencia")
@@ -114,6 +114,7 @@ def _guardar_tokens(tenant_id: str, datos: dict) -> None:
         "mp_token_cifrado": cifrar(datos["access_token"]),
         "mp_refresh_cifrado": cifrar(datos["refresh_token"]) if datos.get("refresh_token") else None,
         "mp_vence": (datetime.now(timezone.utc) + timedelta(seconds=int(datos.get("expires_in") or 15552000))).isoformat(),
+        "mp_caido_at": None,
     })
 
 
@@ -162,7 +163,44 @@ def conectar_con_token(tenant_id: str, token: str) -> str | None:
 
 def desconectar(tenant_id: str) -> None:
     db.guardar_ajustes(tenant_id, {"mp_user_id": None, "mp_token_cifrado": None, "mp_refresh_cifrado": None,
-                                   "mp_vence": None})
+                                   "mp_vence": None, "mp_caido_at": None})
+
+
+def marcar_caida(tenant: dict) -> None:
+    """Mercado Pago ya no acepta el permiso del profesional (lo revocó desde
+    su cuenta, o venció sin poder renovarse). Se deja de ofrecer el pago por
+    Mercado Pago y se le avisa UNA vez para que reconecte."""
+    if tenant.get("mp_caido_at") or not tenant.get("mp_token_cifrado"):
+        return
+    db.guardar_ajustes(tenant["id"], {"mp_caido_at": datetime.now(timezone.utc).isoformat()})
+    tenant["mp_caido_at"] = True
+    logger.warning("Se cortó la conexión con Mercado Pago del tenant %s", tenant["id"])
+    try:
+        import scheduler
+        scheduler.avisar_profesional(tenant, "se cortó la conexión con tu Mercado Pago y las reservas web ya no se cobran "
+                                             "por ahí; entrá al panel y tocá «Conectar Mercado Pago» para reconectarla")
+    except Exception:
+        logger.exception("No se pudo avisar la conexión caída de Mercado Pago")
+
+
+_verificado: dict[str, object] = {}
+
+
+def verificar_conexion(tenant: dict, hoy) -> None:
+    """Una vez por día: ¿Mercado Pago sigue aceptando el permiso? Así el
+    profesional se entera antes de que un paciente quiera pagar."""
+    if not tenant.get("mp_token_cifrado") or tenant.get("mp_caido_at") or _verificado.get(tenant["id"]) == hoy:
+        return
+    _verificado[tenant["id"]] = hoy
+    token = _token(tenant)
+    if not token or tenant.get("mp_caido_at"):
+        return
+    try:
+        r = requests.get(f"{API}/users/me", headers={"Authorization": f"Bearer {token}"}, timeout=15)
+    except requests.RequestException:
+        return
+    if r.status_code in (401, 403):
+        marcar_caida(tenant)
 
 
 def _token(tenant: dict) -> str | None:
@@ -179,6 +217,10 @@ def _token(tenant: dict) -> str | None:
                 if r.status_code < 300 and r.json().get("access_token"):
                     _guardar_tokens(tenant["id"], r.json())
                     return r.json()["access_token"]
+                if r.status_code in (400, 401, 403):
+                    # invalid_grant: el profesional revocó el permiso.
+                    marcar_caida(tenant)
+                    return None
             except requests.RequestException:
                 logger.warning("No se pudo renovar el token de Mercado Pago del tenant %s", tenant["id"])
     return token
@@ -186,7 +228,7 @@ def _token(tenant: dict) -> str | None:
 
 # --- El pago de una reserva ---
 
-def iniciar(tenant: dict, turnos: list[dict], monto: int) -> dict:
+def iniciar(tenant: dict, turnos: list[dict], monto: int, email: str | None = None) -> dict:
     """Aparta los turnos (ya reservados) a la espera del pago y crea el pago.
     Con un solo medio que sea transferencia, el plazo es el del comprobante."""
     medios = metodos(tenant)
@@ -196,7 +238,8 @@ def iniciar(tenant: dict, turnos: list[dict], monto: int) -> dict:
                           "monto": monto, "vence": vence.isoformat(), "estado": "esperando",
                           "metodo": medios[0] if len(medios) == 1 else None,
                           "paciente_nombre": next((t.get("paciente_nombre") for t in turnos if t.get("paciente_nombre")), None),
-                          "sesiones": sorted(str(t["inicio"]) for t in turnos)})
+                          "sesiones": sorted(str(t["inicio"]) for t in turnos),
+                          **({"paciente_email": email} if email else {})})
     for t in turnos:
         db.actualizar_reserva(tenant["id"], t["id"], {"pago_web": "esperando", "pago_vence": vence.isoformat(),
                                                       "pago_id": pago["id"]})
@@ -213,13 +256,18 @@ def descriptor_resumen(tenant: dict) -> str:
     return (limpio or "Consultorio")[:22].strip()
 
 
-def _comprador(nombre: str | None) -> dict | None:
-    """Nombre y apellido del paciente para Mercado Pago (mejora la aprobación
-    del pago). Sólo el nombre que dejó al reservar: nada de la ficha."""
+def _comprador(nombre: str | None, email: str | None = None) -> dict | None:
+    """Nombre, apellido y email del paciente para Mercado Pago (mejora la
+    aprobación del pago). Sólo lo que dejó al reservar: nada de la ficha."""
     partes = (nombre or "").split()
-    if not partes:
-        return None
-    return {"name": partes[0][:60], **({"surname": " ".join(partes[1:])[:60]} if len(partes) > 1 else {})}
+    datos = {}
+    if partes:
+        datos["name"] = partes[0][:60]
+        if len(partes) > 1:
+            datos["surname"] = " ".join(partes[1:])[:60]
+    if email:
+        datos["email"] = email
+    return datos or None
 
 
 def preferencia(tenant: dict, pago: dict, descripcion: str, base: str) -> str | None:
@@ -235,7 +283,7 @@ def preferencia(tenant: dict, pago: dict, descripcion: str, base: str) -> str | 
                    "unit_price": float(pago["monto"])}],
         "external_reference": pago["token"],
         "statement_descriptor": descriptor_resumen(tenant),
-        **({"payer": comprador} if (comprador := _comprador(pago.get("paciente_nombre"))) else {}),
+        **({"payer": comprador} if (comprador := _comprador(pago.get("paciente_nombre"), pago.get("paciente_email"))) else {}),
         "back_urls": {"success": vuelta, "pending": vuelta, "failure": vuelta},
         "auto_return": "approved",
         "notification_url": f"{base}/webhook/mercadopago?t={tenant['id']}",
@@ -247,6 +295,9 @@ def preferencia(tenant: dict, pago: dict, descripcion: str, base: str) -> str | 
                           headers={"Authorization": f"Bearer {token}", "X-Idempotency-Key": f"pref-{pago['token']}"},
                           timeout=15)
     except requests.RequestException:
+        return None
+    if r.status_code in (401, 403):
+        marcar_caida(tenant)
         return None
     if r.status_code >= 300:
         logger.warning("Mercado Pago no creó la preferencia (%s): %s", r.status_code, r.text[:300])
@@ -266,6 +317,9 @@ def revisar_pago_mp(tenant: dict, mp_pago_id: str) -> str | None:
     try:
         r = requests.get(f"{API}/v1/payments/{mp_pago_id}", headers={"Authorization": f"Bearer {token}"}, timeout=15)
     except requests.RequestException:
+        return None
+    if r.status_code in (401, 403):
+        marcar_caida(tenant)
         return None
     if r.status_code >= 300:
         return None
@@ -328,7 +382,23 @@ def aprobar(tenant: dict, pago: dict, mp_pago_id: str | None = None) -> str:
                                                       "confirmado_at": ahora, "reserva_nueva": True, "reserva_avisada": False})
     db.actualizar_pago(pago["id"], {"estado": "aprobado", "mp_pago_id": mp_pago_id, "resuelto": ahora, "comprobante": None})
     _confirmar_al_paciente(tenant, vigentes)
+    try:
+        mandar_recibo(tenant, pago)
+    except Exception:
+        logger.exception("No se pudo mandar el recibo por mail")
     return "aprobado"
+
+
+def mandar_recibo(tenant: dict, pago: dict) -> bool:
+    """Si el paciente dejó su email, le llega el link del recibo. Sólo el
+    profesional y el link: nada de la sesión ni de la ficha."""
+    import mail
+    if not pago.get("paciente_email") or not config.DOMINIO_PRINCIPAL or not mail.disponible():
+        return False
+    link = f"https://{config.DOMINIO_PRINCIPAL}/pago/{pago['token']}/recibo"
+    return mail.enviar(pago["paciente_email"], f"Tu recibo de pago — {tenant['nombre']}",
+                       f"Hola. Recibimos tu pago del turno con {tenant['nombre']}.\n\n"
+                       f"Tu recibo: {link}\n\nNo es una factura. Si tenés dudas, escribile directamente a {tenant['nombre']}.")
 
 
 def _confirmar_al_paciente(tenant: dict, turnos: list[dict]) -> None:

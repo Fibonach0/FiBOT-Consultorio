@@ -18,6 +18,10 @@
 
       <label for="telefono">WhatsApp (con código de país, ej. 5491123456789)</label>
       <input type="tel" id="telefono" name="telefono" required placeholder="5491123456789" autocomplete="tel" data-recordar="telefono">
+      {% if serie_posible %}
+      <label for="email">Email <span style="color:var(--muted)">(opcional: te mandamos el recibo del pago)</span></label>
+      <input type="email" id="email" name="email" maxlength="120" autocomplete="email" data-recordar="email">
+      {% endif %}
 
       {% if serie_posible %}
       <label for="sesiones">¿Cuántas sesiones?</label>
