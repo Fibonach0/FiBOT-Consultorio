@@ -3126,6 +3126,8 @@ chequear("compartir: la página trae título, descripción y la foto para la vis
          'property="og:title"' in _og and f"content=\"{t1['nombre']}" in _og and 'property="og:description"' in _og
          and f"/{t1['slug']}/foto" in _og and 'property="og:image"' in _og)
 _ft = app.app.test_client().get(f"/{t1['slug']}/foto")
+chequear("compartir: una sola vista previa (sin etiquetas repetidas)", _og.count('property="og:title"') == 1
+         and _og.count('property="og:image"') == 1 and _og.count('name="description"') == 1 and 'rel="canonical"' in _og)
 chequear("compartir: la foto se sirve como imagen", _ft.status_code == 200 and _ft.mimetype == "image/png" and _ft.data.startswith(b"\x89PNG"))
 t1["foto"] = "data:text/html;base64,PHNjcmlwdD4="
 chequear("compartir: una foto que no es PNG/JPG no se sirve", app.app.test_client().get(f"/{t1['slug']}/foto").status_code == 404)
