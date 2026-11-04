@@ -250,12 +250,11 @@
       {% else %}
       <div class="turno">
         <span>{{ t._hora }} — <span class="estado-libre">{% if t.hueco == 'pendiente' %}retenido (te cancelaron){% elif t.hueco == 'propio' %}tuyo (no se ofrece){% else %}libre{% endif %}</span></span>
-        {% if dia.bloqueado %}
-        <span class="chip">bloqueado</span>
-        {% elif t._pisado %}
+        {% if t._pisado %}
         <span class="chip">se pisa con otra sesión</span>
         {% elif not t._paso %}
         <span class="libre-acciones">
+        {% if dia.bloqueado %}<span class="chip" title="Tus pacientes no lo ven en tu página. Vos podés agendar igual.">cerrado a pacientes</span>{% endif %}
         <form method="post" action="{{ url_for('agenda_sacar_libre', turno_id=t.id) }}" class="sacar-libre">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="semana" value="{{ semana }}">
@@ -288,6 +287,8 @@
           </form>
         </details>
         </span>
+        {% elif dia.bloqueado %}
+        <span class="chip">bloqueado</span>
         {% endif %}
       </div>
       {% endif %}

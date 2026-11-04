@@ -2317,7 +2317,7 @@ def agenda_reprogramar(turno_id):
     nuevo_inicio = datetime.combine(fecha, hora, tzinfo=tz).astimezone(ZoneInfo("UTC"))
     duracion = tenant.get("duracion_turno_minutos") or 50
     original = db.turno_por_id(tenant["id"], turno_id)
-    error = db.reprogramar_turno(tenant["id"], turno_id, nuevo_inicio, duracion)
+    error = db.reprogramar_turno(tenant["id"], turno_id, nuevo_inicio, duracion, ignorar_bloqueo=True)
     if error:
         flash(error)
         return _volver_a_agenda()
@@ -3898,7 +3898,8 @@ def agenda_agendar(turno_id):
             else db.ficha_para(tenant["id"], telefono, nombre)
     else:
         ambiguo, ficha, ficha_nueva = False, "", False
-    if not turno or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre, valor, frecuencia, modalidad, ficha):
+    if not turno or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre, valor, frecuencia, modalidad, ficha,
+                                          ignorar_bloqueo=True):
         flash("Ese horario ya no está libre.")
         return _volver_a_agenda()
     if ambiguo:

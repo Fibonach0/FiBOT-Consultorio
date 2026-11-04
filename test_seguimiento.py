@@ -997,7 +997,18 @@ afectados = app._bloqueos(TENANT, app._fichas(TENANT, zona, ahora.astimezone(zon
 chequear("dice a quién avisarle", [a["ficha"]["nombre"] for a in afectados[0]["_afectados"]] == (["Ana"] if _norm(fila("futuro")["inicio"]).astimezone(zona).date() == dia_libre else []), afectados[0]["_afectados"])
 chequear("el mes lo marca", 'bloqueado"' in html or " bloqueado" in html)
 html = client.get(f"/agenda?semana={dia_libre.isoformat()}").data.decode()
-chequear("la semana no deja agendar ese día", "bloqueado: Congreso" in html)
+chequear("la semana lo marca cerrado a pacientes", "bloqueado: Congreso" in html and "cerrado a pacientes" in html
+         and "/agenda/agendar/libre-manana" in html)
+r = client.post("/agenda/agendar/libre-manana", data={"nombre": "Feriada", "telefono": "5491100000099"}, follow_redirects=True)
+chequear("el profesional agenda igual en un día bloqueado", fila("libre-manana")["estado"] == "reservado"
+         and fila("libre-manana")["paciente_nombre"] == "Feriada")
+chequear("y sigue cerrado para la página", "libre-manana" not in [t["id"] for t in db.turnos_libres("t1", ahora)])
+otra_hora = (manana + timedelta(hours=4)).astimezone(zona)
+r = client.post("/agenda/reprogramar/pasado", data={"fecha": otra_hora.strftime("%Y-%m-%d"), "hora": otra_hora.strftime("%H:%M")},
+                follow_redirects=True)
+chequear("el profesional puede pasar una sesión a un día bloqueado", "bloqueado" not in r.data.decode().split("Sesión pasada")[0][-200:]
+         and "Sesión pasada" in r.data.decode()) if otra_hora.date() == dia_libre else None
+fila("libre-manana").update(estado="libre", paciente_nombre=None, paciente_telefono=None)
 client.post(f"/agenda/bloqueo/{b['id']}/borrar")
 chequear("se puede quitar", TABLAS["bloqueos"] == [] and "libre-manana" in [t["id"] for t in db.turnos_libres("t1", ahora)])
 html = client.post("/agenda/bloqueo", data={"desde": "2030-02-10", "hasta": "2030-02-01"}, follow_redirects=True).data.decode()
