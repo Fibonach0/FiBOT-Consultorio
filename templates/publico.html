@@ -236,9 +236,9 @@
           <div class="error" role="alert" id="reserva-error" hidden></div>
           {% if i_tipo is not none %}<input type="hidden" name="tipo" value="{{ i_tipo }}">{% endif %}
           <label for="r-nombre">Nombre y apellido</label>
-          <input class="s-campo" id="r-nombre" type="text" name="nombre" required maxlength="120" autocomplete="name">
+          <input class="s-campo" id="r-nombre" type="text" name="nombre" required maxlength="120" autocomplete="name" data-recordar="nombre">
           <label for="r-tel">WhatsApp (con código de país, ej. 5491123456789)</label>
-          <input class="s-campo" id="r-tel" type="tel" name="telefono" required placeholder="5491123456789" autocomplete="tel">
+          <input class="s-campo" id="r-tel" type="tel" name="telefono" required placeholder="5491123456789" autocomplete="tel" data-recordar="telefono">
           {% if (tenant.modalidades_publicas or 'presencial') == 'ambas' %}
           <fieldset class="pf-modo" id="r-modo">
             <legend>¿Cómo preferís?</legend>
@@ -256,6 +256,7 @@
             {% for n in (4, 8) %}<option value="{{ n }}">{{ n }}: el mismo día y hora, {{ n }} semanas seguidas</option>{% endfor %}
           </select>
           {% endif %}
+          <div class="recordar" hidden><label><input type="checkbox" data-recordar-ok checked> Recordar mis datos en este dispositivo</label> <a href="#" data-recordar-olvidar hidden>No soy yo</a></div>
           <button class="s-boton" type="submit" id="r-boton">Reservar</button>
           <p class="pf-pie" style="margin-top:4px">Te confirmamos por WhatsApp.{% if not serie_posible %} Sin pago adelantado.{% endif %}</p>
         </form>
@@ -271,11 +272,12 @@
         <p>Si se libera un horario, {{ tenant.nombre }} te escribe por WhatsApp con el link para reservarlo.</p>
         <form method="post" action="{{ url_for('publico_espera', slug=tenant.slug) }}">
           <label for="espera-nombre">Nombre y apellido</label>
-          <input class="s-campo" type="text" id="espera-nombre" name="nombre" required maxlength="120" autocomplete="name">
+          <input class="s-campo" type="text" id="espera-nombre" name="nombre" required maxlength="120" autocomplete="name" data-recordar="nombre">
           <label for="espera-tel">WhatsApp (con código de país, ej. 5491123456789)</label>
-          <input class="s-campo" type="tel" id="espera-tel" name="telefono" required placeholder="5491123456789" autocomplete="tel">
+          <input class="s-campo" type="tel" id="espera-tel" name="telefono" required placeholder="5491123456789" autocomplete="tel" data-recordar="telefono">
           <label for="espera-pref">¿Qué días u horarios te quedan bien? (opcional)</label>
           <input class="s-campo" type="text" id="espera-pref" name="preferencia" maxlength="200" placeholder="Martes o jueves a la tarde">
+          <div class="recordar" hidden><label><input type="checkbox" data-recordar-ok checked> Recordar mis datos en este dispositivo</label> <a href="#" data-recordar-olvidar hidden>No soy yo</a></div>
           <button class="s-boton borde" type="submit" style="margin-top:6px;padding:11px">Anotarme</button>
         </form>
       </details>
@@ -329,7 +331,7 @@
       solo.textContent = s === 'virtual' ? 'Este horario es por videollamada.' : s === 'presencial' ? 'Este horario es en el consultorio.' : '';
       mostrarError('');
       var nombre = document.getElementById('r-nombre');
-      if (!nombre.value) nombre.focus({ preventScroll: false });
+      (nombre.value ? boton : nombre).focus({ preventScroll: true });  // con datos recordados, directo al botón
       form.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     });
   });
@@ -377,4 +379,5 @@
   });
 })();
 </script>
+{% include "_recordar_datos.html" %}
 {% endblock %}

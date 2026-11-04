@@ -65,6 +65,13 @@ def visibles(tenants: list[dict]) -> list[dict]:
     return [t for t in tenants if t.get("slug") and t.get("en_directorio", True) is not False]
 
 
+def es_demo(t: dict) -> bool:
+    """Las cuentas de muestra (`demo`, `demo-…`): en el directorio van después
+    de los profesionales reales."""
+    slug = t.get("slug") or ""
+    return slug == "demo" or slug.startswith("demo-")
+
+
 def _texto_perfil(t: dict) -> str:
     partes = [t.get("descripcion"), t.get("sobre_mi"), t.get("titulo"), t.get("rubro"),
               " ".join(str(x) for x in (t.get("enfoques") or []))]

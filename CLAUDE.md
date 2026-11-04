@@ -429,6 +429,10 @@ devuelven sólo el pedazo (`_reserva_revisar.html`, `_reserva_lista.html` o
 `_reserva_error.html` con 409; `data-otro` = ese horario ya no sirve). Con cobro
 la respuesta trae `X-Ir-A` con `/pago/<token>`. Las páginas completas incluyen
 los mismos pedazos, y sin JS (o si el fetch falla) se sigue por ellas.
+Nombre y WhatsApp se recuerdan en el navegador (`_recordar_datos.html`, localStorage
+`fibot_paciente`, sólo esos dos datos y sin el profesional) en la reserva y la lista
+de espera: casilla «Recordar mis datos en este dispositivo» (tildada; destildarla
+borra) y «No soy yo». Los campos llevan `data-recordar`.
 
 El teléfono que se carga en el formulario se limpia a solo dígitos antes de
 guardarlo — el recordatorio automático (y que el paciente después le escriba
