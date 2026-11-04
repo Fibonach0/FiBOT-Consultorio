@@ -261,7 +261,7 @@
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <input type="hidden" name="semana" value="{{ semana }}">
             <div><label>Nombre</label><input type="text" name="nombre" required></div>
-            <div><label>WhatsApp</label><input type="text" name="telefono" placeholder="54 9 11 2345 6789" required></div>
+            <div><label>WhatsApp <span class="tenue">(opcional)</span></label><input type="text" inputmode="tel" name="telefono" placeholder="54 9 11 2345 6789"></div>
             <div><label>Valor de sesión</label><input type="text" inputmode="numeric" name="valor" placeholder="25000"></div>
             <div><label>Frecuencia</label>
               <select name="frecuencia">
@@ -1133,7 +1133,7 @@
     <div class="tenue" id="sin-resultados" hidden>No hay ninguna ficha con ese nombre.</div>
     {% if not fichas %}<div class="tenue">Cuando agendes un paciente, acá aparece su ficha.</div>{% endif %}
     {% macro tarjeta(f) %}
-      <article class="ficha" role="button" tabindex="0" data-ficha="{{ f.dom }}" data-buscar="{{ f.nombre }} {{ f.telefono }}">
+      <article class="ficha" role="button" tabindex="0" data-ficha="{{ f.dom }}" data-buscar="{{ f.nombre }}{% if tiene_whatsapp(f.telefono) %} {{ f.telefono }}{% endif %}">
         <h4>{{ f.nombre }}</h4>
         <dl>
           <dt>Frecuencia</dt><dd>{{ f.frecuencia or 'Sin fijar' }}</dd>
@@ -1637,13 +1637,22 @@
         <dt>Valor</dt><dd>{{ f.valor|pesos if f.valor is not none else '—' }}</dd>
         <dt>Edad</dt><dd>{{ f.edad if f.edad is not none else '—' }}</dd>
         <dt>Cumple</dt><dd>{{ f.cumpleanios or '—' }}</dd>
-        <dt>{{ rubro.contacto }}</dt><dd>{{ f.telefono }}</dd>
+        <dt>{{ rubro.contacto }}</dt><dd>{% if tiene_whatsapp(f.telefono) %}{{ f.telefono }}{% else %}<span class="tenue">Sin WhatsApp</span>{% endif %}</dd>
         <dt>Obra social</dt><dd>{{ f.obra_social or '—' }}{% if f.numero_afiliado %} · {{ f.numero_afiliado }}{% endif %}</dd>
         <dt>Desde</dt><dd>{{ f.desde or '—' }}</dd>
         <dt>Debe</dt><dd{% if f.sin_pagar %} class="debe"{% endif %}>{% if f.sin_pagar %}{{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}{% else %}Nada{% endif %}</dd>
       </dl>
 
-      {% if f.adeudado %}
+      {% if not tiene_whatsapp(f.telefono) %}
+      <form method="post" action="{{ url_for('agenda_cargar_whatsapp') }}" class="cargar-whatsapp">
+        {{ ocultos(f.clave) }}
+        <label>Cargar su WhatsApp <span class="tenue">(para que le lleguen los recordatorios)</span></label>
+        <div class="fila-boton"><input type="text" inputmode="tel" name="whatsapp" placeholder="54 9 11 2345 6789" required>
+        <button class="btn chico" type="submit">Guardar</button></div>
+      </form>
+      {% endif %}
+
+      {% if f.adeudado and tiene_whatsapp(f.telefono) %}
       <form method="post" action="{{ url_for('agenda_recordar_pago') }}">
         {{ ocultos(f.clave) }}
         {% if f.recordado_hoy %}<span class="tenue">Ya se le recordó el pago hoy.</span>

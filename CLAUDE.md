@@ -674,6 +674,17 @@ es una ficha sin sesiones: otro nombre no la hereda y esa persona la recupera al
 volver. Si tiene algo anotado se ve en el desplegable «Sin sesiones», y también
 sirve de destino para pasarle sesiones. Si sólo tiene el nombre, no se muestra. Sin nombre, el bot pide uno si hay más de una ficha.
 
+Pacientes sin WhatsApp: en el panel el número es opcional al agendar. Sin número,
+`paciente_telefono` lleva una clave inventada `sin-<hex>` (`db.SIN_WHATSAPP`, nunca
+todos dígitos) y la ficha es `''`. El mismo nombre completo idéntico reusa la clave
+(`db.clave_sin_whatsapp`), «Es otra persona» abre otra. `whatsapp.py` no manda
+nada a algo que no sean dígitos (devuelve True: resuelto, no se reintenta), así
+que recordatorios, avisos y cobros se saltean solos. Antes de decir «le avisamos»
+o mostrar un botón de WhatsApp, mirar `db.tiene_whatsapp`. Desde la ficha
+(pestaña Datos) se le carga el número: `db.cargar_whatsapp` pasa todas sus filas
+de `TABLAS_DEL_PACIENTE` al número nuevo (ficha aparte si ese número ya tiene
+pacientes). Una tabla nueva con `paciente_telefono` va en esa lista.
+
 Cancelar por WhatsApp nunca adivina: con turnos de dos personas en el teléfono,
 o con un nombre que no coincide, el bot los lista y no cancela nada hasta recibir
 `cancelar Lola`.

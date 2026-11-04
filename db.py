@@ -3,6 +3,7 @@ y TODO recibe tenant_id explícito — no hay una sola función que pueda tocar
 datos de un tenant sin que se lo pidan a propósito. Esa disciplina es la que
 evita que un bug cruce datos de un profesional a otro."""
 import hashlib
+import secrets
 import unicodedata
 from datetime import datetime, timedelta, timezone
 
@@ -149,6 +150,52 @@ def clave_de(fila: dict) -> str:
     usar el WhatsApp del mismo adulto."""
     ficha = fila.get("ficha")
     return f"{fila['paciente_telefono']}~{ficha}" if ficha else fila["paciente_telefono"]
+
+
+# Paciente agendado sin WhatsApp: el sistema identifica cada ficha por
+# teléfono, así que se le inventa una clave que no es un número. Nunca son
+# todos dígitos, y whatsapp.py no manda nada a algo que no lo sea.
+SIN_WHATSAPP = "sin-"
+TABLAS_DEL_PACIENTE = ("turnos", "pacientes", "paciente_personas", "paciente_fechas", "cancelaciones",
+                       "paciente_tests", "lecturas", "cuestionarios", "informes", "entregas")
+
+
+def tiene_whatsapp(telefono: str | None) -> bool:
+    return bool(telefono) and telefono.isdigit()
+
+
+def clave_sin_whatsapp(tenant_id: str, nombre: str, otra_persona: bool = False) -> str:
+    """La clave de un paciente sin WhatsApp. Si ya hay uno sin WhatsApp con el
+    mismo nombre completo, es ese (el profesional le está dando otro turno).
+    Sólo nombre idéntico: sin número no hay nada más que confirme que es la
+    misma persona, y «Juan» no tiene por qué ser «Juan Pérez»."""
+    if not otra_persona:
+        sesiones = (_client.table("turnos").select("paciente_telefono,paciente_nombre,inicio")
+                    .eq("tenant_id", tenant_id).eq("estado", "reservado")
+                    .ilike("paciente_telefono", SIN_WHATSAPP + "%").order("inicio", desc=True).execute().data)
+        guardadas = (_client.table("pacientes").select("paciente_telefono,nombre")
+                     .eq("tenant_id", tenant_id).ilike("paciente_telefono", SIN_WHATSAPP + "%").execute().data)
+        for clave, otro in [*((t["paciente_telefono"], t.get("paciente_nombre")) for t in sesiones),
+                            *((p["paciente_telefono"], p.get("nombre")) for p in guardadas)]:
+            if _palabras(otro) and _palabras(otro) == _palabras(nombre):
+                return clave
+    return SIN_WHATSAPP + secrets.token_hex(5)
+
+
+def cargar_whatsapp(tenant_id: str, clave: str, telefono: str, nombre: str | None) -> str | None:
+    """Le pone número a un paciente que se agendó sin WhatsApp: todo lo suyo
+    (sesiones, ficha, notas, tests…) pasa al número nuevo. Si ese número ya lo
+    usa otro paciente, queda en una ficha aparte, como cuando dos personas
+    comparten WhatsApp. Devuelve la clave nueva, o None si no se pudo."""
+    viejo, _ = partir_clave(clave)
+    if not viejo.startswith(SIN_WHATSAPP) or not tiene_whatsapp(telefono):
+        return None
+    filas = fichas_del_telefono(tenant_id, telefono)
+    ficha = _ficha_libre(filas, nombre) if filas else ""
+    for tabla in TABLAS_DEL_PACIENTE:
+        (_client.table(tabla).update({"paciente_telefono": telefono, "ficha": ficha})
+         .eq("tenant_id", tenant_id).eq("paciente_telefono", viejo).execute())
+    return f"{telefono}~{ficha}" if ficha else telefono
 
 
 def partir_clave(clave: str) -> tuple[str, str]:

@@ -403,6 +403,7 @@ def _horas_noche(valor) -> tuple[int, int] | None:
     return (desde, hasta) if 0 <= desde <= 23 and 0 <= hasta <= 23 and desde != hasta else None
 
 
+app.jinja_env.globals["tiene_whatsapp"] = db.tiene_whatsapp
 app.jinja_env.globals["vista_pagina"] = _vista
 
 # Color de la página pública: (claro, oscuro), cada uno con
@@ -2321,7 +2322,9 @@ def agenda_reprogramar(turno_id):
         return _volver_a_agenda()
     aviso = ""
     if request.form.get("avisar") and nuevo_inicio > datetime.now(ZoneInfo("UTC")):
-        if _avisar_cambio(tenant, original, nuevo_inicio, tz):
+        if not db.tiene_whatsapp((original or {}).get("paciente_telefono")):
+            aviso = " No tiene WhatsApp cargado: avisale vos."
+        elif _avisar_cambio(tenant, original, nuevo_inicio, tz):
             aviso = " Le avisamos al paciente."
         else:
             aviso = " No se le pudo avisar al paciente: escribile vos."
@@ -2482,6 +2485,27 @@ def agenda_paciente():
         if campo in request.form:
             campos[campo] = request.form[campo].strip() or None
     db.guardar_paciente(session["tenant_id"], telefono, campos)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/paciente/whatsapp")
+@login_required
+def agenda_cargar_whatsapp():
+    """Para el paciente que se agendó sin WhatsApp: desde acá le llegan los
+    recordatorios y avisos como a cualquier otro."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    clave = request.form.get("telefono") or ""
+    nuevo = "".join(ch for ch in (request.form.get("whatsapp") or "") if ch.isdigit())
+    ficha = next((f for f in _fichas(tenant, tz, datetime.now(tz)) if f["clave"] == clave), None)
+    if not ficha or db.tiene_whatsapp(ficha["telefono"]):
+        flash("Ese paciente ya tiene WhatsApp.")
+    elif len(nuevo) < 8:
+        flash("Ese WhatsApp no parece completo: poné el número con código de área.")
+    elif db.cargar_whatsapp(tenant["id"], clave, nuevo, ficha["nombre"]):
+        flash(f"Listo, a {ficha['nombre']} ya le llegan los recordatorios por WhatsApp.")
+    else:
+        flash("No se pudo cargar el WhatsApp.")
     return _volver_a_agenda()
 
 
@@ -2669,6 +2693,8 @@ def agenda_recordar_pago():
     ficha = next((f for f in _fichas(tenant, tz, datetime.now(tz)) if f["clave"] == telefono), None)
     if not ficha or not ficha["adeudado"]:
         flash("Ese paciente no tiene deuda con valor cargado.")
+    elif not db.tiene_whatsapp(ficha["telefono"]):
+        flash(f"{ficha['nombre']} no tiene WhatsApp cargado.")
     elif ficha["recordado_hoy"]:
         flash(f"A {ficha['nombre']} ya se le recordó hoy.")
     else:
@@ -3734,7 +3760,7 @@ def _contexto_ficha_completa(tenant: dict, clave: str) -> dict | None:
     ficha = next((f for f in _fichas(tenant, tz, ahora) if f["clave"] == clave), None)
     if not ficha:
         return None
-    datos = [("Nombre", ficha["nombre"]), ("Teléfono", ficha["telefono"]),
+    datos = [("Nombre", ficha["nombre"]), ("Teléfono", ficha["telefono"] if db.tiene_whatsapp(ficha["telefono"]) else None),
              ("Fecha de nacimiento", date.fromisoformat(ficha["fecha_nacimiento"]).strftime("%d/%m/%Y") if ficha.get("fecha_nacimiento") else None),
              ("Obra social", " · N° ".join(x for x in (ficha.get("obra_social"), ficha.get("numero_afiliado")) if x) or None),
              ("En tratamiento desde", ficha.get("desde")),
@@ -3832,10 +3858,15 @@ def agenda_agendar(turno_id):
     # Solo dígitos, mismo motivo que en la página pública: el recordatorio
     # sale a este número tal cual.
     telefono = "".join(ch for ch in (request.form.get("telefono") or "") if ch.isdigit())
-    if not nombre or not telefono:
-        flash("Para agendar hacen falta nombre y WhatsApp del paciente.")
+    if not nombre:
+        flash("Para agendar hace falta el nombre del paciente.")
         return _volver_a_agenda()
     tenant = db.get_tenant_by_id(session["tenant_id"])
+    otra_persona = bool(request.form.get("otra_persona"))
+    if not telefono:
+        # El WhatsApp es opcional: sin él no salen recordatorios ni avisos, y
+        # se puede cargar después desde la ficha.
+        telefono = db.clave_sin_whatsapp(tenant["id"], nombre, otra_persona)
     valor = _valor_del_form()
     frecuencia = request.form.get("frecuencia") or None
     if frecuencia not in FRECUENCIAS:
@@ -3844,10 +3875,12 @@ def agenda_agendar(turno_id):
     if modalidad not in MODALIDADES:
         modalidad = None
     turno = db.turno_por_id(tenant["id"], turno_id)
-    otra_persona = bool(request.form.get("otra_persona"))
-    ambiguo = not otra_persona and db.nombre_ambiguo(tenant["id"], telefono, nombre)
-    ficha, ficha_nueva = (db.ficha_aparte(tenant["id"], telefono, nombre), False) if otra_persona \
-        else db.ficha_para(tenant["id"], telefono, nombre)
+    if db.tiene_whatsapp(telefono):
+        ambiguo = not otra_persona and db.nombre_ambiguo(tenant["id"], telefono, nombre)
+        ficha, ficha_nueva = (db.ficha_aparte(tenant["id"], telefono, nombre), False) if otra_persona \
+            else db.ficha_para(tenant["id"], telefono, nombre)
+    else:
+        ambiguo, ficha, ficha_nueva = False, "", False
     if not turno or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre, valor, frecuencia, modalidad, ficha):
         flash("Ese horario ya no está libre.")
         return _volver_a_agenda()

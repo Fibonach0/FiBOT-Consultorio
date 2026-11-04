@@ -30,6 +30,7 @@ scheduler.iniciar = lambda: None
 
 import app  # noqa: E402
 import db  # noqa: E402
+import whatsapp as whatsapp_real  # noqa: E402
 
 fallos = []
 
@@ -96,7 +97,8 @@ class _Query:
         return self
 
     def ilike(self, c, patron):
-        self.filtros.append(lambda f: (f.get(c) or "").casefold() == patron.casefold())
+        regex = re.compile("^" + ".*".join(re.escape(p) for p in patron.casefold().split("%")) + "$")
+        self.filtros.append(lambda f: bool(regex.match((f.get(c) or "").casefold())))
         return self
 
     def in_(self, c, valores):
@@ -439,6 +441,47 @@ chequear("agendar a mano en un horario libre", fila("futuro")["paciente_telefono
          and fila("futuro")["estado"] == "reservado")
 r = client.post("/agenda/agendar/futuro", data={"nombre": "Otro", "telefono": "5491100000000"}, follow_redirects=True)
 chequear("agendar sobre uno ocupado avisa", "ya no está libre" in r.data.decode() and fila("futuro")["paciente_nombre"] == "Pedro")
+
+print("Agendar sin WhatsApp")
+reset()
+TABLAS["turnos"].append(turno("sin-1", "t1", manana + timedelta(days=2, hours=1)))
+TABLAS["turnos"].append(turno("sin-2", "t1", manana + timedelta(days=9, hours=1)))
+TABLAS["turnos"].append(turno("sin-3", "t1", manana + timedelta(days=10, hours=1)))
+TABLAS["turnos"].append(turno("sin-4", "t1", manana + timedelta(days=10, hours=3)))
+r = client.post("/agenda/agendar/sin-1", data={"nombre": "Lola Paz", "telefono": ""}, follow_redirects=True)
+clave_lola = fila("sin-1")["paciente_telefono"]
+chequear("sin WhatsApp: agenda igual", fila("sin-1")["estado"] == "reservado" and clave_lola.startswith(db.SIN_WHATSAPP)
+         and not db.tiene_whatsapp(clave_lola))
+client.post("/agenda/agendar/sin-2", data={"nombre": "lola  paz"})
+chequear("sin WhatsApp: el mismo nombre va a la misma ficha", fila("sin-2")["paciente_telefono"] == clave_lola)
+client.post("/agenda/agendar/sin-3", data={"nombre": "Lola Paz", "otra_persona": "1"})
+chequear("sin WhatsApp: «otra persona» abre otra ficha", fila("sin-3")["paciente_telefono"] not in (clave_lola, ""))
+r = client.post("/agenda/agendar/sin-3", data={"nombre": "", "telefono": "5491100000001"}, follow_redirects=True)
+chequear("sin nombre no agenda", "hace falta el nombre" in r.data.decode())
+html = client.get("/agenda?semana=" + (manana + timedelta(days=10)).strftime("%Y-%m-%d")).data.decode()
+chequear("panel: el WhatsApp es opcional", 'name="telefono" placeholder="54 9 11 2345 6789" required' not in html
+         and "WhatsApp <span class=\"tenue\">(opcional)</span>" in html)
+chequear("ficha: muestra «Sin WhatsApp» y no la clave inventada", "Sin WhatsApp" in html and clave_lola not in html.split("data-buscar")[1][:200]
+         and "Cargar su WhatsApp" in html)
+chequear("whatsapp.py no manda a una clave sin número", whatsapp_real._sin_numero(clave_lola) and not whatsapp_real._sin_numero("5491100000001"))
+enviados.clear()
+mover = manana + timedelta(days=3, hours=2)
+r = client.post("/agenda/reprogramar/sin-1", data={"fecha": mover.astimezone(app.ZoneInfo(TZ)).strftime("%Y-%m-%d"),
+                                                  "hora": mover.astimezone(app.ZoneInfo(TZ)).strftime("%H:%M"), "avisar": "1"},
+                follow_redirects=True)
+chequear("reprogramar sin WhatsApp: no dice que avisó", "avisale vos" in r.data.decode() and not enviados)
+next(p for p in TABLAS["pacientes"] if p["paciente_telefono"] == clave_lola)["notas"] = "nota"
+r = client.post("/agenda/paciente/whatsapp", data={"telefono": clave_lola, "whatsapp": "123"}, follow_redirects=True)
+chequear("cargar WhatsApp: número corto no", "no parece completo" in r.data.decode())
+r = client.post("/agenda/paciente/whatsapp", data={"telefono": clave_lola, "whatsapp": "+54 9 11 4444-0000"}, follow_redirects=True)
+chequear("cargar WhatsApp: pasan las sesiones y la ficha", "ya le llegan" in r.data.decode()
+         and sum(f.get("paciente_telefono") == "5491144440000" for f in TABLAS["turnos"]) == 2
+         and not any(f.get("paciente_telefono") == clave_lola for f in TABLAS["turnos"])
+         and fila("sin-3")["paciente_telefono"].startswith(db.SIN_WHATSAPP)
+         and any(p["paciente_telefono"] == "5491144440000" and p.get("notas") == "nota" for p in TABLAS["pacientes"]))
+r = client.post("/agenda/paciente/whatsapp", data={"telefono": "5491144440000", "whatsapp": "5491155556666"}, follow_redirects=True)
+chequear("cargar WhatsApp: no pisa uno que ya tiene", "ya tiene WhatsApp" in r.data.decode()
+         and not any(f.get("paciente_telefono") == "5491155556666" for f in TABLAS["turnos"]))
 
 print("Pacientes fijos")
 reset()
