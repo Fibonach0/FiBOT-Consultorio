@@ -38,9 +38,9 @@ db.marcar_evento = lambda clave, detalle=None: None  # la hora del último mensa
 
 client = app.app.test_client()
 
-r = client.get("/")
+r = client.get("/health")
 assert r.status_code == 200, r.status_code
-print("GET / ->", r.status_code, r.data)
+print("GET /health ->", r.status_code, r.data)
 
 r = client.get("/login")
 assert r.status_code == 200

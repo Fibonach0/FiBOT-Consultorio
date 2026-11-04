@@ -171,6 +171,14 @@ pública no es un camino paralelo, es la misma operación atómica (filtra por
 `slug` cargado simplemente no tiene página pública; sigue andando por
 WhatsApp y panel como siempre.
 
+`/` es la portada del sitio para futuros pacientes (`templates/inicio.html`,
+página suelta, no extiende `base.html`): qué es, temas, hasta
+`INICIO_PROFESIONALES` del directorio (mismo filtro que /turnos; primero los que
+toman turnos y tienen foto), cómo funciona, modalidades, preguntas frecuentes y
+el bloque «¿Sos profesional?». «Quiero sumarme» sólo aparece si está
+`CONTACTO_PROFESIONALES` (un `mailto:` o link de WhatsApp). Si la base falla, la
+página sale sin la grilla. El chequeo de vida es `/health`, no `/`.
+
 `/turnos` es la puerta de entrada para pacientes: lista los profesionales
 activos con `slug` y cada uno lleva a su calendario. `/<slug>` muestra una
 semana (lunes a domingo, en la zona del profesional, `?semana=AAAA-MM-DD`) con
