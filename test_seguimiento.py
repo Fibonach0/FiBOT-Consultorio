@@ -3110,8 +3110,9 @@ chequear("color: la página usa el color elegido, en claro y en oscuro", t1["col
 panel_c.post("/agenda/presentacion", data={"csrf_token": "tok", "color_pagina": "</style><script>", "descripcion": "Adultos · Caballito"})
 chequear("color: un valor raro vuelve al verde de siempre", t1["color_pagina"] is None
          and "--green:#9a4a2c" not in app.app.test_client().get(f"/{t1['slug']}").data.decode())
-chequear("panel: recorte de foto y colores para elegir", all(x in panel_c.get("/agenda").data.decode()
-         for x in ('id="recorte"', 'name="color_pagina" value="azul"', "Usar este recorte")))
+_hp = panel_c.get("/agenda").data.decode()
+chequear("panel: recorte de foto y colores para elegir", all(x in _hp for x in ('id="recorte"', 'name="color_pagina" value="azul"', "Usar este recorte"))
+         and _hp.index('id="recorte"') < _hp.index("se elige el recorte"))
 
 panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "cualquiera", "en_directorio": "1"})
 chequear("perfil: modalidad inválida vuelve a presencial", t1["modalidades_publicas"] == "presencial" and t1["en_directorio"] is True)
