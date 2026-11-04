@@ -3211,7 +3211,6 @@ def agenda_perfil():
     modalidades = f.get("modalidades_publicas") if f.get("modalidades_publicas") in MODALIDADES_PUBLICAS else "presencial"
     tenant = db.get_tenant_by_id(session["tenant_id"])
     db.guardar_ajustes(session["tenant_id"], {
-        "descripcion": (f.get("descripcion") or "").strip()[:160] or None,
         "modalidades_publicas": modalidades,
         "en_directorio": f.get("en_directorio") == "1",
         "al_cancelar": "preguntar" if f.get("al_cancelar") == "preguntar" else "liberar",
@@ -3247,6 +3246,91 @@ def agenda_foto():
         db.guardar_ajustes(session["tenant_id"], {"foto": f"data:{tipo};base64,{base64.b64encode(crudo).decode()}"})
         flash("Se guardó tu foto.")
     return _volver_a_agenda()
+
+
+PORTADA_MAX = 600_000
+MAX_ENFOQUES = 8
+MAX_FORMACION = 6
+
+
+def _lista_corta(texto: str, separador: str, maximo: int, largo: int) -> list[str]:
+    vistos, salida = set(), []
+    for x in (texto or "").split(separador):
+        x = " ".join(x.split())[:largo]
+        if x and x.lower() not in vistos:
+            vistos.add(x.lower())
+            salida.append(x)
+    return salida[:maximo]
+
+
+@app.post("/agenda/presentacion")
+@login_required
+def agenda_presentacion():
+    """Lo que el paciente lee de vos arriba de tus horarios."""
+    f = request.form
+
+    def corto(clave, largo):
+        return " ".join((f.get(clave) or "").split())[:largo] or None
+
+    def largo(clave, n):
+        texto = (f.get(clave) or "").replace("\r\n", "\n").strip()[:n]
+        return "\n".join(r.rstrip() for r in texto.split("\n")) or None
+
+    db.guardar_ajustes(session["tenant_id"], {
+        "titulo": corto("titulo", 80),
+        "ubicacion": corto("ubicacion", 80),
+        "descripcion": corto("descripcion", 160),
+        "sobre_mi": largo("sobre_mi", 1200),
+        "enfoques": _lista_corta(f.get("enfoques", ""), ",", MAX_ENFOQUES, 40),
+        "formacion": _lista_corta(f.get("formacion", ""), "\n", MAX_FORMACION, 120),
+        "mas_de_mi": largo("mas_de_mi", 400),
+        "obras_sociales": corto("obras_sociales", 200),
+    })
+    flash("Listo, guardado: así te presentás en tu página.")
+    return redirect(url_for("agenda") + "#mi-pagina")
+
+
+@app.post("/agenda/portada")
+@login_required
+def agenda_portada():
+    """Imagen de portada de la página. PNG o JPG por los primeros bytes; el
+    navegador la achica antes de mandarla."""
+    archivo = request.files.get("portada")
+    crudo = archivo.read(PORTADA_MAX + 1) if archivo else b""
+    tipo = next((t for firma, t in FIRMA_TIPOS.items() if crudo.startswith(firma)), None)
+    if not crudo:
+        flash("Elegí una imagen.")
+    elif len(crudo) > PORTADA_MAX:
+        flash("La imagen es muy pesada: hasta 600 KB.")
+    elif not tipo:
+        flash("La portada tiene que ser PNG o JPG.")
+    else:
+        tenant = db.get_tenant_by_id(session["tenant_id"])
+        db.guardar_portada(session["tenant_id"], tipo, base64.b64encode(crudo).decode(),
+                           int(tenant.get("portada_version") or 0) + 1)
+        flash("Se guardó tu portada.")
+    return redirect(url_for("agenda") + "#mi-pagina")
+
+
+@app.post("/agenda/portada/borrar")
+@login_required
+def agenda_portada_borrar():
+    db.borrar_portada(session["tenant_id"])
+    flash("Se quitó la portada.")
+    return redirect(url_for("agenda") + "#mi-pagina")
+
+
+@app.get("/<slug>/portada")
+def publico_portada(slug):
+    tenant = db.get_tenant_by_slug(slug)
+    fila = db.portada(tenant["id"]) if tenant and tenant.get("portada_version") else None
+    if not fila:
+        return ("", 404)
+    r = app.response_class(base64.b64decode(fila["datos"]), mimetype=fila["tipo"])
+    # La URL lleva ?v=<versión>: puede quedar en caché, al cambiarla cambia la URL.
+    r.headers["Cache-Control"] = "public, max-age=604800"
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    return r
 
 
 @app.post("/agenda/foto/borrar")

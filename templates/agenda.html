@@ -617,21 +617,51 @@
          href="https://wa.me/?text={{ ('Sacá tu turno conmigo acá: ' ~ mi_pagina)|urlencode }}">Compartir por WhatsApp</a>
       <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ mi_pagina }}">Ver</a>
     </div>
-    <details style="margin-top:8px"{% if not tenant.descripcion and not tenant.foto %} open{% endif %}><summary class="tenue">Cómo te ven: foto, descripción, modalidad</summary>
-      <div style="display:flex;gap:12px;align-items:center;margin:10px 0">
-        {% if tenant.foto %}<img src="{{ tenant.foto }}" alt="Tu foto" width="64" height="64" style="width:64px;height:64px;border-radius:50%;object-fit:cover">{% endif %}
-        <form method="post" action="{{ url_for('agenda_foto') }}" enctype="multipart/form-data" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="file" name="foto" accept="image/png,image/jpeg">
-          <button class="btn chico secundario" type="submit">{{ 'Cambiar foto' if tenant.foto else 'Subir foto' }}</button>
-        </form>
-        {% if tenant.foto %}
-        <form method="post" action="{{ url_for('agenda_foto_borrar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="quitar" type="submit" title="Quitar la foto">×</button></form>
-        {% endif %}
+    <details style="margin-top:8px"{% if not tenant.sobre_mi and not tenant.foto %} open{% endif %}><summary class="tenue">Cómo te presentás: foto, portada y sobre vos</summary>
+      <p class="tenue" style="font-size:.85rem;margin:8px 0">Es lo primero que ve un paciente antes de elegir horario. Contá quién sos como profesional y también algo tuyo: ayuda a que te elijan. <a target="_blank" rel="noopener" href="{{ mi_pagina }}">Ver cómo queda</a></p>
+      <div class="perfil-fotos">
+        <div>
+          <label>Foto de perfil</label>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            {% if tenant.foto %}<img src="{{ tenant.foto }}" alt="Tu foto" width="64" height="64" style="width:64px;height:64px;border-radius:50%;object-fit:cover">{% endif %}
+            <form method="post" action="{{ url_for('agenda_foto') }}" enctype="multipart/form-data" data-achicar="512x512" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="file" name="foto" accept="image/png,image/jpeg">
+              <button class="btn chico secundario" type="submit">{{ 'Cambiar foto' if tenant.foto else 'Subir foto' }}</button>
+            </form>
+            {% if tenant.foto %}<form method="post" action="{{ url_for('agenda_foto_borrar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="quitar" type="submit" title="Quitar la foto">×</button></form>{% endif %}
+          </div>
+        </div>
+        <div>
+          <label>Portada (la imagen ancha de arriba)</label>
+          {% if tenant.portada_version %}<img src="{{ url_for('publico_portada', slug=tenant.slug, v=tenant.portada_version) }}" alt="Tu portada" style="width:100%;max-width:360px;aspect-ratio:4/1;object-fit:cover;border-radius:8px;display:block;margin-bottom:6px">{% endif %}
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <form method="post" action="{{ url_for('agenda_portada') }}" enctype="multipart/form-data" data-achicar="1600x400" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="file" name="portada" accept="image/png,image/jpeg">
+              <button class="btn chico secundario" type="submit">{{ 'Cambiar portada' if tenant.portada_version else 'Subir portada' }}</button>
+            </form>
+            {% if tenant.portada_version %}<form method="post" action="{{ url_for('agenda_portada_borrar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="quitar" type="submit" title="Quitar la portada">×</button></form>{% endif %}
+          </div>
+          <span class="tenue" style="font-size:.8rem">Un paisaje, tu consultorio, algo que te guste. Sin portada se usa un fondo liso.</span>
+        </div>
       </div>
+      <form method="post" action="{{ url_for('agenda_presentacion') }}" class="fila" style="margin-top:12px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div><label>Título</label><input type="text" name="titulo" maxlength="80" placeholder="Lic. en Psicología (UBA)" value="{{ tenant.titulo or '' }}"></div>
+        <div><label>Dónde atendés</label><input type="text" name="ubicacion" maxlength="80" placeholder="Palermo, CABA" value="{{ tenant.ubicacion or '' }}"></div>
+        <div class="ancho"><label>Una línea sobre vos (hasta 160 letras)</label><input type="text" name="descripcion" maxlength="160" placeholder="Acompaño a adolescentes y adultos en momentos de cambio" value="{{ tenant.descripcion or '' }}"></div>
+        <div class="ancho"><label>Sobre mí</label><textarea name="sobre_mi" rows="5" maxlength="1200" placeholder="Cómo trabajás, desde qué enfoque, qué puede esperar alguien en la primera sesión.">{{ tenant.sobre_mi or '' }}</textarea></div>
+        <div class="ancho"><label>Temas que trabajás (separados por coma, hasta {{ 8 }})</label><input type="text" name="enfoques" maxlength="400" placeholder="Ansiedad, Duelo, Adolescentes, Vínculos" value="{{ (tenant.enfoques or [])|join(', ') }}"></div>
+        <div class="ancho"><label>Formación (un renglón por título o curso, hasta 6)</label><textarea name="formacion" rows="3" maxlength="800" placeholder="Lic. en Psicología — UBA&#10;Posgrado en Terapia Cognitiva — Fundación Aiglé">{{ (tenant.formacion or [])|join('\n') }}</textarea></div>
+        <div class="ancho"><label>Un poco más de mí <span class="tenue">(lo que te humaniza: qué te gusta, tus mascotas, qué estás leyendo)</span></label><textarea name="mas_de_mi" rows="2" maxlength="400" placeholder="Fuera del consultorio me vas a encontrar en bici o con mis dos gatos.">{{ tenant.mas_de_mi or '' }}</textarea></div>
+        <div class="ancho"><label>Obras sociales y prepagas</label><input type="text" name="obras_sociales" maxlength="200" placeholder="Particular. Doy factura para reintegro de OSDE y Swiss Medical." value="{{ tenant.obras_sociales or '' }}"></div>
+        <div class="al-pie"><button class="btn chico" type="submit">Guardar presentación</button></div>
+      </form>
+    </details>
+    <details style="margin-top:8px"><summary class="tenue">Reservas desde tu página: modalidad, cancelaciones, lista</summary>
       <form method="post" action="{{ url_for('agenda_perfil') }}" class="fila">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <div style="flex:2"><label>Una línea sobre vos (hasta 160 letras)</label><input type="text" name="descripcion" maxlength="160" placeholder="Niños y adolescentes · Palermo" value="{{ tenant.descripcion or '' }}"></div>
         <div><label>Turnos que ofrecés en la página</label><select name="modalidades_publicas">
           {% set m = tenant.modalidades_publicas or 'presencial' %}
           <option value="presencial"{% if m == 'presencial' %} selected{% endif %}>Sólo presenciales</option>
@@ -1713,6 +1743,44 @@
       });
     });
   })();
+</script>
+<script>
+// Achica en el navegador las fotos antes de subirlas (las del celular pesan
+// varios MB). data-achicar="ANCHOxALTO": máximo; la portada se recorta a esa proporción.
+document.querySelectorAll('form[data-achicar]').forEach(function (form) {
+  form.addEventListener('submit', function (e) {
+    var input = form.querySelector('input[type=file]');
+    var archivo = input && input.files[0];
+    if (!archivo || !window.HTMLCanvasElement || !window.DataTransfer || !/^image\/(png|jpeg)$/.test(archivo.type)) return;
+    e.preventDefault();
+    var medidas = form.dataset.achicar.split('x').map(Number), W = medidas[0], H = medidas[1];
+    var portada = W / H > 2;
+    var img = new Image();
+    img.onload = function () {
+      var sx = 0, sy = 0, sw = img.width, sh = img.height;
+      if (portada) {  // recorte centrado a la proporción de la portada
+        var prop = W / H;
+        if (sw / sh > prop) { sw = sh * prop; sx = (img.width - sw) / 2; } else { sh = sw / prop; sy = (img.height - sh) / 2; }
+      }
+      var escala = Math.min(1, W / sw, H / sh);
+      var c = document.createElement('canvas');
+      c.width = Math.round(sw * escala); c.height = Math.round(sh * escala);
+      var ctx = c.getContext('2d');
+      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
+      c.toBlob(function (blob) {
+        URL.revokeObjectURL(img.src);
+        if (!blob) { form.submit(); return; }
+        var dt = new DataTransfer();
+        dt.items.add(new File([blob], 'imagen.jpg', {type: 'image/jpeg'}));
+        input.files = dt.files;
+        form.submit();
+      }, 'image/jpeg', 0.85);
+    };
+    img.onerror = function () { form.submit(); };
+    img.src = URL.createObjectURL(archivo);
+  });
+});
 </script>
 <div id="novedades" class="novedades" hidden role="status">
   Hubo novedades (un pago, una devolución o una reserva).

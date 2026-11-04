@@ -35,21 +35,36 @@
   {% if hay_directorio and not cambiar %}<a href="{{ url_for('turnos_directorio') }}">Otros profesionales</a>{% endif %}
 </header>
 <main>
-  <div class="card">
-    <div style="display:flex;gap:14px;align-items:center">
-      {% if tenant.foto %}<img src="{{ tenant.foto }}" alt="" width="72" height="72" style="width:72px;height:72px;border-radius:50%;object-fit:cover;flex:none">{% endif %}
-      <div>
-        <h1 style="margin:0 0 4px">{{ tenant.nombre }}</h1>
-        {% if tenant.rubro %}<p style="color:var(--muted); margin:0"><span style="text-transform:capitalize">{{ tenant.rubro }}</span>{% if tenant.modalidades_publicas == 'virtual' %} · por videollamada{% elif tenant.modalidades_publicas == 'ambas' %} · presencial o videollamada{% endif %}</p>{% endif %}
-      </div>
+  {% set modalidad_txt = 'por videollamada' if tenant.modalidades_publicas == 'virtual' else ('presencial o por videollamada' if tenant.modalidades_publicas == 'ambas' else 'presencial') %}
+  <div class="card perfil">
+    <div class="perfil-portada"{% if tenant.portada_version %} style="background-image:url('{{ url_for('publico_portada', slug=tenant.slug, v=tenant.portada_version) }}')"{% endif %}></div>
+    <div class="perfil-cuerpo">
+      {% if tenant.foto %}<img class="perfil-foto" src="{{ tenant.foto }}" alt="Foto de {{ tenant.nombre }}" width="128" height="128">
+      {% else %}<div class="perfil-foto perfil-iniciales" aria-hidden="true">{{ (tenant.nombre or '?').replace('Lic.', '').replace('Dra.', '').replace('Dr.', '').strip()[:1] }}</div>{% endif %}
+      <h1>{{ tenant.nombre }}</h1>
+      <p class="perfil-titulo">{% if tenant.titulo %}{{ tenant.titulo }}{% elif tenant.rubro %}<span style="text-transform:capitalize">{{ tenant.rubro }}</span>{% endif %}</p>
+      <p class="perfil-datos">
+        {% if tenant.ubicacion %}{{ tenant.ubicacion }} · {% endif %}Atiende {{ modalidad_txt }}{% if tenant.matricula %} · Matrícula {{ tenant.matricula }}{% endif %}
+      </p>
+      {% if tenant.descripcion %}<p class="perfil-linea">{{ tenant.descripcion }}</p>{% endif %}
+      {% if cambiar %}
+      <p class="perfil-linea">Tu turno de ahora es el <strong>{{ actual._dia }} a las {{ actual._hora }}</strong>. Tocá el horario nuevo. <a href="{{ url_for('agendar', token=cambiar) }}">Volver sin cambiar</a></p>
+      {% elif not pausado %}
+      <div class="perfil-acciones"><a class="btn" style="text-decoration:none" href="#horarios">Ver horarios y reservar</a></div>
+      {% endif %}
     </div>
-    {% if tenant.descripcion %}<p style="margin-bottom:0">{{ tenant.descripcion }}</p>{% endif %}
-    {% if cambiar %}
-    <p style="margin-bottom:0">Tu turno de ahora es el <strong>{{ actual._dia }} a las {{ actual._hora }}</strong>. Tocá el horario nuevo. <a href="{{ url_for('agendar', token=cambiar) }}">Volver sin cambiar</a></p>
-    {% else %}
-    <p style="margin-bottom:0">Tocá un horario libre para reservar tu turno.</p>
-    {% endif %}
   </div>
+  {% set hay_sobre = tenant.sobre_mi or tenant.enfoques or tenant.formacion or tenant.mas_de_mi or tenant.obras_sociales %}
+  {% if hay_sobre and not cambiar %}
+  <div class="card sobre">
+    {% if tenant.sobre_mi %}<h3>Sobre mí</h3><p>{{ tenant.sobre_mi }}</p>{% endif %}
+    {% if tenant.enfoques %}<h3>Temas que trabajo</h3><ul class="chips">{% for x in tenant.enfoques %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+    {% if tenant.formacion %}<h3>Formación</h3><ul class="formacion">{% for x in tenant.formacion %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+    {% if tenant.mas_de_mi %}<h3>Un poco más de mí</h3><p>{{ tenant.mas_de_mi }}</p>{% endif %}
+    {% if tenant.obras_sociales %}<h3>Obras sociales y prepagas</h3><p>{{ tenant.obras_sociales }}</p>{% endif %}
+  </div>
+  {% endif %}
+  <div id="horarios">{% if not cambiar and not pausado and not elegir_tipo %}<p class="tenue" style="margin:4px 4px 8px">Tocá un horario libre para reservar tu turno.</p>{% endif %}</div>
 
   {% with mensajes = get_flashed_messages() %}
     {% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}

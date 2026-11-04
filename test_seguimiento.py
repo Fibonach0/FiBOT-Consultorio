@@ -223,6 +223,7 @@ def reset():
     TABLAS["paciente_personas"] = []
     TABLAS["paciente_fechas"] = []
     TABLAS["lista_espera"] = []
+    TABLAS["portadas"] = []
     TABLAS["cancelaciones"] = []
     TABLAS["bloqueos"] = []
     TABLAS["paciente_tests"] = []
@@ -3038,10 +3039,44 @@ db.cancelar_turno("t1", "c1")
 chequear("liberar borra confirmación y token", TABLAS["turnos"][0]["confirmado_at"] is None and TABLAS["turnos"][0]["token_calendario"] is None)
 
 # perfil público desde el panel
-panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "descripcion": "Adultos · Caballito", "modalidades_publicas": "ambas"})
+import io as _io_p  # noqa: E402
+panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "ambas"})
 t1 = TABLAS["tenants"][0]
+panel_c.post("/agenda/presentacion", data={
+    "csrf_token": "tok", "descripcion": "Adultos · Caballito", "titulo": "  Lic. en   Psicología (UBA) ",
+    "ubicacion": "Caballito, CABA", "sobre_mi": "Trabajo desde la TCC.\r\nPrimera sesión: nos conocemos.",
+    "enfoques": "Ansiedad, duelo, Ansiedad, , Adolescentes," + ",".join(f"t{i}" for i in range(20)),
+    "formacion": "Lic. en Psicología — UBA\r\n\r\nPosgrado TCC", "mas_de_mi": "Ando en bici y tengo dos gatos.",
+    "obras_sociales": "Particular, con factura para reintegro"})
 chequear("perfil: guarda descripción, modalidad y sale del directorio sin tildar",
          t1["descripcion"] == "Adultos · Caballito" and t1["modalidades_publicas"] == "ambas" and t1["en_directorio"] is False)
+chequear("presentación: limpia espacios, saca repetidos y respeta los máximos",
+         t1["titulo"] == "Lic. en Psicología (UBA)" and t1["enfoques"][:3] == ["Ansiedad", "duelo", "Adolescentes"]
+         and len(t1["enfoques"]) == app.MAX_ENFOQUES and t1["formacion"] == ["Lic. en Psicología — UBA", "Posgrado TCC"]
+         and t1["sobre_mi"] == "Trabajo desde la TCC.\nPrimera sesión: nos conocemos.")
+panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "ambas"})
+chequear("presentación: guardar la configuración de reservas no la borra", t1["descripcion"] == "Adultos · Caballito")
+t1["slug"] = t1.get("slug") or "marcos"
+_pub = app.app.test_client().get(f"/{t1['slug']}").data.decode()
+chequear("página: muestra la presentación", all(x in _pub for x in (
+    "Lic. en Psicología (UBA)", "Caballito, CABA", "Sobre mí", "Temas que trabajo", "Adolescentes", "Formación",
+    "Posgrado TCC", "Un poco más de mí", "dos gatos", "Obras sociales", 'href="#horarios"', "presencial o por videollamada")))
+chequear("página: sin foto muestra la inicial", "perfil-iniciales" in _pub)
+panel_c.post("/agenda/portada", data={"csrf_token": "tok", "portada": (_io_p.BytesIO(b"\xff\xd8\xff" + b"1" * 50), "p.jpg")},
+             content_type="multipart/form-data")
+_pt = app.app.test_client().get(f"/{t1['slug']}/portada")
+chequear("portada: se sube y se sirve como imagen", t1.get("portada_version") == 1 and _pt.status_code == 200
+         and _pt.mimetype == "image/jpeg" and _pt.data.startswith(b"\xff\xd8\xff")
+         and f"/{t1['slug']}/portada?v=1" in app.app.test_client().get(f"/{t1['slug']}").data.decode())
+panel_c.post("/agenda/portada", data={"csrf_token": "tok", "portada": (_io_p.BytesIO(b"<svg onload=alert(1)>"), "x.svg")},
+             content_type="multipart/form-data")
+chequear("portada: rechaza lo que no es PNG/JPG", t1.get("portada_version") == 1)
+panel_c.post("/agenda/portada", data={"csrf_token": "tok", "portada": (_io_p.BytesIO(b"\xff\xd8\xff" + b"1" * app.PORTADA_MAX), "g.jpg")},
+             content_type="multipart/form-data")
+chequear("portada: rechaza la muy pesada", t1.get("portada_version") == 1)
+panel_c.post("/agenda/portada/borrar", data={"csrf_token": "tok"})
+chequear("portada: se quita", t1.get("portada_version") == 0
+         and app.app.test_client().get(f"/{t1['slug']}/portada").status_code == 404)
 chequear("perfil: avisa si ofrece videollamada sin link", "no cargaste el link" in panel_c.get("/agenda").data.decode())
 panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "cualquiera", "en_directorio": "1"})
 chequear("perfil: modalidad inválida vuelve a presencial", t1["modalidades_publicas"] == "presencial" and t1["en_directorio"] is True)
