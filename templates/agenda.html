@@ -837,6 +837,34 @@
   <h2 class="grupo">Tu cuenta</h2>
   <details class="card plegable" id="ajustes" data-plegable>
     <summary><h3>Ajustes</h3><span class="plegable-resumen">Avisos, seguridad, firma y plantillas</span></summary>
+    <div class="instalar" id="instalar-app">
+      <strong>Tené el panel como una app</strong>
+      <p class="tenue" style="margin:4px 0 8px" id="instalar-texto">Queda con su ícono en el celular o en la compu y se abre sin la barra del navegador.</p>
+      <button class="btn chico" type="button" id="instalar-boton" hidden>Instalar en este dispositivo</button>
+      <p class="tenue" style="margin:0" id="instalar-manual">
+        <span data-so="ios" hidden>En iPhone o iPad: abrilo en Safari, tocá <strong>Compartir</strong> (el cuadrado con la flecha) y después <strong>«Agregar a inicio»</strong>.</span>
+        <span data-so="otro" hidden>Si no aparece el botón: en el menú del navegador (⋮) elegí <strong>«Instalar app»</strong> o <strong>«Agregar a la pantalla principal»</strong>.</span>
+      </p>
+    </div>
+    <script>
+    (function () {
+      var boton = document.getElementById('instalar-boton'), pedido = null;
+      var app = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+      if (app) { document.getElementById('instalar-texto').textContent = 'Ya lo estás usando como app. 👍'; return; }
+      var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      document.querySelector('[data-so="' + (ios ? 'ios' : 'otro') + '"]').hidden = false;
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault(); pedido = e; boton.hidden = false;
+        document.querySelector('[data-so="otro"]').hidden = true;
+      });
+      boton.addEventListener('click', function () {
+        if (!pedido) return;
+        pedido.prompt();
+        pedido.userChoice.finally(function () { pedido = null; boton.hidden = true; });
+      });
+      window.addEventListener('appinstalled', function () { document.getElementById('instalar-texto').textContent = 'Listo, quedó instalado.'; boton.hidden = true; });
+    })();
+    </script>
     <form method="post" action="{{ url_for('agenda_avisos') }}" class="fila">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}

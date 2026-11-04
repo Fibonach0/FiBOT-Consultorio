@@ -378,16 +378,29 @@ def _vista() -> dict:
     las cookies del navegador."""
     if "vista" in g:
         return g.vista
-    v = {"tema": request.cookies.get("tema"), "letra": request.cookies.get("letra")}
+    v = {"tema": request.cookies.get("tema"), "letra": request.cookies.get("letra"), "noche": request.cookies.get("noche")}
     if session.get("tenant_id"):
         try:
             pref = (db.get_tenant_by_id(session["tenant_id"]) or {}).get("preferencias_vista") or {}
         except Exception:
             pref = {}
-        v.update({k: pref[k] for k in ("tema", "letra") if pref.get(k)})
+        v.update({k: pref[k] for k in ("tema", "letra", "noche") if pref.get(k)})
     g.vista = {"tema": v["tema"] if v["tema"] in TEMAS else "auto",
-               "letra": v["letra"] if v["letra"] in LETRAS else "normal"}
+               "letra": v["letra"] if v["letra"] in LETRAS else "normal",
+               "noche": v["noche"] if _horas_noche(v["noche"]) else NOCHE_DEFECTO}
     return g.vista
+
+
+NOCHE_DEFECTO = "20-8"
+
+
+def _horas_noche(valor) -> tuple[int, int] | None:
+    """«20-8» → (20, 8): desde qué hora y hasta qué hora va oscuro. None si no sirve."""
+    try:
+        desde, hasta = (int(x) for x in str(valor).split("-"))
+    except (TypeError, ValueError):
+        return None
+    return (desde, hasta) if 0 <= desde <= 23 and 0 <= hasta <= 23 and desde != hasta else None
 
 
 app.jinja_env.globals["vista_pagina"] = _vista
@@ -954,7 +967,7 @@ def admin_uso_csv():
                               headers={"Content-Disposition": f'attachment; filename="uso-{primero:%Y-%m}.csv"'})
 
 
-SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar", "pago", "mercadopago", "sumate"}
+SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar", "pago", "mercadopago", "sumate", "static", "sin-conexion"}
 RUBROS_ALTA = ["psicología", "psicopedagogía"]
 
 
@@ -3458,6 +3471,9 @@ def agenda_vista():
         pref["tema"] = request.form["tema"]
     if request.form.get("letra") in LETRAS:
         pref["letra"] = request.form["letra"]
+    if _horas_noche(request.form.get("noche")):
+        desde, hasta = _horas_noche(request.form["noche"])
+        pref["noche"] = f"{desde}-{hasta}"
     db.guardar_ajustes(session["tenant_id"], {"preferencias_vista": pref})
     return jsonify(ok=True)
 
@@ -3518,6 +3534,62 @@ def agenda_portada_borrar():
     db.borrar_portada(session["tenant_id"])
     flash("Se quitó la portada.")
     return redirect(url_for("agenda") + "#mi-pagina")
+
+
+@app.get("/manifest.webmanifest")
+def manifest():
+    """Para instalar el panel como app en el celular o la compu."""
+    r = jsonify({
+        "name": "FiBOT Consultorio", "short_name": "Consultorio", "lang": "es-AR",
+        "description": "Tu agenda, tus pacientes y tus cobros.",
+        "start_url": "/agenda?app=1", "scope": "/", "display": "standalone",
+        "background_color": "#faf6ef", "theme_color": "#2f5233",
+        "icons": [
+            {"src": url_for("static", filename="icono-192.png"), "sizes": "192x192", "type": "image/png"},
+            {"src": url_for("static", filename="icono-512.png"), "sizes": "512x512", "type": "image/png"},
+            {"src": url_for("static", filename="icono-maskable-512.png"), "sizes": "512x512", "type": "image/png",
+             "purpose": "maskable"},
+        ],
+    })
+    r.mimetype = "application/manifest+json"
+    return r
+
+
+@app.get("/sw.js")
+def service_worker():
+    """Service worker mínimo: NO guarda páginas (hay datos de pacientes); sólo
+    muestra «Sin conexión» si se cae internet al navegar."""
+    js = """
+const OFFLINE = '/sin-conexion';
+self.addEventListener('install', e => { e.waitUntil(caches.open('v1').then(c => c.add(OFFLINE))); self.skipWaiting(); });
+self.addEventListener('activate', e => { e.waitUntil(self.clients.claim()); });
+self.addEventListener('fetch', e => {
+  if (e.request.mode !== 'navigate') return;
+  e.respondWith(fetch(e.request).catch(() => caches.match(OFFLINE)));
+});
+"""
+    r = app.response_class(js, mimetype="application/javascript")
+    r.headers["Cache-Control"] = "no-cache"
+    return r
+
+
+@app.get("/sin-conexion")
+def sin_conexion():
+    return render_template("sin_conexion.html")
+
+
+@app.get("/<slug>/foto")
+def publico_foto(slug):
+    """La foto como imagen suelta (para la vista previa al compartir el link)."""
+    tenant = db.get_tenant_by_slug(slug)
+    foto = (tenant or {}).get("foto") or ""
+    m = re.fullmatch(r"data:(image/(?:png|jpeg));base64,([A-Za-z0-9+/=]+)", foto)
+    if not m:
+        return ("", 404)
+    r = app.response_class(base64.b64decode(m.group(2)), mimetype=m.group(1))
+    r.headers["Cache-Control"] = "public, max-age=3600"
+    r.headers["X-Content-Type-Options"] = "nosniff"
+    return r
 
 
 @app.get("/<slug>/portada")

@@ -1,13 +1,26 @@
 <!doctype html>
-{% set v = vista_pagina() %}<html lang="es" data-tema="{{ v.tema }}" data-modo="{{ v.tema if v.tema in ('claro', 'oscuro') else 'auto' }}" data-letra="{{ v.letra }}">
+{% set v = vista_pagina() %}<html lang="es" data-tema="{{ v.tema }}" data-modo="{{ v.tema if v.tema in ('claro', 'oscuro') else 'auto' }}" data-letra="{{ v.letra }}" data-noche="{{ v.noche }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   {% if session.get('tenant_id') %}<meta name="csrf" content="{{ csrf_token() }}">{% endif %}
+  <link rel="icon" type="image/png" sizes="32x32" href="{{ url_for('static', filename='favicon-32.png') }}">
+  <link rel="apple-touch-icon" href="{{ url_for('static', filename='apple-touch-icon.png') }}">
+  <link rel="manifest" href="{{ url_for('manifest') }}">
+  <meta name="theme-color" content="#2f5233">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Consultorio">
+  {% block meta %}{% endblock %}
   <script>
-  // «Oscuro de noche»: de 20 a 8 h (hora del dispositivo). Corre antes de pintar.
+  // «Oscuro de noche»: entre las horas elegidas (data-noche="20-8", hora del
+  // dispositivo). Corre antes de pintar.
   (function () { var r = document.documentElement;
-    window.modoDeNoche = function () { var h = new Date().getHours(); return (h >= 20 || h < 8) ? 'oscuro' : 'claro'; };
+    window.modoDeNoche = function () {
+      var p = (r.dataset.noche || '20-8').split('-').map(Number), h = new Date().getHours();
+      var oscuro = p[0] > p[1] ? (h >= p[0] || h < p[1]) : (h >= p[0] && h < p[1]);
+      return oscuro ? 'oscuro' : 'claro';
+    };
     if (r.dataset.tema === 'noche') r.dataset.modo = window.modoDeNoche(); })();
   </script>
   <title>{% block titulo %}FiBOT Consultorio{% endblock %}</title>
@@ -254,6 +267,9 @@
   .recorte-mascara { position:absolute; inset:0; pointer-events:none; border-radius:6px; box-shadow:inset 0 0 0 2px rgba(255,255,255,.8); }
   .recorte-mascara.redonda { border-radius:50%; box-shadow:0 0 0 999px rgba(0,0,0,.45), inset 0 0 0 2px rgba(255,255,255,.8); }
   .recorte-marco { overflow:hidden; border-radius:6px; }
+  .noche-horas { display:flex; gap:6px; align-items:center; font-size:.85rem; color:var(--muted); padding:2px 4px 4px; }
+  .noche-horas select { width:auto; padding:4px 6px; font-size:.85rem; }
+  .instalar { padding:10px 12px; border:1px dashed var(--rule); border-radius:8px; margin-bottom:12px; }
 </style>
 </head>
 <body>
@@ -265,7 +281,11 @@
       <div class="vista-opciones" data-grupo="tema">
         <button type="button" data-valor="claro">☀ Claro</button>
         <button type="button" data-valor="oscuro">☾ Oscuro</button>
-        <button type="button" data-valor="noche">Oscuro de noche <small>(20 a 8 h)</small></button>
+        <button type="button" data-valor="noche">Oscuro de noche <small id="noche-texto"></small></button>
+        <div class="noche-horas" id="noche-horas" hidden>
+          de <select id="noche-desde" aria-label="Oscuro desde las">{% for h in range(24) %}<option value="{{ h }}">{{ h }} h</option>{% endfor %}</select>
+          a <select id="noche-hasta" aria-label="Hasta las">{% for h in range(24) %}<option value="{{ h }}">{{ h }} h</option>{% endfor %}</select>
+        </div>
         <button type="button" data-valor="auto">Como el dispositivo</button>
       </div>
       <div class="vista-titulo">Tamaño de letra</div>
@@ -284,7 +304,21 @@
     var raiz = document.documentElement, boton = document.getElementById('vista-boton'), menu = document.getElementById('vista-menu');
     var csrf = document.querySelector('meta[name=csrf]');
     function modo() { var t = raiz.dataset.tema; return (t === 'claro' || t === 'oscuro') ? t : (t === 'noche' ? window.modoDeNoche() : 'auto'); }
+    var desde = document.getElementById('noche-desde'), hasta = document.getElementById('noche-hasta');
+    function horas() { return (raiz.dataset.noche || '20-8').split('-'); }
+    function marcarNoche() {
+      var p = horas(); desde.value = p[0]; hasta.value = p[1];
+      document.getElementById('noche-texto').textContent = '(' + p[0] + ' a ' + p[1] + ' h)';
+      document.getElementById('noche-horas').hidden = raiz.dataset.tema !== 'noche';
+    }
+    function cambiarHoras() {
+      if (desde.value === hasta.value) { marcarNoche(); return; }
+      raiz.dataset.noche = desde.value + '-' + hasta.value;
+      raiz.dataset.modo = modo(); guardar('noche', raiz.dataset.noche); marcarNoche();
+    }
+    desde.addEventListener('change', cambiarHoras); hasta.addEventListener('change', cambiarHoras);
     function marcar() {
+      marcarNoche();
       menu.querySelectorAll('[data-grupo]').forEach(function (g) {
         var actual = raiz.dataset[g.dataset.grupo];
         g.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.valor === actual ? 'true' : 'false'); });
@@ -310,6 +344,7 @@
     document.addEventListener('click', function (e) { if (!menu.hidden && !e.target.closest('.vista')) { menu.hidden = true; boton.setAttribute('aria-expanded', 'false'); } });
     document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !menu.hidden) { menu.hidden = true; boton.setAttribute('aria-expanded', 'false'); boton.focus(); } });
     setInterval(function () { if (raiz.dataset.tema === 'noche') raiz.dataset.modo = modo(); }, 60000);
+    if ('serviceWorker' in navigator && csrf) navigator.serviceWorker.register('/sw.js').catch(function () {});
   })();
   </script>
 </body>

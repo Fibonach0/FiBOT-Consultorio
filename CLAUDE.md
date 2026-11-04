@@ -237,6 +237,16 @@ Nada de colores fijos en templates que extienden base: usar `--card`,
 el verde en las páginas del paciente con `_color_pagina.html` (incluido en
 publico*, pago, agendar*, espera_listo). Foto y portada pasan por un recorte
 (`<dialog id="recorte">`: arrastrar y acercar) antes de subirse.
+«Oscuro de noche» usa `data-noche="D-H"` (`preferencias_vista.noche` o la cookie
+`noche`, `app._horas_noche` valida; por defecto 20-8; cruza la medianoche si D > H).
+Compartir: `/<slug>` lleva Open Graph (`{% block meta %}` de base): título,
+descripción e imagen = `/<slug>/foto` (la foto data URL servida como imagen), o la
+portada, o el ícono. App instalable: `/manifest.webmanifest` (inicio `/agenda`),
+íconos en `static/`, y `/sw.js`, que se registra sólo con sesión y **no guarda
+páginas** (hay datos de pacientes): sólo `/sin-conexion`, una página suelta sin
+sesión. «Tené el panel como una app» en Ajustes usa `beforeinstallprompt`;
+en iPhone, instrucciones de Safari. `static` y `sin-conexion` están en
+`SLUGS_RESERVADOS`.
 
 Confirmación por WhatsApp de la reserva web: con `CONFIRMACION_TEMPLATE`
 (plantilla con botones «Sí, confirmo» / «Cancelar», `{{1}}` profesional,
