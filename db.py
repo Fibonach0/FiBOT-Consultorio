@@ -346,7 +346,8 @@ def confirmar_ficha(tenant_id: str, turno_id: str) -> None:
 
 def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | None,
                    valor: int | None = None, frecuencia: str | None = None,
-                   modalidad: str | None = None, ficha: str | None = None) -> bool:
+                   modalidad: str | None = None, ficha: str | None = None,
+                   ignorar_bloqueo: bool = False) -> bool:
     """Devuelve False si el turno ya no estaba libre (alguien se adelantó) —
     el llamador tiene que chequear esto y avisarle al paciente, nunca asumir
     éxito. También si se pisa con otra sesión: alguien pudo tener abierto ese
@@ -354,7 +355,9 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
     turno = turno_por_id(tenant_id, turno_id)
     if not turno or _se_pisa(tenant_id, turno["inicio"], turno["fin"], turno_id):
         return False
-    if _esta_bloqueado(tenant_id, turno["inicio"], turno["fin"]):
+    # Un bloqueo (feriado, vacaciones) cierra el horario a los pacientes. El
+    # profesional, desde el panel, puede agendar igual: es su decisión.
+    if not ignorar_bloqueo and _esta_bloqueado(tenant_id, turno["inicio"], turno["fin"]):
         return False
     # Sin ficha explícita nadie pudo aclarar de quién es (página pública): se
     # reserva igual y lo revisa el profesional. Preguntarle a quien reserva
@@ -509,7 +512,8 @@ def reservar_en_horario(tenant_id: str, inicio: datetime, duracion_minutos: int,
     return reservar_turno(tenant_id, res.data[0]["id"], telefono, nombre, valor, frecuencia, modalidad, ficha)
 
 
-def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, duracion_minutos: int) -> str | None:
+def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, duracion_minutos: int,
+                      ignorar_bloqueo: bool = False) -> str | None:
     """Pasa la sesión a otro horario. Devuelve None si salió bien, o el motivo
     por el que no se pudo (para mostrárselo al profesional).
 
@@ -534,7 +538,7 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
     nuevo_fin = nuevo_inicio + timedelta(minutes=duracion_minutos)
     if _se_pisa(tenant_id, nuevo_inicio.isoformat(), nuevo_fin.isoformat(), turno_id):
         return "Ese horario ya está ocupado por otra sesión."
-    if _esta_bloqueado(tenant_id, nuevo_inicio.isoformat(), nuevo_fin.isoformat()):
+    if not ignorar_bloqueo and _esta_bloqueado(tenant_id, nuevo_inicio.isoformat(), nuevo_fin.isoformat()):
         return "Ese día está bloqueado."
 
     crear_turnos_libres(tenant_id, [nuevo_inicio], duracion_minutos)
