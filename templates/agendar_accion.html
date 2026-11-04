@@ -12,6 +12,10 @@
       <h2>¿Cancelás tu turno?</h2>
       <p>Con <strong>{{ tenant.nombre }}</strong> el <strong>{{ turno._dia }} a las {{ turno._hora }}</strong>.</p>
       <p style="color:var(--muted)">El horario queda libre para otra persona.</p>
+      {% if pagado %}
+      <p>{% if devolveria %}Como ya lo pagaste, te corresponde la devolución de <strong>{{ devolveria|pesos }}</strong>.{% else %}Ya lo pagaste y, según la política de cancelación, <strong>no se devuelve</strong>.{% endif %}
+        {% if politica %}<br><span style="color:var(--muted)">{{ politica }}</span>{% endif %}</p>
+      {% endif %}
       <form method="post" action="{{ url_for('agendar_cancelar', token=token) }}">
         <button class="btn" type="submit">Sí, cancelar el turno</button>
         <a class="btn secundario" style="text-decoration:none;display:inline-block;margin-left:8px" href="{{ url_for('agendar', token=token) }}">No, volver</a>

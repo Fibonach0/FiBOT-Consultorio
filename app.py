@@ -240,6 +240,7 @@ def _csrf_token() -> str:
 
 app.jinja_env.globals["csrf_token"] = _csrf_token
 app.jinja_env.filters["pesos"] = lambda v: f"$ {v:,}".replace(",", ".")
+_pesos = app.jinja_env.filters["pesos"]
 
 
 @app.before_request
@@ -1866,8 +1867,12 @@ def agenda():
         "huecos": _con_hora_local(db.huecos(tenant["id"]), tz),
         "horario_por_dia": {d: [r for r in scheduler.rangos_horario(tenant) if r[0] == d] for d in range(7)},
         "dias_label": DIAS_LABEL,
+        "max_sedes": MAX_SEDES, "max_tipos": MAX_TIPOS, "max_franjas": MAX_FRANJAS,
         "estadisticas": _estadisticas_pagina(tenant, tz),
-        "pagos_revisar": _pagos_para_revisar(tenant, tz),
+        "pagos_revisar": (revisar := _pagos_para_revisar(tenant, tz)),
+        "cobros_web": _cobros_web(tenant, _mes_de(request.args.get("mes") or request.args.get("semana", "")[:7], ahora.date()),
+                                  tz, revisar),
+        "devolucion_horas": DEVOLUCION_HORAS,
         "mp_disponible": pagos.mp_disponible(),
         "cobro_activo": pagos.activo(tenant),
         "bloqueos": bloqueos,
@@ -2030,7 +2035,16 @@ def agenda_bloqueo_borrar(bloqueo_id):
 def agenda_cancelar(turno_id):
     # db.cancelar_turno() filtra por tenant_id, así que un tenant nunca puede
     # tocar un turno que no es suyo aunque adivine el id de otro.
+    antes = db.turno_por_id(session["tenant_id"], turno_id)
     db.cancelar_turno(session["tenant_id"], turno_id, "profesional")
+    if antes and antes.get("pago_web") == "aprobado":
+        try:
+            monto, _ = pagos.al_cancelar(db.get_tenant_by_id(session["tenant_id"]), antes, quien="profesional")
+        except Exception:
+            logger.exception("No se pudo anotar la devolución del turno %s", turno_id)
+            monto = 0
+        if monto:
+            flash(f"Esa sesión estaba pagada por la web: quedó en «Pagos para revisar» para devolverle {_pesos(monto)}.")
     esperando = len(db.lista_de_espera(session["tenant_id"]))
     if esperando:
         flash(f"Se liberó el horario. Tenés {esperando} en lista de espera.")
@@ -3055,14 +3069,19 @@ def agenda_imprimir():
                            titulo=f"{lunes.strftime('%d/%m')} al {(lunes + timedelta(days=6)).strftime('%d/%m/%Y')}")
 
 
+MAX_SEDES = 8
+MAX_TIPOS = 8
+MAX_FRANJAS = 4      # por día
+
+
 @app.post("/agenda/sedes")
 @login_required
 def agenda_sedes():
-    """Hasta 3 consultorios (nombre y dirección). Después, en el horario se
-    elige en cuál es cada franja."""
+    """Hasta MAX_SEDES consultorios (nombre y dirección). Después, en el
+    horario se elige en cuál es cada franja."""
     f = request.form
     sedes = []
-    for n in range(1, 4):
+    for n in range(1, MAX_SEDES + 1):
         nombre = (f.get(f"sede{n}_nombre") or "").strip()[:40]
         if nombre:
             sedes.append({"nombre": nombre, "direccion": (f.get(f"sede{n}_direccion") or "").strip()[:120] or None})
@@ -3081,7 +3100,7 @@ def agenda_tipos():
     «Sesión» 45). Con uno o ninguno, el paciente no elige."""
     f = request.form
     tipos = []
-    for n in range(1, 5):
+    for n in range(1, MAX_TIPOS + 1):
         nombre = (f.get(f"tipo{n}_nombre") or "").strip()[:60]
         minutos = f.get(f"tipo{n}_minutos") or ""
         precio = "".join(ch for ch in (f.get(f"tipo{n}_precio") or "") if ch.isdigit())
@@ -3100,13 +3119,13 @@ def agenda_tipos():
 @app.post("/agenda/horario")
 @login_required
 def agenda_horario():
-    """Horario de atención semanal: hasta dos franjas por día. Al guardarlo se
+    """Horario de atención semanal: hasta MAX_FRANJAS por día. Al guardarlo se
     generan enseguida los horarios de las próximas semanas, y después el
     scheduler los va completando solo cada día."""
     f = request.form
     rangos = []
     for d in range(7):
-        for n in (1, 2):
+        for n in range(1, MAX_FRANJAS + 1):
             desde, hasta = (f.get(f"dia{d}_desde{n}") or "").strip(), (f.get(f"dia{d}_hasta{n}") or "").strip()
             if not desde and not hasta:
                 continue
@@ -3119,6 +3138,9 @@ def agenda_horario():
                 return _volver_a_agenda()
             modalidad = f.get(f"dia{d}_mod{n}")
             sede = (f.get(f"dia{d}_sede{n}") or "").strip()
+            if any(r["dia"] == d and r["desde"] < hasta[:5] and desde[:5] < r["hasta"] for r in rangos):
+                flash(f"Revisá el horario del {DIAS_LABEL[d].lower()}: dos franjas se pisan.")
+                return _volver_a_agenda()
             rangos.append({"dia": d, "desde": desde[:5], "hasta": hasta[:5],
                            **({"modalidad": modalidad} if modalidad in ("presencial", "virtual") else {}),
                            **({"sede": sede} if sede else {})})
@@ -4012,12 +4034,26 @@ def agendar_cancelar(token):
     if request.method == "POST":
         db.cancelar_turno(tenant["id"], turno["id"], "paciente")
         db.registrar_actividad("paciente (web)", f"canceló un turno desde el link de agendar", tenant["id"])
+        devolucion = _devolver_al_cancelar(tenant, turno)
         cancelaciones.tras_cancelar(tenant, turno, "la web")
         _evento(tenant, "cancelacion")
         return _sin_indexar(app.make_response(render_template(
-            "agendar_listo.html", tenant=tenant, accion="cancelado", turno=_con_hora_local([turno], tz)[0])))
+            "agendar_listo.html", tenant=tenant, accion="cancelado", turno=_con_hora_local([turno], tz)[0],
+            devolucion=devolucion)))
+    pago, monto = pagos.cuanto_devolver(tenant, turno)
     return _sin_indexar(app.make_response(render_template(
-        "agendar_accion.html", tenant=tenant, accion="cancelar", turno=_con_hora_local([turno], tz)[0], token=token)))
+        "agendar_accion.html", tenant=tenant, accion="cancelar", turno=_con_hora_local([turno], tz)[0], token=token,
+        pagado=bool(pago), devolveria=monto, politica=pagos.politica(tenant) if pago else None)))
+
+
+def _devolver_al_cancelar(tenant: dict, turno: dict) -> dict | None:
+    """Aplica la política de devolución; si falla, la cancelación vale igual."""
+    try:
+        monto, hecho = pagos.al_cancelar(tenant, turno)
+    except Exception:
+        logger.exception("Falló la devolución al cancelar el turno %s", turno["id"])
+        return None
+    return {"monto": monto, "hecho": hecho} if monto else None
 
 
 @app.get("/agendar/<token>/cambiar")
@@ -4104,7 +4140,7 @@ def pago_paciente(token):
     turnos = [t for t in (db.turno_por_id(tenant["id"], tid) for tid in pago["turnos"]) if t]
     return _sin_indexar(app.make_response(render_template(
         "pago.html", tenant=tenant, pago=pago, turnos=_con_hora_local(sorted(turnos, key=lambda t: t["inicio"]), tz),
-        medios=pagos.metodos(tenant), vuelta_mp=request.args.get("status"),
+        medios=pagos.metodos(tenant), vuelta_mp=request.args.get("status"), politica=pagos.politica(tenant),
         vence=datetime.fromisoformat(str(pago["vence"])).astimezone(tz).strftime("%H:%M"),
         agendar=next((t.get("token_calendario") for t in turnos if t.get("token_calendario")), None))))
 
@@ -4133,6 +4169,21 @@ def pago_comprobante(token):
     return redirect(url_for("pago_paciente", token=token))
 
 
+@app.get("/pago/<token>/recibo")
+def pago_recibo(token):
+    """Recibo del pago web para el paciente (no es factura). El token es la
+    credencial, igual que la página de pago. Sin teléfono ni notas."""
+    pago, tenant = _pago_y_tenant(token)
+    if not pago or pago["estado"] not in ("aprobado", "aprobado_tarde", "devuelto"):
+        return _sin_indexar(app.make_response(("Todavía no hay un pago aprobado con este link.", 404)))
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    sesiones = [datetime.fromisoformat(str(x)).astimezone(tz) for x in pago.get("sesiones") or []]
+    return _sin_indexar(app.make_response(render_template(
+        "recibo.html", tenant=tenant, pago=pago, sesiones=[f"{DIAS_LABEL[d.weekday()]} {d:%d/%m/%Y %H:%M}" for d in sesiones],
+        fecha=datetime.fromisoformat(str(pago.get("resuelto") or pago["creado"])).astimezone(tz).strftime("%d/%m/%Y"),
+        numero=str(pago["id"]).replace("-", "")[:8].upper())))
+
+
 @app.post("/webhook/mercadopago")
 def webhook_mercadopago():
     """Aviso de Mercado Pago. No se confía en el contenido: se consulta el pago
@@ -4157,6 +4208,9 @@ def webhook_mercadopago():
 
 # ---------- cobro: panel ----------
 
+DEVOLUCION_HORAS = (0, 12, 24, 48, 72)
+
+
 @app.post("/agenda/cobros")
 @login_required
 def agenda_cobros():
@@ -4165,7 +4219,10 @@ def agenda_cobros():
     numero = lambda clave: int("".join(ch for ch in f.get(clave) or "" if ch.isdigit()) or 0) or None
     campos = {"cobro_web": modo, "cobro_modo": "sena" if f.get("cobro_modo") == "sena" else "total",
               "sena_monto": numero("sena_monto"), "precio_sesion": numero("precio_sesion"),
-              "transferencia_datos": (f.get("transferencia_datos") or "").strip()[:300] or None}
+              "transferencia_datos": (f.get("transferencia_datos") or "").strip()[:300] or None,
+              "devolucion_modo": f.get("devolucion_modo") if f.get("devolucion_modo") in ("todo", "menos_sena", "nada") else "todo",
+              "devolucion_horas": int(f["devolucion_horas"]) if (f.get("devolucion_horas") or "") in
+                                  {str(x) for x in DEVOLUCION_HORAS} else 24}
     db.guardar_ajustes(session["tenant_id"], campos)
     tenant = db.get_tenant_by_id(session["tenant_id"])
     if modo == "no":
@@ -4234,6 +4291,15 @@ def agenda_pago_web(pago_id, accion):
     elif accion == "resuelto" and pago["estado"] == "aprobado_tarde":
         db.actualizar_pago(pago["id"], {"estado": "aprobado"})
         flash("Listo, lo sacamos de la lista.")
+    elif accion == "devolver" and pagos.puede_devolver_mp(pago):
+        monto = int(pago.get("a_devolver") or 0) or pagos.devolvible(pago)
+        error = pagos.devolver(tenant, pago, monto)
+        flash(error or f"Listo: Mercado Pago le devuelve {_pesos(monto)} al paciente (tarda unos días en verse en su cuenta).")
+        if not error:
+            db.registrar_actividad("profesional", "devolvió un pago web por Mercado Pago", tenant["id"])
+    elif accion == "devuelto" and (int(pago.get("a_devolver") or 0) or pago["estado"] == "aprobado_tarde"):
+        pagos.anotar_devuelto(pago)
+        flash("Anotado como devuelto.")
     return _volver_a_agenda()
 
 
@@ -4250,6 +4316,33 @@ def agenda_pago_comprobante(pago_id):
     return r
 
 
+def _cobros_web(tenant: dict, primero: date, tz: ZoneInfo, revisar: list[dict]) -> dict | None:
+    """Lo que entró por la web en el mes que se mira: Mercado Pago y
+    transferencias por separado, lo devuelto y lo que falta validar. None si
+    este profesional nunca cobró por la web."""
+    siguiente = (primero.replace(day=28) + timedelta(days=4)).replace(day=1)
+    desde = datetime.combine(primero, dtime(0), tz).astimezone(ZoneInfo("UTC"))
+    hasta = datetime.combine(siguiente, dtime(0), tz).astimezone(ZoneInfo("UTC"))
+    try:
+        lista = db.pagos_resueltos_entre(tenant["id"], desde, hasta)
+    except Exception:
+        logger.warning("No se pudieron leer los cobros web", exc_info=True)
+        return None
+    if not lista and not revisar and not pagos.activo(tenant):
+        return None
+    for p in lista:
+        p["_cuando"] = datetime.fromisoformat(str(p["resuelto"])).astimezone(tz).strftime("%d/%m %H:%M")
+        p["_devolvible"] = pagos.devolvible(p)
+        p["_puede_mp"] = pagos.puede_devolver_mp(p)
+    suma = lambda metodo: sum(p["monto"] for p in lista if p.get("metodo") == metodo)
+    comprobantes = [p for p in revisar if p["estado"] == "comprobante"]
+    return {"mp": suma("mercadopago"), "transferencia": suma("transferencia"),
+            "devuelto": sum(p.get("devuelto") or 0 for p in lista),
+            "neto": sum(p["monto"] - (p.get("devuelto") or 0) for p in lista),
+            "por_validar": sum(p["monto"] for p in comprobantes), "por_validar_n": len(comprobantes),
+            "pagos": lista}
+
+
 def _pagos_para_revisar(tenant: dict, tz: ZoneInfo) -> list[dict]:
     try:
         lista = db.pagos_para_revisar(tenant["id"])
@@ -4258,7 +4351,8 @@ def _pagos_para_revisar(tenant: dict, tz: ZoneInfo) -> list[dict]:
     for p in lista:
         turnos = [t for t in (db.turno_por_id(tenant["id"], tid) for tid in p["turnos"]) if t]
         p["_turnos"] = _con_hora_local(sorted(turnos, key=lambda t: t["inicio"]), tz)
-        p["_quien"] = next((t.get("paciente_nombre") for t in turnos if t.get("paciente_nombre")), None)
+        p["_quien"] = next((t.get("paciente_nombre") for t in turnos if t.get("paciente_nombre")), None) or p.get("paciente_nombre")
+        p["_puede_mp"] = pagos.puede_devolver_mp(p)
     return lista
 
 

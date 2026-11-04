@@ -112,13 +112,22 @@ def _cancelar(tenant: dict, telefono: str, nombre: str | None = None) -> str:
         return (f"Tu turno del {_fmt(turno['inicio'], tz)} es en menos de {cancelaciones.horas_limite(tenant)} horas: "
                 f"para cancelarlo, escribile directamente a *{tenant['nombre']}*. Todavía no se canceló nada.")
     db.cancelar_turno(tenant["id"], turno["id"], "paciente")
+    devolucion = ""
     try:
+        if turno.get("pago_web") == "aprobado":
+            import pagos
+            monto, hecho = pagos.al_cancelar(tenant, turno)
+            texto = f"${monto:,}".replace(",", ".")
+            devolucion = (f" Te devolvimos {texto} por Mercado Pago." if hecho else
+                          f" Te corresponde la devolución de {texto}: te la hace *{tenant['nombre']}*." if monto else
+                          " Según la política de cancelación, lo pagado no se devuelve.")
         cancelaciones.tras_cancelar(tenant, turno, "WhatsApp")
     except Exception:
         import logging
         logging.getLogger("conversation").exception("Falló el aviso de la cancelación del turno %s", turno["id"])
     de_quien = f" de {turno['paciente_nombre']}" if nombre and turno.get("paciente_nombre") else ""
-    return f"Cancelado el turno{de_quien} del {_fmt(turno['inicio'], tz)}. Escribí *turno* si querés reservar otro horario."
+    return (f"Cancelado el turno{de_quien} del {_fmt(turno['inicio'], tz)}.{devolucion} "
+            "Escribí *turno* si querés reservar otro horario.")
 
 
 # «Sí, confirmo» llega como botón de la plantilla de confirmación o tipeado.

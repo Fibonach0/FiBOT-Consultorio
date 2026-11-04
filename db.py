@@ -382,6 +382,7 @@ _LIBERADO = {
     "tipo": None,
     "pago_web": None,
     "pago_vence": None,
+    "pago_id": None,
 }
 
 
@@ -516,6 +517,10 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
                 "modalidad": original.get("modalidad"),
                 "nota": original.get("nota"),
                 "tipo": original.get("tipo"),
+                # Una sesión ya pagada por la web sigue cubierta por ese pago
+                # (para devolverla si después se cancela).
+                "pago_web": "aprobado" if original.get("pago_web") == "aprobado" else None,
+                "pago_id": original.get("pago_id") if original.get("pago_web") == "aprobado" else None,
                 "reprogramado_desde": original["inicio"],
             }
         )
@@ -1403,7 +1408,19 @@ def pagos_esperando(tenant_id: str) -> list[dict]:
 
 
 def pagos_para_revisar(tenant_id: str) -> list[dict]:
-    """Comprobantes por validar y pagos que llegaron tarde."""
+    """Comprobantes por validar, pagos que llegaron tarde y devoluciones que
+    el profesional tiene que hacer a mano."""
     res = _client.table("pagos").select("*").eq("tenant_id", tenant_id).in_("estado", ["comprobante", "aprobado_tarde"]) \
         .order("creado").execute()
+    a_devolver = _client.table("pagos").select("*").eq("tenant_id", tenant_id).gt("a_devolver", 0).order("creado").execute()
+    vistos = {p["id"] for p in res.data}
+    return res.data + [p for p in a_devolver.data if p["id"] not in vistos]
+
+
+def pagos_resueltos_entre(tenant_id: str, desde: datetime, hasta: datetime) -> list[dict]:
+    """Pagos web cobrados (o devueltos) en el período, para el resumen."""
+    res = (_client.table("pagos").select("id,token,monto,metodo,estado,devuelto,a_devolver,mp_pago_id,resuelto,"
+                                         "paciente_nombre,sesiones")
+           .eq("tenant_id", tenant_id).in_("estado", ["aprobado", "aprobado_tarde", "devuelto"])
+           .gte("resuelto", desde.isoformat()).lt("resuelto", hasta.isoformat()).order("resuelto", desc=True).execute())
     return res.data
