@@ -999,7 +999,7 @@ chequear("el mes lo marca", 'bloqueado"' in html or " bloqueado" in html)
 html = client.get(f"/agenda?semana={dia_libre.isoformat()}").data.decode()
 chequear("la semana lo marca cerrado a pacientes", "bloqueado: Congreso" in html and "cerrado a pacientes" in html
          and "/agenda/agendar/libre-manana" in html)
-r = client.post("/agenda/agendar/libre-manana", data={"nombre": "Feriada", "telefono": "5491100000099"}, follow_redirects=True)
+r_bloq = r = client.post("/agenda/agendar/libre-manana", data={"nombre": "Feriada", "telefono": "5491100000099"}, follow_redirects=True)
 chequear("el profesional agenda igual en un día bloqueado", fila("libre-manana")["estado"] == "reservado"
          and fila("libre-manana")["paciente_nombre"] == "Feriada")
 chequear("y sigue cerrado para la página", "libre-manana" not in [t["id"] for t in db.turnos_libres("t1", ahora)])
@@ -1009,7 +1009,7 @@ r = client.post("/agenda/reprogramar/pasado", data={"fecha": otra_hora.strftime(
 chequear("el profesional puede pasar una sesión a un día bloqueado", "bloqueado" not in r.data.decode().split("Sesión pasada")[0][-200:]
          and "Sesión pasada" in r.data.decode()) if otra_hora.date() == dia_libre else None
 fila("libre-manana").update(estado="libre", paciente_nombre=None, paciente_telefono=None)
-chequear("agendar en un día bloqueado avisa", "Ojo: ese día lo tenías bloqueado (Congreso)" in r.data.decode())
+chequear("agendar en un día bloqueado avisa", "Ojo: ese día lo tenías bloqueado (Congreso)" in r_bloq.data.decode())
 html = client.get(f"/agenda?semana={dia_libre.isoformat()}").data.decode()
 chequear("el día bloqueado ofrece abrirlo", "Abrir este día a pacientes" in html and "/agenda/libre/libre-manana/abrir" in html)
 client.post("/agenda/libre/libre-manana/abrir", data={"abrir": "1"})
@@ -2243,6 +2243,20 @@ with client.session_transaction() as ses:
 html = client.get("/admin").data.decode()
 chequear("lista profesionales con su uso", "Lic. Marcos" in html and "Dra. Otra" in html and "Alta de profesional" in html)
 chequear("admin: columna de Mercado Pago", "<th>Mercado Pago</th>" in html)
+import mail as _mail_adm  # noqa: E402
+_mad, _med = _mail_adm.disponible, _mail_adm.enviar_detalle
+_mail_adm.disponible = lambda: True
+_mails_adm = []
+_mail_adm.enviar_detalle = lambda para, asunto, texto: _mails_adm.append(para) or (True, "ok")
+chequear("admin: ofrece el mail de prueba", "Mandarme un mail de prueba" in client.get("/admin").data.decode())
+html = client.post("/admin/mail/prueba", data={"email": "igna@ejemplo.com"}, follow_redirects=True).data.decode()
+chequear("admin: manda el mail de prueba", _mails_adm == ["igna@ejemplo.com"] and "Salió el mail de prueba a ig…@ejemplo.com" in html)
+_mail_adm.enviar_detalle = lambda para, asunto, texto: (False, "Resend respondió 403: domain not verified")
+html = client.post("/admin/mail/prueba", data={"email": "igna@ejemplo.com"}, follow_redirects=True).data.decode()
+chequear("admin: dice por qué no salió el mail", "domain not verified" in html)
+html = client.post("/admin/mail/prueba", data={"email": "nada"}, follow_redirects=True).data.decode()
+chequear("admin: mail de prueba inválido", "Escribí un mail válido" in html)
+_mail_adm.disponible, _mail_adm.enviar_detalle = _mad, _med
 chequear("no muestra pacientes", "Paciente Secreto" not in html and "5491100000001" not in html)
 chequear("el admin no entra al panel de un profesional", client.get("/agenda").status_code == 302)
 html = client.post("/admin/profesionales", data={"nombre": "Lic. Nueva", "rubro": "psicopedagogía", "slug": "nueva", "panel_user": "nueva",
@@ -3905,10 +3919,14 @@ _mail.disponible, _mail.enviar, _pg.config.DOMINIO_PRINCIPAL = _md, _me, _dom
 _avs_mp = []
 _va_mp = scheduler.avisar_profesional
 scheduler.avisar_profesional = lambda tenant, texto: _avs_mp.append(texto) or True
+_avs_adm = []
+_vadm = whatsapp_real.avisar_admin
+whatsapp_real.avisar_admin = lambda texto: _avs_adm.append(texto) or True
 _pg.requests.post = lambda url, json=None, headers=None, timeout=None: _RMP(401, {"message": "invalid access token"})
 chequear("caída: si Mercado Pago rechaza el permiso no hay link", _pg.preferencia(_t1, pago6, "x", "http://x") is None)
 _pg.preferencia(_t1, pago6, "x", "http://x")
 chequear("caída: se marca y avisa una sola vez", _t1.get("mp_caido_at") and len(_avs_mp) == 1 and "Conectar Mercado Pago" in _avs_mp[0])
+chequear("caída: administración también se entera", len(_avs_adm) == 1 and _t1["nombre"] in _avs_adm[0])
 chequear("caída: deja de ofrecer Mercado Pago", "mercadopago" not in _pg.metodos(_t1))
 chequear("caída: el panel pide reconectar", "Se cortó la conexión con Mercado Pago" in panel_c.get("/agenda").data.decode())
 _pg._guardar_tokens("t1", {"access_token": "TEST-token-del-profesional", "user_id": 99})
@@ -3928,6 +3946,7 @@ _pg._guardar_tokens("t1", {"access_token": "TEST-token-del-profesional", "user_i
 _t1.update({"mp_vence": (datetime.now(timezone.utc) + timedelta(days=100)).isoformat(), "mp_refresh_cifrado": None})
 _pg.requests.post = _mp_post
 scheduler.avisar_profesional = _va_mp
+whatsapp_real.avisar_admin = _vadm
 
 # token de prueba pegado a mano (solo con MP_PRUEBA)
 _guardado = {k: _t1.get(k) for k in ("mp_user_id", "mp_token_cifrado", "mp_refresh_cifrado", "mp_vence", "cobro_web")}
@@ -4117,6 +4136,13 @@ chequear("pago_id: la reserva sabe qué pago la cubre", _td1["pago_id"] == pd1["
 html = wd.get(f"/pago/{pd1['token']}/recibo").data.decode()
 chequear("recibo: muestra profesional, paciente, monto y que no es factura",
          "Ana Recibo" in html and "$ 20.000" in html and "No es una factura" in html and "5491100003333" not in html)
+_tr = next(t for t in TABLAS["tenants"] if t["id"] == pd1["tenant_id"])
+chequear("recibo: sin foto no hay imagen", 'class="foto"' not in html)
+_tr["foto"] = "data:image/png;base64,iVBORw0KGgo="
+chequear("recibo: lleva la foto del profesional", 'src="data:image/png;base64,iVBORw0KGgo="' in wd.get(f"/pago/{pd1['token']}/recibo").data.decode())
+_tr["foto"] = "data:text/html;base64,PHNjcmlwdD4="
+chequear("recibo: una foto rara no se muestra", 'class="foto"' not in wd.get(f"/pago/{pd1['token']}/recibo").data.decode())
+_tr["foto"] = None
 chequear("recibo: sin pago aprobado no hay recibo", wd.get("/pago/inventado/recibo").status_code == 404)
 chequear("recibo: la página de pago lo ofrece", "Ver tu recibo" in wd.get(f"/pago/{pd1['token']}").data.decode())
 chequear("política: se le muestra al paciente", "con 24 horas o más de anticipación, te devolvemos todo"

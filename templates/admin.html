@@ -20,7 +20,14 @@
     <div class="ficha-item">
       <span><strong>{% if e.ok is sameas true %}✓{% elif e.ok is sameas false %}✗{% else %}·{% endif %} {{ e.nombre }}</strong>
         <span class="tenue">{{ e.detalle }}</span>
-        {% if e.enlace %}<a href="{{ e.enlace }}">{{ e.enlace_texto }}</a>{% endif %}</span>
+        {% if e.enlace %}<a href="{{ e.enlace }}">{{ e.enlace_texto }}</a>{% endif %}
+        {% if e.prueba_mail and e.ok %}
+        <form method="post" action="{{ url_for('admin_mail_prueba') }}" class="fila" style="margin-top:6px">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="email" name="email" placeholder="tu mail" required>
+          <button type="submit" class="secundario">Mandarme un mail de prueba</button>
+        </form>
+        {% endif %}</span>
     </div>
     {% endfor %}
   </div>
