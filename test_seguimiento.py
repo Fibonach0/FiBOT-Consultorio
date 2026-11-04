@@ -102,7 +102,8 @@ class _Query:
         return self
 
     def in_(self, c, valores):
-        self.filtros.append(lambda f: f.get(c) in valores)
+        normales = [_norm(v) for v in valores]
+        self.filtros.append(lambda f: _norm(f.get(c)) in normales)
         return self
 
     def neq(self, c, v):
@@ -222,6 +223,7 @@ def _sesion_de(tenant_id):
 def reset():
     TABLAS["tenants"] = [dict(TENANT), dict(OTRO)]
     TABLAS["pacientes"] = []
+    TABLAS["horarios_sacados"] = []
     TABLAS["paciente_personas"] = []
     TABLAS["paciente_fechas"] = []
     TABLAS["lista_espera"] = []
@@ -461,6 +463,7 @@ chequear("sin nombre no agenda", "hace falta el nombre" in r.data.decode())
 html = client.get("/agenda?semana=" + (manana + timedelta(days=10)).strftime("%Y-%m-%d")).data.decode()
 chequear("panel: el WhatsApp es opcional", 'name="telefono" placeholder="54 9 11 2345 6789" required' not in html
          and "WhatsApp <span class=\"tenue\">(opcional)</span>" in html)
+chequear("panel: botón Sacar en los libres", "/agenda/libre/sin-4/sacar" in html and ">Sacar</button>" in html)
 chequear("ficha: muestra «Sin WhatsApp» y no la clave inventada", "Sin WhatsApp" in html and clave_lola not in html.split("data-buscar")[1][:200]
          and "Cargar su WhatsApp" in html)
 chequear("whatsapp.py no manda a una clave sin número", whatsapp_real._sin_numero(clave_lola) and not whatsapp_real._sin_numero("5491100000001"))
@@ -3491,6 +3494,43 @@ chequear("horario: genera las franjas de los lunes", _horas == ["09:00", "09:50"
 _antes = len(TABLAS["turnos"])
 chequear("horario: generar de nuevo no duplica", scheduler.generar_desde_horario(dict(_t1)) == 0 and len(TABLAS["turnos"]) == _antes)
 chequear("horario: el panel lo muestra", 'value="09:00"' in panel_c.get("/agenda").data.decode())
+_tz_ar = app.ZoneInfo(TZ)
+_hora = lambda t: datetime.fromisoformat(t["inicio"]).astimezone(_tz_ar).strftime("%H:%M")
+_lunes = sorted([t for t in TABLAS["turnos"] if t["id"] not in _previos], key=lambda t: _norm(t["inicio"]))
+_uno = next(t for t in _lunes if _hora(t) == "09:50")
+r = panel_c.post(f"/agenda/libre/{_uno['id']}/sacar", data={"csrf_token": "tok"}, follow_redirects=True)
+chequear("sacar: borra el horario libre", "Sacaste el horario" in r.data.decode()
+         and not any(t["id"] == _uno["id"] for t in TABLAS["turnos"]) and len(TABLAS["horarios_sacados"]) == 1)
+scheduler.generar_desde_horario(dict(_t1))
+chequear("sacar: el scheduler no lo vuelve a crear", not any(_norm(t["inicio"]) == _norm(_uno["inicio"]) for t in TABLAS["turnos"]))
+_res = next(t for t in _lunes if _hora(t) == "15:00")
+_res.update(estado="reservado", paciente_nombre="Fija", paciente_telefono="5491100000077")
+r = panel_c.post(f"/agenda/libre/{_res['id']}/sacar", data={"csrf_token": "tok"}, follow_redirects=True)
+chequear("sacar: una sesión agendada no", "ya no está libre" in r.data.decode() and _res in TABLAS["turnos"])
+_otros_15 = [t for t in _lunes if _hora(t) == "15:00" and t is not _res]
+_otros_15[0]["hueco"] = "pendiente"
+_mano_dia = (datetime.now(_tz_ar) + timedelta(days=3)).date()
+panel_c.post("/agenda/generar", data={"csrf_token": "tok", "fecha_desde": _mano_dia.isoformat(), "fecha_hasta": _mano_dia.isoformat(),
+                                      "hora_inicio": "15:00", "hora_fin": "16:00", "duracion_minutos": "50",
+                                      "dias_semana": str(_mano_dia.weekday())})
+_mano = [t for t in TABLAS["turnos"] if t.get("a_mano")]
+chequear("generar a mano: queda marcado", len(_mano) == 1)
+TABLAS["turnos"].append(turno("viejo-15", "t1", datetime.fromisoformat(_res["inicio"]) + timedelta(days=7)))
+r = panel_c.post("/agenda/horario", data={"csrf_token": "tok", "dia0_desde1": "09:00", "dia0_hasta1": "11:00",
+                                          "horario_semanas": "2"}, follow_redirects=True)
+_quedan_15 = [t for t in TABLAS["turnos"] if t["id"] not in _previos and _hora(t) == "15:00"]
+chequear("cambiar horario: saca los libres que ya no entran", "que ya no entraban" in r.data.decode()
+         and _res in _quedan_15 and _otros_15[0] in _quedan_15 and _mano[0] in _quedan_15
+         and not any(t.get("estado") == "libre" and not t.get("hueco") and not t.get("a_mano") for t in _quedan_15))
+chequear("cambiar horario: los que entran siguen y el sacado no vuelve",
+         any(_hora(t) == "09:00" for t in TABLAS["turnos"] if t["id"] not in _previos)
+         and not any(_norm(t["inicio"]) == _norm(_uno["inicio"]) for t in TABLAS["turnos"]))
+_d = datetime.fromisoformat(_uno["inicio"]).astimezone(_tz_ar).date()
+panel_c.post("/agenda/generar", data={"csrf_token": "tok", "fecha_desde": _d.isoformat(), "fecha_hasta": _d.isoformat(),
+                                      "hora_inicio": "09:50", "hora_fin": "10:40", "duracion_minutos": "50",
+                                      "dias_semana": str(_d.weekday())})
+chequear("generar a mano: vuelve a habilitar el sacado", not TABLAS["horarios_sacados"]
+         and any(_norm(t["inicio"]) == _norm(_uno["inicio"]) for t in TABLAS["turnos"]))
 
 # tipos de turno
 reset()

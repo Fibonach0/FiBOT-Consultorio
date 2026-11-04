@@ -255,6 +255,12 @@
         {% elif t._pisado %}
         <span class="chip">se pisa con otra sesión</span>
         {% elif not t._paso %}
+        <span class="libre-acciones">
+        <form method="post" action="{{ url_for('agenda_sacar_libre', turno_id=t.id) }}" class="sacar-libre">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="semana" value="{{ semana }}">
+          <button class="btn chico secundario" type="submit" title="No vuelve a aparecer. Si lo querés de nuevo, generalo a mano.">Sacar</button>
+        </form>
         <details class="acciones">
           <summary class="btn chico secundario">Agendar paciente</summary>
           <form method="post" action="{{ url_for('agenda_agendar', turno_id=t.id) }}" class="fila">
@@ -281,6 +287,7 @@
             <div class="al-pie"><button class="btn chico" type="submit">Agendar</button></div>
           </form>
         </details>
+        </span>
         {% endif %}
       </div>
       {% endif %}
