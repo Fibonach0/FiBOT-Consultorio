@@ -21,7 +21,7 @@
   </style>
 </head>
 <body>
-  <div class="boton"><button onclick="window.print()">Imprimir o guardar en PDF</button></div>
+  <div class="boton"><button onclick="window.print()">Imprimir</button> <a href="{{ url_for('pago_recibo_pdf', token=pago.token) }}">Descargar PDF</a></div>
   <div class="cabecera">
     {% if foto %}<img src="{{ foto }}" alt="" class="foto">{% endif %}
     <div><strong>{{ tenant.nombre }}</strong>{% if tenant.titulo %}<br><span class="sub">{{ tenant.titulo }}</span>{% endif %}</div>

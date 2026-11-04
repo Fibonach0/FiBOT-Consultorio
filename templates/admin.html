@@ -95,14 +95,14 @@
 
   <div class="card">
     <h3>Profesionales <span class="contador">{{ tenants|length }}</span></h3>
-    <div class="tenue" style="margin-bottom:8px">Uso de los últimos 30 días. Desde acá no se ve ningún dato de pacientes: sólo cuentas.</div>
+    <div class="tenue" style="margin-bottom:8px">Uso de los últimos 30 días; lo cobrado por la web es del mes en curso, neto de devoluciones. Desde acá no se ve ningún dato de pacientes: sólo cuentas.</div>
     <form method="get" action="{{ url_for('admin_uso_csv') }}" class="fila" style="margin-bottom:10px">
       <div><label>Uso de un mes, para facturar</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
       <div class="al-pie"><button class="btn chico secundario" type="submit">Bajar CSV</button></div>
     </form>
     <div class="envoltura">
     <table class="tabla">
-      <tr><th>Profesional</th><th>Usuario</th><th>Último ingreso</th><th>Mercado Pago</th><th>Sesiones</th><th>Pacientes</th><th>Cuestionarios</th><th>Entregas</th><th></th></tr>
+      <tr><th>Profesional</th><th>Usuario</th><th>Último ingreso</th><th>Mercado Pago</th><th>Cobrado este mes</th><th>Sesiones</th><th>Pacientes</th><th>Cuestionarios</th><th>Entregas</th><th></th></tr>
       {% for t in tenants %}
       <tr>
         <td><strong>{{ t.nombre }}</strong><br><span class="tenue">{{ t.rubro or 'sin rubro' }}{% if t.slug %} · /{{ t.slug }}{% endif %}{% if t.moderador %} · modera{% endif %}</span>
@@ -111,6 +111,11 @@
         <td>{{ t._ingreso }}</td>
         <td>{% if t.mp_user_id and t.mp_caido_at %}<span class="chip chip-alerta">se cortó</span>{% elif t.mp_user_id %}<span class="chip chip-ok">conectado</span>{% else %}<span class="tenue">no</span>{% endif %}
           {% if (t.cobro_web or 'no') != 'no' %}<br><span class="tenue">cobra: {{ t.cobro_web }}</span>{% endif %}</td>
+        <td>{% if t.cobros %}<strong>{{ t.cobros.total|pesos }}</strong> <span class="tenue">({{ t.cobros.cantidad }})</span>
+          {% if t.cobros.mercadopago %}<br><span class="tenue">MP {{ t.cobros.mercadopago|pesos }}</span>{% endif %}
+          {% if t.cobros.transferencia %}<br><span class="tenue">transf. {{ t.cobros.transferencia|pesos }}</span>{% endif %}
+          {% if t.cobros.devuelto %}<br><span class="tenue">devuelto {{ t.cobros.devuelto|pesos }}</span>{% endif %}
+          {% else %}<span class="tenue">—</span>{% endif %}</td>
         <td>{{ t.uso.sesiones }}</td><td>{{ t.uso.pacientes }}</td><td>{{ t.uso.cuestionarios }}</td><td>{{ t.uso.entregas }}</td>
         <td>
           <form method="post" action="{{ url_for('admin_link_clave', tenant_id=t.id) }}" style="margin-bottom:4px">

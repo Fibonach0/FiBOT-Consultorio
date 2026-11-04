@@ -3,6 +3,7 @@
 Cosas de la cuenta (recuperar la clave, avisos de seguridad) y, al paciente que
 lo dejó al reservar, el link de su recibo. Nunca datos de la ficha ni notas.
 """
+import base64
 import logging
 
 import requests
@@ -16,18 +17,21 @@ def disponible() -> bool:
     return bool(config.RESEND_API_KEY and config.MAIL_REMITENTE)
 
 
-def enviar(para: str, asunto: str, texto: str) -> bool:
-    return enviar_detalle(para, asunto, texto)[0]
+def enviar(para: str, asunto: str, texto: str, adjuntos: list[tuple[str, bytes]] | None = None) -> bool:
+    return enviar_detalle(para, asunto, texto, adjuntos)[0]
 
 
-def enviar_detalle(para: str, asunto: str, texto: str) -> tuple[bool, str]:
+def enviar_detalle(para: str, asunto: str, texto: str,
+                   adjuntos: list[tuple[str, bytes]] | None = None) -> tuple[bool, str]:
     """(salió, motivo). El motivo es lo que dijo Resend, sin la clave."""
     if not disponible():
         return False, "faltan RESEND_API_KEY y MAIL_REMITENTE en Railway"
     try:
         r = requests.post("https://api.resend.com/emails", timeout=10,
                           headers={"Authorization": f"Bearer {config.RESEND_API_KEY}"},
-                          json={"from": config.MAIL_REMITENTE, "to": [para], "subject": asunto, "text": texto})
+                          json={"from": config.MAIL_REMITENTE, "to": [para], "subject": asunto, "text": texto,
+                                **({"attachments": [{"filename": n, "content": base64.b64encode(c).decode()}
+                                                    for n, c in adjuntos]} if adjuntos else {})})
         if r.status_code >= 300:
             log.warning("Resend respondió %s", r.status_code)
             try:
