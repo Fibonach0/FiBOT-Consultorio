@@ -3794,6 +3794,16 @@ chequear("MP: abre el checkout con la cuenta del profesional", r.headers.get("Lo
          and _mp["pref"][2]["Authorization"] == "Bearer TEST-token-del-profesional"
          and _mp["pref"][1]["external_reference"] == pago4["token"] and _mp["pref"][1]["items"][0]["unit_price"] == 25000.0
          and "t=t1" in _mp["pref"][1]["notification_url"])
+chequear("MP: manda los datos que pide la calidad de Mercado Pago",
+         _mp["pref"][1]["statement_descriptor"] == _pg.descriptor_resumen(TABLAS["tenants"][0])
+         and _mp["pref"][1]["payer"] == {"name": "Dani"} and _mp["pref"][1]["items"][0]["category_id"] == "services"
+         and _mp["pref"][1]["items"][0]["description"] and _mp["pref"][2]["X-Idempotency-Key"] == f"pref-{pago4['token']}",
+         _mp["pref"][1])
+chequear("MP: el resumen de la tarjeta sin tildes ni símbolos y hasta 22",
+         _pg.descriptor_resumen({"nombre": "Lic. María José Pérez-Núñez (Psicóloga)"}) == "Lic Maria Jose Perez N"
+         and _pg.descriptor_resumen({"nombre": "¿?"}) == "Consultorio")
+chequear("MP: nombre y apellido del paciente", _pg._comprador("Ana  María Gómez") == {"name": "Ana", "surname": "María Gómez"}
+         and _pg._comprador("") is None)
 _mp["pagos"]["111"] = {"status": "approved", "external_reference": pago4["token"], "transaction_amount": 100}
 app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "111"}})
 chequear("MP: con monto menor no aprueba", pago4["estado"] == "esperando")
