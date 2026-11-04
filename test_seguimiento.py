@@ -142,11 +142,11 @@ class _Query:
         filas = TABLAS["turnos"] if self.tabla == "turnos_disponibles" else TABLAS[self.tabla]
         if self.tabla == "turnos_disponibles":
             reservados = [r for r in filas if r["estado"] == "reservado"]
-            filas = [t for t in filas if t["estado"] == "libre" and not t.get("hueco") and not any(
+            filas = [{**t, "abierto": t.get("abierto", False)} for t in filas if t["estado"] == "libre" and not t.get("hueco") and not any(
                 r["tenant_id"] == t["tenant_id"] and _norm(r["inicio"]) < _norm(t["fin"])
                 and _norm(r["fin"]) > _norm(t["inicio"]) for r in reservados)
-                and not any(b["tenant_id"] == t["tenant_id"] and _norm(b["desde"]) < _norm(t["fin"])
-                            and _norm(b["hasta"]) > _norm(t["inicio"]) for b in TABLAS["bloqueos"])]
+                and (t.get("abierto") or not any(b["tenant_id"] == t["tenant_id"] and _norm(b["desde"]) < _norm(t["fin"])
+                            and _norm(b["hasta"]) > _norm(t["inicio"]) for b in TABLAS["bloqueos"]))]
         if self.op == "upsert":
             claves = self._on_conflict.split(",")
             creadas = []
@@ -1009,6 +1009,34 @@ r = client.post("/agenda/reprogramar/pasado", data={"fecha": otra_hora.strftime(
 chequear("el profesional puede pasar una sesión a un día bloqueado", "bloqueado" not in r.data.decode().split("Sesión pasada")[0][-200:]
          and "Sesión pasada" in r.data.decode()) if otra_hora.date() == dia_libre else None
 fila("libre-manana").update(estado="libre", paciente_nombre=None, paciente_telefono=None)
+chequear("agendar en un día bloqueado avisa", "Ojo: ese día lo tenías bloqueado (Congreso)" in r.data.decode())
+html = client.get(f"/agenda?semana={dia_libre.isoformat()}").data.decode()
+chequear("el día bloqueado ofrece abrirlo", "Abrir este día a pacientes" in html and "/agenda/libre/libre-manana/abrir" in html)
+client.post("/agenda/libre/libre-manana/abrir", data={"abrir": "1"})
+chequear("abrir un horario lo ofrece en la página", "libre-manana" in [t["id"] for t in db.turnos_libres("t1", ahora)])
+html = client.get(f"/agenda?semana={dia_libre.isoformat()}").data.decode()
+chequear("el panel lo muestra abierto", "abierto a pacientes" in html)
+client.post("/agenda/libre/libre-manana/abrir", data={"abrir": "0"})
+chequear("cerrarlo lo saca de la página", "libre-manana" not in [t["id"] for t in db.turnos_libres("t1", ahora)])
+r = client.post(f"/agenda/dia/{dia_libre.isoformat()}/abrir", data={"abrir": "1"}, follow_redirects=True)
+chequear("abrir el día entero", "Abriste el" in r.data.decode() and fila("libre-manana")["abierto"] is True
+         and b in TABLAS["bloqueos"])
+chequear("abierto, el paciente puede reservarlo", db.reservar_turno("t1", "libre-manana", "5491100000003", "Eva") is True)
+fila("libre-manana").update(estado="libre", paciente_nombre=None, paciente_telefono=None)
+client.post(f"/agenda/dia/{dia_libre.isoformat()}/abrir", data={"abrir": "0"})
+chequear("volver a cerrarlo", fila("libre-manana")["abierto"] is False)
+_sesion_bloq = dict(fila("libre-manana"), estado="reservado")
+_av = scheduler._bloqueos_con_sesiones(TENANT, dia_libre - timedelta(days=3), [_sesion_bloq])
+chequear("resumen: avisa 3 días antes si hay sesiones", len(_av) == 1 and "lo tenés bloqueado" in _av[0] and "1 sesión" in _av[0], _av)
+chequear("resumen: 2 días antes no repite", scheduler._bloqueos_con_sesiones(TENANT, dia_libre - timedelta(days=2), [_sesion_bloq]) == [])
+chequear("resumen: sin sesiones no avisa", scheduler._bloqueos_con_sesiones(TENANT, dia_libre - timedelta(days=1), []) == [])
+_fer = dia_libre + timedelta(days=1)
+TABLAS["bloqueos"].append({"id": "fer", "tenant_id": "t1", "motivo": "Feriado: Prueba",
+                           "desde": datetime.combine(_fer, datetime.min.time(), tzinfo=zona).isoformat(),
+                           "hasta": datetime.combine(_fer + timedelta(days=1), datetime.min.time(), tzinfo=zona).isoformat()})
+html = client.get("/agenda?vista=mes&semana=" + _fer.isoformat()).data.decode() + client.get("/agenda").data.decode()
+chequear("el mes pinta distinto los feriados", " bloqueado feriado" in html)
+TABLAS["bloqueos"] = [x for x in TABLAS["bloqueos"] if x["id"] != "fer"]
 client.post(f"/agenda/bloqueo/{b['id']}/borrar")
 chequear("se puede quitar", TABLAS["bloqueos"] == [] and "libre-manana" in [t["id"] for t in db.turnos_libres("t1", ahora)])
 html = client.post("/agenda/bloqueo", data={"desde": "2030-02-10", "hasta": "2030-02-01"}, follow_redirects=True).data.decode()

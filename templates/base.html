@@ -26,9 +26,9 @@
   <title>{% block titulo %}FiBOT Consultorio{% endblock %}</title>
   {% block head %}{% endblock %}
   <style>
-    :root { --ink:#1c1b19; --muted:#5b584f; --green:#2f5233; --green-solid:#2f5233; --on-green:#fff; --green-bg:#eef3ec; --green-mid:#6f8f63; --rule:#dcd6c7; --cream:#faf6ef; --card:#fff; --warn-bg:#fbeee4; --warn:#c1652f; --accent2:#b5533c; --chip-bg:#f0ece3; --hover:#faf7f0; --stripe:#f6f0e4; --paper:#fffdf5; --danger-bg:#fbeeee; color-scheme:light; }
-    :root[data-modo="oscuro"] { --ink:#e7e3da; --muted:#aaa497; --green:#93c48f; --green-solid:#3e6a44; --on-green:#f4f2ec; --green-bg:#22302a; --green-mid:#4c6b48; --rule:#3a3832; --cream:#151412; --card:#1e1d1a; --warn-bg:#3a2a1f; --warn:#e8a073; --accent2:#d98a74; --chip-bg:#2c2a25; --hover:#25231f; --stripe:#2a2722; --paper:#22201c; --danger-bg:#3a2222; color-scheme:dark; }
-    @media (prefers-color-scheme: dark) { :root[data-modo="auto"] { --ink:#e7e3da; --muted:#aaa497; --green:#93c48f; --green-solid:#3e6a44; --on-green:#f4f2ec; --green-bg:#22302a; --green-mid:#4c6b48; --rule:#3a3832; --cream:#151412; --card:#1e1d1a; --warn-bg:#3a2a1f; --warn:#e8a073; --accent2:#d98a74; --chip-bg:#2c2a25; --hover:#25231f; --stripe:#2a2722; --paper:#22201c; --danger-bg:#3a2222; color-scheme:dark; } }
+    :root { --ink:#1c1b19; --muted:#5b584f; --green:#2f5233; --green-solid:#2f5233; --on-green:#fff; --green-bg:#eef3ec; --green-mid:#6f8f63; --rule:#dcd6c7; --cream:#faf6ef; --card:#fff; --warn-bg:#fbeee4; --warn:#c1652f; --accent2:#b5533c; --chip-bg:#f0ece3; --hover:#faf7f0; --stripe:#f6f0e4; --paper:#fffdf5; --danger-bg:#fbeeee; --feriado:#4f57a8; color-scheme:light; }
+    :root[data-modo="oscuro"] { --ink:#e7e3da; --muted:#aaa497; --green:#93c48f; --green-solid:#3e6a44; --on-green:#f4f2ec; --green-bg:#22302a; --green-mid:#4c6b48; --rule:#3a3832; --cream:#151412; --card:#1e1d1a; --warn-bg:#3a2a1f; --warn:#e8a073; --accent2:#d98a74; --chip-bg:#2c2a25; --hover:#25231f; --stripe:#2a2722; --paper:#22201c; --danger-bg:#3a2222; --feriado:#a9b0f0; color-scheme:dark; }
+    @media (prefers-color-scheme: dark) { :root[data-modo="auto"] { --ink:#e7e3da; --muted:#aaa497; --green:#93c48f; --green-solid:#3e6a44; --on-green:#f4f2ec; --green-bg:#22302a; --green-mid:#4c6b48; --rule:#3a3832; --cream:#151412; --card:#1e1d1a; --warn-bg:#3a2a1f; --warn:#e8a073; --accent2:#d98a74; --chip-bg:#2c2a25; --hover:#25231f; --stripe:#2a2722; --paper:#22201c; --danger-bg:#3a2222; --feriado:#a9b0f0; color-scheme:dark; } }
     :root[data-letra="grande"] { font-size:112.5%; }
     :root[data-letra="enorme"] { font-size:125%; }
     * { box-sizing: border-box; }
@@ -276,6 +276,10 @@
       .libre-acciones { display:flex; gap:6px; align-items:flex-start; flex-wrap:wrap; justify-content:flex-end; }
     .libre-acciones .acciones { margin-top:0; }
     .sacar-libre { margin:0; }
+      .chip-feriado { background:color-mix(in srgb, var(--feriado) 18%, transparent); color:var(--feriado); }
+    .cal-dia.bloqueado.feriado { background:repeating-linear-gradient(45deg, var(--card), var(--card) 6px, color-mix(in srgb, var(--feriado) 22%, var(--card)) 6px, color-mix(in srgb, var(--feriado) 22%, var(--card)) 12px); }
+    .cal-dia.feriado .cal-libres { color:var(--feriado); }
+    .abrir-dia { display:inline-block; margin:0 0 0 6px; vertical-align:middle; }
   </style>
 </head>
 <body>

@@ -127,7 +127,7 @@
     <div class="cal">
       {% for d in ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}<div class="cal-cabecera">{{ d }}</div>{% endfor %}
       {% for semana_cal in semanas %}{% for d in semana_cal %}
-      <a class="cal-dia{% if d.de_otro_mes %} otro-mes{% endif %}{% if d.es_hoy %} hoy{% endif %}{% if d.bloqueado %} bloqueado{% endif %}" href="{{ url_for('agenda', semana=d.fecha) }}#dia-{{ d.fecha }}">
+      <a class="cal-dia{% if d.de_otro_mes %} otro-mes{% endif %}{% if d.es_hoy %} hoy{% endif %}{% if d.bloqueado %} bloqueado{% if (d.bloqueado.motivo or '').startswith('Feriado: ') %} feriado{% endif %}{% endif %}" href="{{ url_for('agenda', semana=d.fecha) }}#dia-{{ d.fecha }}">
         <span class="cal-numero">{{ d.numero }}</span>
         {% for t in d.sesiones %}
         <span class="cal-sesion{% if t.asistencia == 'vino' %} ok{% elif t.asistencia == 'no_vino' %} alerta{% endif %}">{{ t._hora }} {{ t.paciente_nombre or t.paciente_telefono }}</span>
@@ -157,7 +157,16 @@
     {% for dia in dias %}
     <div class="dia{% if dia.es_hoy %} hoy{% endif %}" id="dia-{{ dia.fecha }}">
       <strong>{{ dia.titulo }}{% if dia.es_hoy %} · hoy{% endif %}</strong>
-      {% if dia.bloqueado %}<span class="chip chip-alerta">bloqueado{% if dia.bloqueado.motivo %}: {{ dia.bloqueado.motivo }}{% endif %}</span>{% endif %}
+      {% if dia.bloqueado %}<span class="chip {{ 'chip-feriado' if (dia.bloqueado.motivo or '').startswith('Feriado: ') else 'chip-alerta' }}">bloqueado{% if dia.bloqueado.motivo %}: {{ dia.bloqueado.motivo }}{% endif %}</span>
+      {% set libres_dia = dia.turnos|selectattr('estado', 'equalto', 'libre')|rejectattr('hueco')|rejectattr('_paso')|list %}
+      {% if libres_dia %}{% set todos_abiertos = libres_dia|selectattr('abierto')|list|length == libres_dia|length %}
+      <form method="post" action="{{ url_for('agenda_abrir_dia', fecha=dia.fecha) }}" class="abrir-dia">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="semana" value="{{ semana }}">
+        <input type="hidden" name="abrir" value="{{ '0' if todos_abiertos else '1' }}">
+        <button class="btn chico secundario" type="submit">{{ 'Volver a cerrarlo a pacientes' if todos_abiertos else 'Abrir este día a pacientes' }}</button>
+      </form>
+      {% endif %}{% endif %}
       {% if not dia.turnos %}
         <div class="tenue">sin horarios cargados</div>
       {% endif %}
@@ -254,7 +263,17 @@
         <span class="chip">se pisa con otra sesión</span>
         {% elif not t._paso %}
         <span class="libre-acciones">
-        {% if dia.bloqueado %}<span class="chip" title="Tus pacientes no lo ven en tu página. Vos podés agendar igual.">cerrado a pacientes</span>{% endif %}
+        {% if dia.bloqueado and not t.hueco %}
+        <form method="post" action="{{ url_for('agenda_abrir_libre', turno_id=t.id) }}" class="sacar-libre">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="semana" value="{{ semana }}">
+          <input type="hidden" name="abrir" value="{{ '0' if t.abierto else '1' }}">
+          {% if t.abierto %}<span class="chip chip-ok">abierto a pacientes</span>
+          <button class="btn chico secundario" type="submit" title="Deja de ofrecerse en tu página.">Cerrar</button>
+          {% else %}<span class="chip" title="Tus pacientes no lo ven en tu página. Vos podés agendar igual.">cerrado a pacientes</span>
+          <button class="btn chico secundario" type="submit" title="Se ofrece en tu página aunque el día esté bloqueado.">Abrir</button>{% endif %}
+        </form>
+        {% endif %}
         <form method="post" action="{{ url_for('agenda_sacar_libre', turno_id=t.id) }}" class="sacar-libre">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <input type="hidden" name="semana" value="{{ semana }}">

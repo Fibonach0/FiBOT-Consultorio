@@ -2330,6 +2330,7 @@ def agenda_reprogramar(turno_id):
         else:
             aviso = " No se le pudo avisar al paciente: escribile vos."
     flash(f"Sesión pasada al {DIAS_LABEL[fecha.weekday()]} {fecha.day}/{fecha.month:02d} a las {hora:%H:%M}.{aviso}")
+    _avisar_si_bloqueado(tenant, nuevo_inicio.isoformat(), (nuevo_inicio + timedelta(minutes=duracion)).isoformat())
     # Se va a la semana del horario NUEVO: es donde el profesional quiere
     # ver que quedó bien.
     return redirect(url_for("agenda", semana=fecha.strftime("%Y-%m-%d")))
@@ -3244,6 +3245,55 @@ def _estadisticas_pagina(tenant: dict, tz: ZoneInfo) -> dict | None:
         return None
 
 
+def _avisar_si_bloqueado(tenant: dict, inicio: str, fin: str) -> None:
+    """El panel deja agendar en un día bloqueado (es decisión del
+    profesional), pero avisa por si tocó el día equivocado."""
+    bloqueo = db.bloqueo_en(tenant["id"], inicio, fin)
+    if not bloqueo:
+        return
+    motivo = bloqueo.get("motivo") or ""
+    if motivo.startswith(scheduler.PREFIJO_FERIADO):
+        flash(f"Ojo: ese día es feriado ({motivo[len(scheduler.PREFIJO_FERIADO):]}). La sesión quedó agendada igual.")
+    else:
+        flash(f"Ojo: ese día lo tenías bloqueado{f' ({motivo})' if motivo else ''}. La sesión quedó agendada igual.")
+
+
+@app.post("/agenda/libre/<turno_id>/abrir")
+@login_required
+def agenda_abrir_libre(turno_id):
+    """Ofrece a los pacientes un horario de un día bloqueado, o lo vuelve a cerrar."""
+    abrir = request.form.get("abrir") == "1"
+    if not db.abrir_libres(session["tenant_id"], [turno_id], abrir):
+        flash("Ese horario ya no está libre.")
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/dia/<fecha>/abrir")
+@login_required
+def agenda_abrir_dia(fecha):
+    """«Abrir este día a pacientes»: todos sus horarios libres se ofrecen,
+    aunque el día siga bloqueado (el feriado no se borra: vuelve a cargarse
+    solo y el año que viene sigue cerrado)."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    try:
+        dia = date.fromisoformat(fecha)
+    except ValueError:
+        return "fecha inválida", 400
+    abrir = request.form.get("abrir") == "1"
+    desde = datetime.combine(dia, dtime.min, tzinfo=tz)
+    libres = [t["id"] for t in db.agenda_semana(tenant["id"], desde.astimezone(ZoneInfo("UTC")),
+                                                (desde + timedelta(days=1)).astimezone(ZoneInfo("UTC")))
+              if t["estado"] == "libre" and not t.get("hueco")]
+    cambiados = db.abrir_libres(tenant["id"], libres, abrir)
+    if abrir:
+        flash(f"Abriste el {dia.day}/{dia.month:02d} a tus pacientes: {cambiados} horario{'s' if cambiados != 1 else ''} "
+              f"se ofrece{'n' if cambiados != 1 else ''} en tu página." if cambiados else "Ese día no tiene horarios libres para abrir.")
+    else:
+        flash(f"El {dia.day}/{dia.month:02d} volvió a estar cerrado a tus pacientes.")
+    return _volver_a_agenda()
+
+
 @app.post("/agenda/libre/<turno_id>/sacar")
 @login_required
 def agenda_sacar_libre(turno_id):
@@ -3902,6 +3952,7 @@ def agenda_agendar(turno_id):
                                           ignorar_bloqueo=True):
         flash("Ese horario ya no está libre.")
         return _volver_a_agenda()
+    _avisar_si_bloqueado(tenant, turno["inicio"], turno["fin"])
     if ambiguo:
         flash(f"Ese WhatsApp tiene más de una ficha que coincide con {nombre}: quedó en la más reciente. "
               "Si no es esa, pasá la sesión desde la pestaña Sesiones.")
@@ -4513,7 +4564,8 @@ def agendar_cambiar_a(token, turno_id):
     if not _entra(tenant, nuevo["id"], duracion):
         flash(f"En ese horario no entra tu turno de {duracion} minutos — elegí otro.")
         return redirect(url_for("agendar_cambiar", token=token))
-    error = db.reprogramar_turno(tenant["id"], turno["id"], datetime.fromisoformat(nuevo["inicio"]), duracion)
+    error = db.reprogramar_turno(tenant["id"], turno["id"], datetime.fromisoformat(nuevo["inicio"]), duracion,
+                                 ignorar_bloqueo=bool(nuevo.get("abierto")))
     if error:
         flash("Ese horario ya no está disponible — elegí otro.")
         return redirect(url_for("agendar_cambiar", token=token))
