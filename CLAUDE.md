@@ -423,6 +423,12 @@ Reservar tiene doble confirmación: el primer POST (sin `confirmado=1`) sólo
 muestra `publico_revisar.html` con profesional, día, hora, nombre y WhatsApp, sin
 tomar el horario; el segundo reserva. Todas las pantallas dicen con quién es el
 turno.
+En `/<slug>` (con JS) todo pasa dentro de la tarjeta: tocar un horario abre el
+formulario y los dos POST van a las mismas rutas con `X-Parcial: 1`, que
+devuelven sólo el pedazo (`_reserva_revisar.html`, `_reserva_lista.html` o
+`_reserva_error.html` con 409; `data-otro` = ese horario ya no sirve). Con cobro
+la respuesta trae `X-Ir-A` con `/pago/<token>`. Las páginas completas incluyen
+los mismos pedazos, y sin JS (o si el fetch falla) se sigue por ellas.
 
 El teléfono que se carga en el formulario se limpia a solo dígitos antes de
 guardarlo — el recordatorio automático (y que el paciente después le escriba

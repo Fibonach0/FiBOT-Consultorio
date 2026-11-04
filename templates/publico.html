@@ -92,6 +92,21 @@
   .pf-mes .dia.otro { opacity:.3; }
   .pf-mes a.dia { background:var(--green-bg); color:var(--green); font-weight:700; text-decoration:none; }
   .pf-mes a.dia small { display:block; font-weight:400; font-size:10px; }
+  .pf-horas a.elegido { background:var(--green); border-color:var(--green); color:var(--on-green); }
+  .pf-horas a.elegido small { color:inherit; }
+  .pf-form { display:flex; flex-direction:column; gap:8px; margin-top:18px; padding-top:18px; border-top:1px solid var(--rule); animation:s-rise .3s ease both; }
+  .pf-form[hidden] { display:none; }
+  .pf-form label { margin:4px 0 0; font-size:14px; font-weight:600; color:var(--ink); }
+  .pf-form .s-boton { margin-top:8px; }
+  .pf-modo { border:0; margin:4px 0 0; padding:0; }
+  .pf-modo legend { font-size:14px; font-weight:600; margin-bottom:8px; padding:0; }
+  .pf-modo .s-seg label { all:unset; flex:1; text-align:center; font-size:14px; padding:9px 6px; border-radius:999px; color:var(--muted); cursor:pointer; }
+  .pf-modo .s-seg label:has(input:checked) { background:var(--card); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .pf-modo .s-seg label:has(input:focus-visible) { outline:3px solid var(--green); }
+  .pf-modo input { position:absolute; opacity:0; pointer-events:none; }
+  .pf-solo { font-size:14px; color:var(--s-texto); margin:4px 0 0; }
+  #reserva-paso:not(:empty) { animation:s-rise .3s ease both; }
+  .pf-caja.paso-revisar > :not(#reserva-paso), .pf-caja.paso-lista > :not(#reserva-paso) { display:none !important; }
   .pf-espera { margin-top:14px; padding:18px 20px; border:1px solid var(--rule); border-radius:14px; }
   .pf-espera summary { display:flex; justify-content:space-between; gap:12px; cursor:pointer; font-size:15px; }
   .pf-espera summary::after { content:"+"; color:var(--s-acento); font-size:18px; line-height:1; }
@@ -143,7 +158,7 @@
     </article>
 
     <aside class="pf-lado" id="horarios" aria-label="Reservar turno">
-      <div class="pf-caja">
+      <div class="pf-caja" id="reserva-caja">
         {% with mensajes = get_flashed_messages() %}{% if mensajes %}<div class="error" role="alert">{{ mensajes[0] }}</div>{% endif %}{% endwith %}
         {% if cambiar %}
         <h2>Elegí el horario nuevo</h2>
@@ -205,7 +220,7 @@
           <h3>{{ d.nombre }} {{ d.numero }}</h3>
           <div class="pf-horas">
             {% for t in d.turnos %}
-            <a href="{{ url_hora(t) }}">{{ t._hora }}{% if t.solo_modalidad == 'virtual' %}<small>video</small>{% elif t.solo_modalidad == 'presencial' and tenant.modalidades_publicas in ('ambas', 'virtual') %}<small>consultorio</small>{% endif %}{% if t.sede and tenant.sedes and tenant.sedes|length > 1 %}<small>{{ t.sede }}</small>{% endif %}</a>
+            <a href="{{ url_hora(t) }}"{% if not cambiar %} data-post="{{ url_for('publico_reservar', slug=tenant.slug, turno_id=t.id) }}" data-cuando="{{ d.nombre[:3] | lower }} {{ d.numero.split('/')[0] }} · {{ t._hora }}" data-solo="{{ t.solo_modalidad or '' }}"{% endif %}>{{ t._hora }}{% if t.solo_modalidad == 'virtual' %}<small>video</small>{% elif t.solo_modalidad == 'presencial' and tenant.modalidades_publicas in ('ambas', 'virtual') %}<small>consultorio</small>{% endif %}{% if t.sede and tenant.sedes and tenant.sedes|length > 1 %}<small>{{ t.sede }}</small>{% endif %}</a>
             {% endfor %}
           </div>
         </div>
@@ -214,9 +229,40 @@
         <p class="pf-nada">No hay horarios libres esta semana.
           {% if proximo_despues %}El próximo es el <a href="{{ url_semana(proximo_despues._semana) }}#horarios">{{ proximo_despues._dia }} a las {{ proximo_despues._hora }}</a>.{% else %}Volvé a pasar más tarde.{% endif %}</p>
         {% else %}
-        <p class="pf-pie">Tocá un horario. Después dejás tu nombre y WhatsApp, y te confirmamos por ahí.</p>
+        <p class="pf-pie" id="reserva-ayuda">Tocá un horario. Después dejás tu nombre y WhatsApp, y te confirmamos por ahí.</p>
+        {% if not cambiar %}
+        {# Reserva en la misma tarjeta (con JS). Sin JS, cada horario lleva a su página de reserva. #}
+        <form class="pf-form" id="reserva-form" method="post" hidden>
+          <div class="error" role="alert" id="reserva-error" hidden></div>
+          {% if i_tipo is not none %}<input type="hidden" name="tipo" value="{{ i_tipo }}">{% endif %}
+          <label for="r-nombre">Nombre y apellido</label>
+          <input class="s-campo" id="r-nombre" type="text" name="nombre" required maxlength="120" autocomplete="name">
+          <label for="r-tel">WhatsApp (con código de país, ej. 5491123456789)</label>
+          <input class="s-campo" id="r-tel" type="tel" name="telefono" required placeholder="5491123456789" autocomplete="tel">
+          {% if (tenant.modalidades_publicas or 'presencial') == 'ambas' %}
+          <fieldset class="pf-modo" id="r-modo">
+            <legend>¿Cómo preferís?</legend>
+            <div class="s-seg">
+              <label><input type="radio" name="modalidad" value="presencial" checked> En el consultorio</label>
+              <label><input type="radio" name="modalidad" value="virtual"> Por videollamada</label>
+            </div>
+          </fieldset>
+          {% endif %}
+          <p class="pf-solo" id="r-solo" hidden></p>
+          {% if serie_posible %}
+          <label for="r-sesiones">¿Cuántas sesiones?</label>
+          <select class="s-campo" id="r-sesiones" name="sesiones">
+            <option value="1">Sólo esta</option>
+            {% for n in (4, 8) %}<option value="{{ n }}">{{ n }}: el mismo día y hora, {{ n }} semanas seguidas</option>{% endfor %}
+          </select>
+          {% endif %}
+          <button class="s-boton" type="submit" id="r-boton">Reservar</button>
+          <p class="pf-pie" style="margin-top:4px">Te confirmamos por WhatsApp.{% if not serie_posible %} Sin pago adelantado.{% endif %}</p>
+        </form>
         {% endif %}
         {% endif %}
+        {% endif %}
+        <div id="reserva-paso" aria-live="polite"></div>
       </div>
 
       {% if not cambiar %}
@@ -252,6 +298,83 @@
   botones.forEach(function (b) { b.addEventListener('click', function () { elegir(b.dataset.dia); }); });
   var primero = Array.prototype.find.call(botones, function (b) { return !b.disabled; });
   if (primero) elegir(primero.dataset.dia);
+})();
+
+(function () {
+  // Reservar en la misma tarjeta: tocar un horario abre el formulario; «Reservar»
+  // trae el paso de revisar y «Sí, reservar» el de listo, sin cambiar de página.
+  // Mismas rutas que sin JS (con X-Parcial); si algo falla, se sigue por la página común.
+  var form = document.getElementById('reserva-form');
+  if (!form || !window.fetch || !window.FormData) return;
+  var caja = document.getElementById('reserva-caja'), paso = document.getElementById('reserva-paso');
+  var error = document.getElementById('reserva-error'), boton = document.getElementById('r-boton');
+  var modo = document.getElementById('r-modo'), solo = document.getElementById('r-solo');
+  var ayuda = document.getElementById('reserva-ayuda');
+  var elegido = null;
+
+  function mostrarError(msj) { error.textContent = msj; error.hidden = !msj; }
+  function volverAlFormulario() { caja.classList.remove('paso-revisar', 'paso-lista'); paso.innerHTML = ''; }
+
+  document.querySelectorAll('.pf-horas a[data-post]').forEach(function (a) {
+    a.addEventListener('click', function (e) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || e.button) return;
+      e.preventDefault();
+      if (elegido) elegido.classList.remove('elegido');
+      elegido = a; a.classList.add('elegido'); a.setAttribute('aria-current', 'true');
+      form.action = a.dataset.post; form.hidden = false; if (ayuda) ayuda.hidden = true;
+      boton.textContent = 'Reservar ' + a.dataset.cuando;
+      var s = a.dataset.solo;
+      if (modo) modo.hidden = !!s;
+      solo.hidden = !s;
+      solo.textContent = s === 'virtual' ? 'Este horario es por videollamada.' : s === 'presencial' ? 'Este horario es en el consultorio.' : '';
+      mostrarError('');
+      var nombre = document.getElementById('r-nombre');
+      if (!nombre.value) nombre.focus({ preventScroll: false });
+      form.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    });
+  });
+
+  function enviar(f, alFallar) {
+    var datos = new URLSearchParams(new FormData(f));
+    var botones = f.querySelectorAll('button[type=submit]');
+    botones.forEach(function (b) { b.disabled = true; });
+    return fetch(f.action, { method: 'POST', body: datos, headers: { 'X-Parcial': '1' }, credentials: 'same-origin' })
+      .then(function (r) {
+        var ir = r.headers.get('X-Ir-A');
+        if (ir) { window.location.href = ir; return; }
+        return r.text().then(function (html) {
+          botones.forEach(function (b) { b.disabled = false; });
+          var tmp = document.createElement('div'); tmp.innerHTML = html;
+          var raiz = tmp.querySelector('[data-paso]');
+          if (!raiz) { alFallar(); return; }
+          if (raiz.dataset.paso === 'error') {
+            volverAlFormulario(); mostrarError(raiz.textContent.trim());
+            if (raiz.hasAttribute('data-otro') && elegido) { elegido.classList.remove('elegido'); elegido.remove(); elegido = null; form.hidden = true; if (ayuda) ayuda.hidden = false; }
+            return;
+          }
+          paso.innerHTML = ''; paso.appendChild(raiz);
+          caja.classList.remove('paso-revisar', 'paso-lista'); caja.classList.add('paso-' + raiz.dataset.paso);
+          caja.scrollIntoView({ block: 'start', behavior: 'smooth' });
+          var h = raiz.querySelector('h2'); if (h) { h.tabIndex = -1; h.focus({ preventScroll: true }); }
+        });
+      })
+      .catch(function () { botones.forEach(function (b) { b.disabled = false; }); alFallar(); });
+  }
+
+  form.addEventListener('submit', function (e) {
+    e.preventDefault();
+    if (!form.reportValidity()) return;
+    enviar(form, function () { form.submit(); });
+  });
+  paso.addEventListener('submit', function (e) {
+    var f = e.target.closest('form[data-parcial]'); if (!f) return;
+    e.preventDefault();
+    enviar(f, function () { f.submit(); });
+  });
+  paso.addEventListener('click', function (e) {
+    if (!e.target.closest('[data-corregir]')) return;
+    e.preventDefault(); volverAlFormulario(); document.getElementById('r-nombre').focus();
+  });
 })();
 </script>
 {% endblock %}

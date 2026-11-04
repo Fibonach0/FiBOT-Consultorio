@@ -90,7 +90,7 @@ print("GET /turnos -> lista los profesionales con página y lleva a cada calenda
 r = client.get("/anaperez")
 html = r.data.decode()
 hora_local = datetime.fromisoformat(TURNO_LIBRE["inicio"]).astimezone(app.ZoneInfo(TENANT["timezone"])).strftime("%H:%M")
-assert r.status_code == 200 and "Lic. Ana P" in html and f'reservar/turno-a">{hora_local}</a>' in html, html[:400]
+assert r.status_code == 200 and "Lic. Ana P" in html and 'href="/anaperez/reservar/turno-a"' in html and f'>{hora_local}</a>' in html, html[:400]
 assert "Semana del" in html and "Otros profesionales" in html and "Semana anterior" not in html
 print("GET /anaperez -> 200 OK, calendario de la semana con el turno libre")
 
@@ -130,7 +130,7 @@ r = client.post(
     "/anaperez/reservar/turno-a",
     data={"nombre": "Juan Pérez", "telefono": "5491123456789", "confirmado": "1", "modalidad": "virtual"},
 )
-assert r.status_code == 200 and b"reservado" in r.data.lower() and "Con <strong>Lic. Ana Pérez</strong>" in r.data.decode(), r.status_code
+assert r.status_code == 200 and b"reservado" in r.data.lower() and "Tu turno con <strong>Lic. Ana Pérez</strong>" in r.data.decode(), r.status_code
 assert not PLANTILLAS and TURNO_LIBRE["modalidad"] == "virtual" and TURNO_LIBRE["token_calendario"]
 assert "Revisá tu WhatsApp" not in r.data.decode() and "/agendar/" in r.data.decode()
 print("sin plantilla de confirmación: reserva con modalidad y link para agendar, sin WhatsApp OK")
@@ -157,6 +157,26 @@ ics = r.data.decode()
 assert r.status_code == 200 and r.mimetype == "text/calendar" and "BEGIN:VEVENT" in ics and "Turno con Lic. Ana Pérez" in ics and "Juan" not in ics
 assert client.get("/agendar/inventado").status_code == 404 and client.get("/agendar/inventado.ics").status_code == 404
 print("agendar: Google Calendar y .ics sin datos del paciente OK")
+# ---- reservar en la misma página (/<slug>, con X-Parcial): pedazos, no páginas
+P = {"X-Parcial": "1"}
+TURNO_LIBRE.update({"estado": "libre", "paciente_telefono": None, "paciente_nombre": None})
+html = client.get("/anaperez").data.decode()
+assert 'id="reserva-form"' in html and 'data-post="/anaperez/reservar/turno-a"' in html
+r = client.post("/anaperez/reservar/turno-a", data={"nombre": "Juan Pérez", "telefono": "5491123456789"}, headers=P)
+html = r.data.decode()
+assert r.status_code == 200 and 'data-paso="revisar"' in html and "<html" not in html and "data-parcial" in html
+assert TURNO_LIBRE["estado"] == "libre", "el primer paso tampoco reserva acá"
+r = client.post("/anaperez/reservar/turno-a", data={"nombre": "Juan", "telefono": "1234"}, headers=P)
+assert r.status_code == 409 and 'data-paso="error"' in r.data.decode() and "Revisá el WhatsApp" in r.data.decode()
+assert "data-otro" not in r.data.decode()
+r = client.post("/anaperez/reservar/turno-a", data={"nombre": "Juan Pérez", "telefono": "5491123456789", "confirmado": "1"}, headers=P)
+html = r.data.decode()
+assert r.status_code == 200 and 'data-paso="lista"' in html and "¡Listo, Juan!" in html and "/agendar/" in html and "<html" not in html
+assert TURNO_LIBRE["estado"] == "reservado"
+r = client.post("/anaperez/reservar/turno-a", data={"nombre": "Otra", "telefono": "5491100000000", "confirmado": "1"}, headers=P)
+assert r.status_code == 409 and "ya no está disponible" in r.data.decode() and "data-otro" in r.data.decode()
+print("reservar en la misma página: revisar, error y listo como pedazos de la tarjeta OK")
+
 TENANT.update({"modalidades_publicas": "presencial"})
 assert TURNO_LIBRE["estado"] == "reservado"
 assert TURNO_LIBRE["paciente_telefono"] == "5491123456789", TURNO_LIBRE["paciente_telefono"]

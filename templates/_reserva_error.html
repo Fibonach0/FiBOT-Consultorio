@@ -1,0 +1,3 @@
+{#- Error al reservar desde la tarjeta de /<slug> (X-Parcial). `otro`: el
+    horario ya no sirve, hay que elegir otro. -#}
+<div class="error" role="alert" data-paso="error"{% if otro %} data-otro{% endif %}>{{ mensaje }}</div>

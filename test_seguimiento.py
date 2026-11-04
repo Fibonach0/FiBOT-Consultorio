@@ -3724,6 +3724,9 @@ p1 = TABLAS["turnos"][0]
 pago = TABLAS["pagos"][-1]
 chequear("cobro: la reserva queda apartada esperando el pago", r.status_code == 302 and "/pago/" in r.headers["Location"]
          and p1["estado"] == "reservado" and p1["pago_web"] == "esperando" and pago["monto"] == 25000)
+r = w.post("/marcos/reservar/p2", data={"nombre": "Bea", "telefono": "5491100004444", "confirmado": "1"}, headers={"X-Parcial": "1"})
+chequear("cobro desde la misma página: el navegador va al pago", r.status_code == 200 and "/pago/" in (r.headers.get("X-Ir-A") or "")
+         and TABLAS["turnos"][1]["pago_web"] == "esperando")
 html = w.get(f"/pago/{pago['token']}").data.decode()
 chequear("cobro: la página muestra el alias y el monto", "Alias: marcos.mp" in html and "$ 25.000" in html and "Enviar comprobante" in html)
 chequear("cobro: no se recuerda mientras no paga", "p1" not in [t["id"] for t in [x for x in db.turnos_para_recordar("t1", 24 * 5)
