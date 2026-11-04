@@ -589,7 +589,7 @@
   <details class="card plegable" id="mi-pagina" data-plegable>
     <summary><h3>Tu página de turnos</h3><span class="plegable-resumen">{{ 'Pausada' if tenant.pausado else 'Tomando turnos' }}</span></summary>
     <p class="tenue" style="margin-top:0">Tus pacientes eligen día y hora y reservan solos, sin escribirte. Es tuya: compartila donde quieras.</p>
-    <form method="post" action="{{ url_for('agenda_pausa') }}" class="fila" style="align-items:flex-end;padding:10px;border-radius:8px;margin-bottom:10px;background:{{ '#fbeeee' if tenant.pausado else 'var(--green-bg)' }}">
+    <form method="post" action="{{ url_for('agenda_pausa') }}" class="fila" style="align-items:flex-end;padding:10px;border-radius:8px;margin-bottom:10px;background:{{ 'var(--danger-bg)' if tenant.pausado else 'var(--green-bg)' }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% if tenant.pausado %}
         <div style="flex:2"><strong>Pausada{% if tenant.pausado_hasta %} hasta el {{ tenant.pausado_hasta[8:10] }}/{{ tenant.pausado_hasta[5:7] }} (ese día se reactiva sola){% endif %}:</strong> nadie puede reservar (ni por la web ni por WhatsApp).{% if tenant.mensaje_pausa %} <span class="tenue">«{{ tenant.mensaje_pausa }}»</span>{% endif %}</div>
@@ -626,8 +626,9 @@
             {% if tenant.foto %}<img src="{{ tenant.foto }}" alt="Tu foto" width="64" height="64" style="width:64px;height:64px;border-radius:50%;object-fit:cover">{% endif %}
             <form method="post" action="{{ url_for('agenda_foto') }}" enctype="multipart/form-data" data-achicar="512x512" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="file" name="foto" accept="image/png,image/jpeg">
-              <button class="btn chico secundario" type="submit">{{ 'Cambiar foto' if tenant.foto else 'Subir foto' }}</button>
+              <label class="btn chico secundario elegir-archivo" style="margin:0;color:var(--green)">{{ 'Cambiar foto' if tenant.foto else 'Elegir foto' }}<input type="file" name="foto" accept="image/png,image/jpeg" aria-label="Elegir foto de perfil"></label>
+              <span class="tenue" data-estado hidden>Subiendo…</span>
+              <noscript><button class="btn chico secundario" type="submit">Subir</button></noscript>
             </form>
             {% if tenant.foto %}<form method="post" action="{{ url_for('agenda_foto_borrar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="quitar" type="submit" title="Quitar la foto">×</button></form>{% endif %}
           </div>
@@ -638,12 +639,13 @@
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
             <form method="post" action="{{ url_for('agenda_portada') }}" enctype="multipart/form-data" data-achicar="1600x400" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
               <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-              <input type="file" name="portada" accept="image/png,image/jpeg">
-              <button class="btn chico secundario" type="submit">{{ 'Cambiar portada' if tenant.portada_version else 'Subir portada' }}</button>
+              <label class="btn chico secundario elegir-archivo" style="margin:0;color:var(--green)">{{ 'Cambiar portada' if tenant.portada_version else 'Elegir portada' }}<input type="file" name="portada" accept="image/png,image/jpeg" aria-label="Elegir imagen de portada"></label>
+              <span class="tenue" data-estado hidden>Subiendo…</span>
+              <noscript><button class="btn chico secundario" type="submit">Subir</button></noscript>
             </form>
             {% if tenant.portada_version %}<form method="post" action="{{ url_for('agenda_portada_borrar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="quitar" type="submit" title="Quitar la portada">×</button></form>{% endif %}
           </div>
-          <span class="tenue" style="font-size:.8rem">Un paisaje, tu consultorio, algo que te guste. Sin portada se usa un fondo liso.</span>
+          <span class="tenue" style="font-size:.8rem;display:block;margin-top:4px">Un paisaje, tu consultorio, algo que te guste. Sin portada se usa un fondo liso.</span>
         </div>
       </div>
       <form method="post" action="{{ url_for('agenda_presentacion') }}" class="fila" style="margin-top:12px">
@@ -1748,11 +1750,13 @@
 // Achica en el navegador las fotos antes de subirlas (las del celular pesan
 // varios MB). data-achicar="ANCHOxALTO": máximo; la portada se recorta a esa proporción.
 document.querySelectorAll('form[data-achicar]').forEach(function (form) {
-  form.addEventListener('submit', function (e) {
-    var input = form.querySelector('input[type=file]');
-    var archivo = input && input.files[0];
-    if (!archivo || !window.HTMLCanvasElement || !window.DataTransfer || !/^image\/(png|jpeg)$/.test(archivo.type)) return;
-    e.preventDefault();
+  var input = form.querySelector('input[type=file]');
+  var estado = form.querySelector('[data-estado]');
+  function enviar() { if (estado) estado.hidden = false; form.submit(); }
+  input.addEventListener('change', function () {
+    var archivo = input.files[0];
+    if (!archivo) return;
+    if (!window.HTMLCanvasElement || !window.DataTransfer || !/^image\/(png|jpeg)$/.test(archivo.type)) { enviar(); return; }
     var medidas = form.dataset.achicar.split('x').map(Number), W = medidas[0], H = medidas[1];
     var portada = W / H > 2;
     var img = new Image();
@@ -1770,14 +1774,15 @@ document.querySelectorAll('form[data-achicar]').forEach(function (form) {
       ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
       c.toBlob(function (blob) {
         URL.revokeObjectURL(img.src);
-        if (!blob) { form.submit(); return; }
-        var dt = new DataTransfer();
-        dt.items.add(new File([blob], 'imagen.jpg', {type: 'image/jpeg'}));
-        input.files = dt.files;
-        form.submit();
+        if (blob) {
+          var dt = new DataTransfer();
+          dt.items.add(new File([blob], 'imagen.jpg', {type: 'image/jpeg'}));
+          input.files = dt.files;
+        }
+        enviar();
       }, 'image/jpeg', 0.85);
     };
-    img.onerror = function () { form.submit(); };
+    img.onerror = enviar;
     img.src = URL.createObjectURL(archivo);
   });
 });

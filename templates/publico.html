@@ -6,17 +6,17 @@
 <style>
   .semana-nav { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
   .semana { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:8px; }
-  .dia-col { border:1px solid var(--rule); border-radius:8px; padding:8px; min-height:90px; background:#fff; }
+  .dia-col { border:1px solid var(--rule); border-radius:8px; padding:8px; min-height:90px; background:var(--card); }
   .dia-col.pasado { opacity:.45; }
   .dia-col h4 { margin:0 0 6px; font-size:.9rem; }
   .dia-col h4 span { color:var(--muted); font-weight:400; }
   .hora { display:block; text-align:center; padding:7px 4px; margin-bottom:6px; border:1px solid var(--green); border-radius:6px;
           color:var(--green); text-decoration:none; font-weight:600; }
-  .hora:hover { background:var(--green); color:#fff; }
+  .hora:hover { background:var(--green-solid); color:var(--on-green); }
   .nada { color:var(--muted); font-size:.85rem; }
   .vistas { display:flex; gap:6px; justify-content:flex-end; margin-bottom:8px; font-size:.9rem; }
   .vistas a, .vistas span { padding:4px 10px; border-radius:6px; text-decoration:none; }
-  .vistas span { background:var(--green); color:#fff; }
+  .vistas span { background:var(--green-solid); color:var(--on-green); }
   .mes { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:4px; text-align:center; }
   .mes .cab { font-size:.75rem; color:var(--muted); }
   .mes .dia { padding:8px 2px; border-radius:6px; font-size:.95rem; color:var(--muted); }

@@ -192,6 +192,14 @@ en la tabla `portadas` (no en `tenants`, que se lee en cada pedido), hasta
 El panel achica foto (512) y portada (1600×400, recorte centrado) en el navegador
 antes de subirlas. Sin foto, la página muestra la inicial.
 
+Tema claro/oscuro: `base.html` define los colores como variables en `:root` y
+las redefine en `:root[data-tema="oscuro"]` (y en `auto` con
+`prefers-color-scheme: dark`). `data-tema` sale de la cookie `tema`
+(claro/oscuro; cualquier otro valor = auto) y el botón flotante ☾/☀ la cambia.
+Nada de colores fijos en templates que extienden base: usar `--card`,
+`--green-solid`/`--on-green` (fondo verde con texto), `--warn`, `--warn-bg`,
+`--danger-bg`, etc. Recibo e impresión quedan siempre claros.
+
 Confirmación por WhatsApp de la reserva web: con `CONFIRMACION_TEMPLATE`
 (plantilla con botones «Sí, confirmo» / «Cancelar», `{{1}}` profesional,
 `{{2}}` cuándo) se le manda al reservar y se marca `confirmacion_enviada_at`.
