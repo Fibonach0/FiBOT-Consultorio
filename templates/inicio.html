@@ -1,279 +1,598 @@
+{%- macro img(nombre) -%}{{ url_for('static', filename='portada/' ~ nombre ~ '.webp') }}{%- endmacro -%}
 <!doctype html>
 <html lang="es">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FiBOT Consultorio — Encontrá tu psicólogo y sacá turno online</title>
-  <meta name="description" content="Encontrá un profesional de la salud mental, mirá sus horarios libres y reservá tu sesión online, presencial o por videollamada. Te confirmamos por WhatsApp.">
+  <title>FiBOT Consultorio — Psicología y psicopedagogía, turnos online</title>
+  <meta name="description" content="Encontrá a tu psicólogo o psicopedagogo, mirá sus horarios libres y reservá tu sesión presencial o por videollamada. Te confirmamos por WhatsApp.">
   <link rel="canonical" href="{{ url_for('inicio', _external=True) }}">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="FiBOT Consultorio — Encontrá tu psicólogo y sacá turno online">
+  <meta property="og:title" content="FiBOT Consultorio — Encontrá a tu profesional y sacá turno en un minuto">
   <meta property="og:description" content="Mirá los horarios libres y reservá tu sesión presencial o por videollamada. Te confirmamos por WhatsApp.">
   <meta property="og:url" content="{{ url_for('inicio', _external=True) }}">
+  <meta property="og:image" content="{{ url_for('static', filename='portada/cierre.webp', _external=True) }}">
   <meta property="og:locale" content="es_AR">
+  <meta name="theme-color" content="#f4efe6">
+  <link rel="icon" href="{{ url_for('static', filename='favicon-32.png') }}" sizes="32x32">
   <script type="application/ld+json">{{ {
     "@context": "https://schema.org",
     "@type": "WebSite",
     "name": "FiBOT Consultorio",
     "url": url_for('inicio', _external=True),
     "inLanguage": "es-AR",
-    "description": "Directorio de profesionales de la salud mental con turnos online."
+    "description": "Directorio de profesionales de psicología y psicopedagogía con turnos online."
   } | tojson }}</script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
   <style>
-    :root { --ink:#1c1b19; --muted:#5b584f; --green:#2f5233; --green-bg:#eef3ec; --rule:#dcd6c7; --cream:#faf6ef; }
+    :root {
+      --papel:#f4efe6; --papel-2:#efe8dc; --papel-3:#ebe4d8; --arena:#e8e0d2; --arena-2:#e0d5c2; --blanco:#fbf8f2;
+      --tinta:#2a2620; --tinta-2:#3a342c; --gris:#4d463c; --gris-2:#6e6559; --gris-3:#8a8070; --linea:#e2d9ca;
+      --bosque:#2f3a2c; --verde:#4a6347; --verde-2:#5f7a5c; --salvia:#b9cdb0; --salvia-2:#e3e8dc; --salvia-3:#cfdac8;
+      --terracota:#9a5c3e; --durazno:#e0a084; --mostaza:#e8c27a; --rosa:#f1e2d6;
+      --serif:'Newsreader', Georgia, serif; --sans:'Hanken Grotesk', system-ui, sans-serif; --mono:'IBM Plex Mono', ui-monospace, monospace;
+    }
     * { box-sizing:border-box; }
     html { scroll-behavior:smooth; }
-    body { margin:0; font-family:-apple-system, system-ui, sans-serif; background:var(--cream); color:var(--ink); line-height:1.5; }
-    a { color:var(--green); }
-    .envoltura { max-width:1080px; margin:0 auto; padding:0 20px; }
-    section { padding:56px 0; }
-    h1, h2, h3 { margin-top:0; line-height:1.2; }
-    h2 { font-size:1.8rem; margin-bottom:8px; }
-    .bajada { color:var(--muted); margin:0 0 28px; max-width:640px; }
-    .btn { display:inline-block; background:var(--green); color:#fff; border:1px solid var(--green); border-radius:8px; padding:12px 22px; font-size:1rem; font-weight:600; text-decoration:none; }
-    .btn.secundario { background:transparent; color:var(--green); }
+    body { margin:0; background:var(--papel); color:var(--tinta); font-family:var(--sans); -webkit-font-smoothing:antialiased; line-height:1.5; }
+    a { color:var(--verde); text-decoration:none; }
+    a:hover { color:var(--terracota); }
+    img { max-width:100%; }
+    h1, h2, h3 { margin:0; }
+    .env { max-width:1240px; margin:0 auto; padding-left:32px; padding-right:32px; }
+    @media (max-width:600px) { .env { padding-left:16px; padding-right:16px; } }
+    .rotulo { font-family:var(--mono); font-size:13px; color:var(--gris-2); }
+    .titular { font-family:var(--serif); font-weight:400; font-size:clamp(36px, 4vw, 56px); letter-spacing:-.02em; line-height:1.02; margin:12px 0 0; }
+    .titular i { color:var(--terracota); }
+    .boton { display:inline-block; background:var(--bosque); color:var(--papel); padding:15px 26px; border-radius:999px; font-weight:600; font-size:16px; border:0; cursor:pointer; font-family:inherit; transition:transform .25s, background .25s; }
+    .boton:hover { transform:translateY(-2px); background:var(--verde); color:var(--papel); }
+    .boton.suave { background:var(--arena); color:var(--tinta); font-weight:400; }
+    .boton.suave:hover { background:var(--arena-2); color:var(--tinta); }
+    .visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+    :focus-visible { outline:3px solid var(--mostaza); outline-offset:3px; }
+
+    @keyframes rise { from { opacity:0; transform:translateY(8px) } to { opacity:1; transform:none } }
+    @keyframes dots { 0%,100% { opacity:.25 } 50% { opacity:1 } }
+    @keyframes pulse { 0%,100% { opacity:1 } 50% { opacity:.35 } }
+    @keyframes drift { 0%,100% { transform:translate(0,0) scale(1) } 33% { transform:translate(60px,-40px) scale(1.12) } 66% { transform:translate(-40px,30px) scale(.92) } }
+    @keyframes marquee { from { transform:translateX(0) } to { transform:translateX(-50%) } }
+    @keyframes wobble { 0%,100% { transform:rotate(-6deg) } 50% { transform:rotate(-2deg) } }
+    @keyframes word { from { opacity:0; transform:translateY(.35em); filter:blur(6px) } to { opacity:1; transform:none; filter:none } }
+    .js [data-reveal] { opacity:0; transform:translateY(28px); transition:opacity .9s ease, transform .9s cubic-bezier(.2,.7,.2,1); }
+    .js [data-reveal].visto { opacity:1; transform:none; }
 
     /* Barra */
-    .barra { position:sticky; top:0; z-index:10; background:rgba(250,246,239,.94); backdrop-filter:blur(6px); border-bottom:1px solid var(--rule); }
-    .barra .envoltura { display:flex; align-items:center; justify-content:space-between; gap:16px; height:60px; }
-    .marca { font-weight:700; color:var(--green); text-decoration:none; font-size:1.1rem; }
-    .barra nav { display:flex; gap:20px; align-items:center; }
-    .barra nav a { color:var(--ink); text-decoration:none; font-size:.95rem; }
-    .barra nav a.ingresar { color:var(--green); font-weight:600; }
-    @media (max-width:720px) { .barra nav a.opcional { display:none; } }
+    .barra { display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap; padding-top:22px; padding-bottom:22px; }
+    .marca { display:flex; align-items:center; gap:10px; color:var(--tinta); font-size:17px; }
+    .marca:hover { color:var(--tinta); }
+    .marca .logo { width:30px; height:30px; background:var(--bosque); color:var(--papel); display:grid; place-items:center; font-weight:700; font-size:14px; border-radius:4px; }
+    .marca .sub { color:var(--gris-2); }
+    .barra nav { display:flex; align-items:center; gap:28px; font-size:15px; flex-wrap:wrap; }
+    .barra nav a { color:var(--tinta); }
+    .barra nav a:hover { color:var(--terracota); }
+    .barra nav .ingresar { border:1px solid var(--tinta); padding:8px 16px; border-radius:999px; }
+    @media (max-width:720px) { .barra nav .opcional { display:none; } }
 
     /* Portada */
-    .portada { padding:72px 0 56px; }
-    .portada h1 { font-size:clamp(2rem, 5vw, 3.2rem); max-width:760px; margin-bottom:14px; }
-    .portada .quiero { font-size:clamp(1.15rem, 2.6vw, 1.5rem); color:var(--muted); margin:0 0 30px; min-height:1.6em; }
-    .portada .quiero span { color:var(--green); font-weight:600; transition:opacity .3s; }
-    .portada .acciones { display:flex; gap:12px; flex-wrap:wrap; }
-    .portada .sellos { display:flex; gap:22px; flex-wrap:wrap; margin-top:32px; color:var(--muted); font-size:.92rem; padding:0; list-style:none; }
-    .portada .sellos li::before { content:"✓ "; color:var(--green); font-weight:700; }
+    .hero-fondo { position:relative; overflow:hidden; }
+    .mancha { position:absolute; border-radius:50%; pointer-events:none; }
+    .hero { position:relative; padding-top:48px; padding-bottom:72px; display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 480px), 1fr)); gap:56px; align-items:center; }
+    .vivo { display:flex; align-items:center; gap:8px; }
+    .vivo .punto { width:7px; height:7px; border-radius:50%; background:var(--verde-2); animation:pulse 2.4s infinite; }
+    .para { display:flex; align-items:center; gap:12px; flex-wrap:wrap; margin-top:22px; }
+    .para > span { font-size:15px; color:var(--gris); }
+    .interruptor { display:flex; background:var(--arena); border-radius:999px; padding:3px; }
+    .interruptor button { all:unset; cursor:pointer; font-size:15px; padding:8px 16px; border-radius:999px; transition:background .25s, color .25s; }
+    .interruptor button[aria-pressed="true"] { background:var(--bosque); color:var(--papel); }
+    .interruptor button:focus-visible { outline:3px solid var(--mostaza); }
+    .hero h1 { font-weight:500; font-size:20px; line-height:1.35; color:var(--gris); margin:22px 0 14px; }
+    .quiero { font-family:var(--serif); font-size:clamp(54px, 7vw, 100px); line-height:.98; letter-spacing:-.03em; margin:0 0 28px; }
+    .quiero > span { display:block; min-height:2em; }
+    .quiero i { color:var(--terracota); display:inline-block; }
+    .quiero i.nueva { animation:word .9s cubic-bezier(.2,.7,.2,1) both; }
+    .hero .bajada { font-size:19px; color:var(--gris); max-width:29em; margin:0 0 32px; text-wrap:pretty; }
+    .acciones { display:flex; gap:12px; flex-wrap:wrap; }
 
-    /* Buscador */
-    .buscador { display:grid; grid-template-columns:1.3fr 1fr 1.2fr auto; gap:10px; background:#fff; border:1px solid var(--rule); border-radius:12px; padding:14px; margin-top:28px; max-width:900px; }
-    .buscador label { display:block; font-size:.78rem; color:var(--muted); margin-bottom:4px; }
-    .buscador select, .buscador input { width:100%; padding:10px; border:1px solid var(--rule); border-radius:8px; font-size:1rem; background:#fff; color:var(--ink); }
-    .buscador .btn { align-self:end; }
-    @media (max-width:720px) { .buscador { grid-template-columns:1fr; } }
+    .buscador { margin-top:32px; display:grid; grid-template-columns:1.2fr 1fr 1.1fr auto; gap:8px; background:var(--blanco); border:1px solid var(--linea); border-radius:24px; padding:10px; max-width:640px; box-shadow:0 24px 40px -32px rgba(60,45,20,.45); }
+    .buscador label { display:block; font-size:12px; color:var(--gris-2); padding:4px 10px 0; }
+    .buscador select, .buscador input { width:100%; border:0; background:transparent; font:inherit; font-size:15px; color:var(--tinta); padding:4px 10px 8px; }
+    .buscador > div { border-radius:16px; }
+    .buscador > div:focus-within { background:var(--papel); }
+    .buscador select:focus, .buscador input:focus { outline:none; }
+    .buscador .boton { padding:12px 20px; align-self:stretch; }
+    @media (max-width:720px) { .buscador { grid-template-columns:1fr; border-radius:20px; } }
+
+    .demo { position:relative; max-width:460px; justify-self:center; width:100%; }
+    .pegatina { position:absolute; z-index:2; top:-18px; left:-22px; background:var(--terracota); color:var(--blanco); font-family:var(--serif); font-style:italic; font-size:19px; padding:10px 18px; border-radius:999px; animation:wobble 5s ease-in-out infinite; box-shadow:0 10px 24px -12px rgba(120,60,30,.6); }
+    .sello { position:absolute; z-index:2; bottom:90px; right:-26px; width:74px; height:74px; border-radius:50%; background:var(--bosque); color:var(--papel); display:grid; place-items:center; text-align:center; font-size:12px; line-height:1.15; animation:wobble 6s ease-in-out infinite reverse; }
+    @media (max-width:600px) { .pegatina { left:-4px; } .sello { right:-4px; } }
+    .chat { background:var(--salvia-2); border-radius:28px; padding:20px; box-shadow:0 40px 70px -40px rgba(47,58,44,.45); }
+    .chat .cabeza { display:flex; align-items:center; gap:10px; padding:4px 6px 16px; border-bottom:1px solid #cfd8c7; }
+    .chat .avatar { width:36px; height:36px; border-radius:50%; background:repeating-linear-gradient(135deg, #d3dbc9 0 5px, #c6cfbb 5px 10px); }
+    .chat .quien { font-weight:600; font-size:15px; }
+    .chat .estado { font-family:var(--mono); font-size:11px; color:#56664f; }
+    .chat .mensajes { display:flex; flex-direction:column; gap:8px; padding-top:16px; min-height:370px; }
+    .msj { max-width:82%; border-radius:16px; padding:11px 14px; font-size:15px; line-height:1.4; animation:rise .4s ease both; }
+    .msj.yo { align-self:flex-end; background:var(--verde); color:#fff; }
+    .msj.bot { align-self:flex-start; background:var(--blanco); color:var(--tinta); }
+    .msj .hora { font-family:var(--mono); font-size:10px; opacity:.65; text-align:right; margin-top:4px; }
+    .msj .horarios { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+    .msj .horarios span { border:1px solid #d6cdbd; border-radius:8px; padding:6px 10px; font-size:14px; transition:all .3s; }
+    .msj .horarios span.elegido { background:var(--verde); border-color:var(--verde); color:#fff; }
+    .escribiendo { align-self:flex-start; background:var(--blanco); border-radius:16px; padding:12px 16px; display:flex; gap:4px; }
+    .escribiendo span { width:6px; height:6px; border-radius:50%; background:var(--gris-2); animation:dots 1s infinite; }
+    .escribiendo span:nth-child(2) { animation-delay:.2s; } .escribiendo span:nth-child(3) { animation-delay:.4s; }
+    .chat .nota { font-family:var(--mono); font-size:11px; color:#56664f; text-align:center; padding-top:8px; }
+
+    .cinta { border-top:1px solid var(--linea); border-bottom:1px solid var(--linea); overflow:hidden; background:var(--papel-2); }
+    .cinta > div { display:flex; width:max-content; animation:marquee 46s linear infinite; padding:18px 0; }
+    .cinta span { display:flex; align-items:center; gap:28px; padding-right:28px; font-family:var(--serif); font-size:24px; white-space:nowrap; color:var(--gris); }
+    .cinta span:nth-child(odd) { font-style:italic; color:var(--terracota); }
+    .cinta span::after { content:""; width:8px; height:8px; border-radius:50%; background:#c9a68c; }
 
     /* Temas */
-    .temas { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:12px; padding:0; list-style:none; margin:0; }
-    .temas a { display:block; height:100%; background:#fff; border:1px solid var(--rule); border-radius:10px; padding:16px; color:inherit; text-decoration:none; }
-    .temas a:hover { border-color:var(--green); }
-    .temas strong { display:block; margin-bottom:4px; }
-    .temas span { color:var(--muted); font-size:.9rem; }
+    .curva { height:90px; }
+    .temas { background:var(--verde); color:var(--papel); position:relative; overflow:hidden; }
+    .temas .grilla { position:relative; padding-top:24px; padding-bottom:72px; display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 320px), 1fr)); gap:48px; align-items:start; }
+    .temas .rotulo { color:var(--salvia-3); }
+    .temas .titular { font-size:clamp(40px, 4.4vw, 60px); margin-bottom:20px; }
+    .temas .intro { font-size:18px; line-height:1.55; color:var(--salvia-2); margin:0 0 28px; max-width:380px; }
+    .quienes { background:#3f5a43; border-radius:20px; padding:18px; min-height:120px; max-width:380px; }
+    .quienes .que { font-size:14px; color:var(--salvia-3); margin-bottom:12px; }
+    .quienes ul { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:8px; }
+    .quienes li a { display:flex; gap:12px; align-items:center; background:var(--blanco); border-radius:999px; padding:6px 18px 6px 6px; color:var(--tinta); animation:rise .3s ease both; transition:transform .25s; }
+    .quienes li a:hover { transform:translateX(4px); color:var(--tinta); }
+    .quienes .ini { width:40px; height:40px; border-radius:50%; background:var(--arena); display:grid; place-items:center; font-weight:600; flex:none; color:var(--verde); }
+    .quienes .nom { flex:1; font-weight:600; font-size:15px; }
+    .quienes .ir { font-size:14px; color:var(--verde); }
+    .quienes .todos { display:inline-block; margin-top:12px; color:var(--salvia-2); text-decoration:underline; text-underline-offset:4px; font-size:15px; }
+    .quienes .nadie { color:var(--salvia-2); font-size:15px; margin:0; }
+    .tarjetas-tema { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:14px; list-style:none; margin:0; padding:0; }
+    .tarjetas-tema a { background:var(--blanco); border-radius:18px; overflow:hidden; display:flex; flex-direction:column; height:100%; outline:3px solid transparent; outline-offset:3px; transition:transform .3s cubic-bezier(.2,.7,.2,1); box-shadow:0 20px 30px -24px rgba(0,0,0,.5); color:var(--tinta); }
+    .tarjetas-tema a:hover { transform:translateY(-5px); color:var(--tinta); }
+    .tarjetas-tema a[aria-current="true"] { outline-color:var(--mostaza); }
+    .tarjetas-tema .dibujo { position:relative; display:block; aspect-ratio:1/1; overflow:hidden; background:var(--c0); }
+    .tarjetas-tema .dibujo::before { content:""; position:absolute; width:70%; height:70%; border-radius:50%; background:var(--c1); top:-14%; right:-14%; }
+    .tarjetas-tema .dibujo::after { content:""; position:absolute; width:22%; height:22%; border-radius:50%; background:var(--c2); bottom:14%; left:14%; }
+    .tarjetas-tema img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:1; }
+    .tarjetas-tema .nombre { padding:14px 14px 16px; font-weight:600; font-size:15px; line-height:1.25; }
+    .pal0 { --c0:#e8c27a; --c1:#f4efe6; --c2:#4a6347; } .pal1 { --c0:#e0a084; --c1:#9a5c3e; --c2:#e8c27a; }
+    .pal2 { --c0:#b9cdb0; --c1:#4a6347; --c2:#e0a084; } .pal3 { --c0:#2f3a2c; --c1:#e0a084; --c2:#e8c27a; }
+    .js [data-para-solo]:not(.activo), [data-para-solo="hijo"]:not(.activo) { display:none !important; }
 
     /* Profesionales */
-    .fondo-blanco { background:#fff; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
-    .profesionales { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:16px; }
-    .profesional { display:flex; flex-direction:column; gap:8px; background:var(--cream); border:1px solid var(--rule); border-radius:12px; padding:18px; text-decoration:none; color:inherit; }
-    .profesional:hover { border-color:var(--green); }
-    .profesional .cabeza { display:flex; gap:12px; align-items:center; }
-    .profesional .foto { width:64px; height:64px; border-radius:50%; object-fit:cover; flex:none; background:var(--green-bg); color:var(--green); display:flex; align-items:center; justify-content:center; font-size:1.6rem; font-weight:700; }
-    .profesional .titulo { color:var(--muted); font-size:.9rem; }
-    .profesional .chips { display:flex; flex-wrap:wrap; gap:6px; padding:0; margin:0; list-style:none; }
-    .profesional .chips li { font-size:.78rem; background:#fff; border:1px solid var(--rule); border-radius:12px; padding:2px 9px; color:var(--muted); }
-    .profesional .ver { margin-top:auto; padding-top:6px; color:var(--green); font-weight:600; font-size:.95rem; }
-    .ver-todos { margin-top:24px; }
+    .pros { background:var(--papel-3); border-top:1px solid var(--linea); }
+    .pros .env { padding-top:96px; padding-bottom:96px; }
+    .encabezado { display:flex; justify-content:space-between; align-items:end; gap:24px; flex-wrap:wrap; margin-bottom:40px; }
+    .encabezado .ver { font-size:16px; color:var(--tinta); text-decoration:underline; text-underline-offset:4px; }
+    .grilla-pros { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 340px), 1fr)); gap:20px; }
+    .pro { display:flex; flex-direction:column; background:var(--blanco); border:1px solid var(--linea); border-radius:24px; color:var(--tinta); padding:14px; transition:transform .6s cubic-bezier(.2,.7,.2,1), box-shadow .4s, opacity .9s; }
+    .pro:hover { transform:translateY(-6px); box-shadow:0 30px 50px -30px rgba(60,45,20,.45); color:var(--tinta); }
+    .pro .foto { position:relative; aspect-ratio:4/3.4; border-radius:999px 999px 14px 14px; background:repeating-linear-gradient(135deg, var(--arena) 0 8px, #e0d7c8 8px 16px); display:grid; place-items:center; font-family:var(--serif); font-size:72px; color:var(--gris-3); }
+    .pro .foto img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:inherit; }
+    .pro .chapa { position:absolute; bottom:14px; right:-6px; background:var(--salvia-2); color:var(--bosque); font-size:13px; font-family:var(--sans); font-weight:600; padding:8px 14px; border-radius:999px; transform:rotate(-4deg); box-shadow:0 8px 18px -10px rgba(47,58,44,.5); }
+    .pro .chapa.espera { background:var(--rosa); color:#7a4329; }
+    .pro .datos { padding:18px 8px 6px; display:flex; flex-direction:column; gap:10px; flex:1; }
+    .pro .nombre { font-family:var(--serif); font-size:27px; line-height:1.1; }
+    .pro .titulo { font-size:14px; color:var(--gris-2); }
+    .pro .rubro { align-self:flex-start; font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; padding:5px 10px; border-radius:999px; background:var(--salvia-2); color:#33502f; }
+    .pro .rubro.pp { background:var(--rosa); color:#7a4329; }
+    .pro .frase { font-size:16px; line-height:1.45; margin:4px 0; color:var(--tinta-2); text-wrap:pretty; }
+    .pro .pie { margin-top:auto; padding-top:16px; border-top:1px solid var(--arena); display:flex; justify-content:space-between; gap:8px; font-size:14px; flex-wrap:wrap; }
+    .pro .pie .donde { color:var(--gris-2); }
+    .pro .pie .ir { color:var(--verde); font-weight:600; }
 
     /* Cómo funciona */
-    .pasos { display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:20px; padding:0; margin:0 0 28px; list-style:none; counter-reset:paso; }
-    .pasos li { counter-increment:paso; }
-    .pasos li::before { content:counter(paso); display:flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:50%; background:var(--green); color:#fff; font-weight:700; margin-bottom:12px; }
-    .pasos h3 { font-size:1.1rem; margin-bottom:6px; }
-    .pasos p { color:var(--muted); margin:0; }
+    .como { background:var(--bosque); color:var(--papel); }
+    .como .env { padding-top:20px; padding-bottom:100px; text-align:center; }
+    .como .rotulo { color:#b5bfae; }
+    .como .titular { font-size:clamp(40px, 4.4vw, 60px); margin-bottom:56px; color:var(--salvia); }
+    .pasos { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap:24px; text-align:left; list-style:none; margin:0; padding:0; }
+    .paso { color:var(--tinta); border-radius:20px; padding:28px; display:flex; flex-direction:column; gap:20px; transition:transform .6s cubic-bezier(.2,.7,.2,1), opacity .9s; }
+    .paso:hover { transform:translateY(-6px); }
+    .paso .arriba { display:flex; justify-content:space-between; gap:12px; }
+    .paso .cual { font-family:var(--mono); font-size:12px; letter-spacing:.08em; }
+    .paso h3 { font-size:22px; font-weight:500; line-height:1.25; margin:8px 0 0; }
+    .paso .num { font-family:var(--serif); font-size:80px; line-height:.8; }
+    .paso .imagen { display:block; width:100%; aspect-ratio:4/3; border-radius:14px; background:rgba(255,255,255,.35); overflow:hidden; }
+    .paso .imagen img { display:block; width:100%; height:100%; object-fit:cover; }
+    .paso p { margin:0; font-size:16px; line-height:1.5; }
+    .como .boton { margin-top:44px; background:var(--salvia); color:var(--tinta); }
+    .como .boton:hover { color:var(--tinta); background:var(--salvia-2); }
 
     /* Modalidades */
-    .modalidades { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; }
-    .modalidad { background:#fff; border:1px solid var(--rule); border-radius:12px; padding:22px; }
-    .modalidad p { color:var(--muted); margin:0; }
+    .modalidades { padding-top:72px; padding-bottom:96px; display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap:20px; }
+    .modalidad { border-radius:28px; overflow:hidden; background:var(--blanco); border:1px solid var(--linea); }
+    .modalidad.virtual { background:var(--salvia-2); border-color:#d3dbc9; }
+    .modalidad .imagen { display:block; width:100%; aspect-ratio:16/9; overflow:hidden; border-radius:0 0 50% 50% / 0 0 18% 18%; background:var(--arena); }
+    .modalidad.virtual .imagen { background:var(--salvia); }
+    .modalidad .imagen img { display:block; width:100%; height:100%; object-fit:cover; }
+    .modalidad .texto { padding:24px; }
+    .modalidad h3 { font-family:var(--serif); font-weight:400; font-size:30px; margin:0 0 6px; }
+    .modalidad p { margin:0; font-size:16px; color:var(--gris); }
 
     /* Preguntas */
-    .preguntas details { background:#fff; border:1px solid var(--rule); border-radius:10px; margin-bottom:10px; }
-    .preguntas summary { cursor:pointer; padding:16px 18px; font-weight:600; list-style:none; display:flex; justify-content:space-between; gap:12px; }
-    .preguntas summary::-webkit-details-marker { display:none; }
-    .preguntas summary::after { content:"+"; color:var(--green); font-size:1.3rem; line-height:1; }
-    .preguntas details[open] summary::after { content:"–"; }
-    .preguntas details p { margin:0; padding:0 18px 16px; color:var(--muted); }
+    .preguntas { border-top:1px solid var(--linea); }
+    .preguntas .env { padding-top:96px; padding-bottom:96px; display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 400px), 1fr)); gap:56px; }
+    .preguntas .titular { margin-bottom:28px; }
+    .urgencia { background:var(--bosque); color:#f1ede4; border-radius:28px; padding:28px; font-size:16px; max-width:28em; }
+    .urgencia .num { font-family:var(--serif); font-size:52px; line-height:1; margin-bottom:10px; }
+    .urgencia a { color:#f1ede4; text-decoration:underline; }
+    .burbujas { display:flex; flex-direction:column; gap:8px; padding-top:8px; }
+    .burbujas details { display:flex; flex-direction:column; }
+    .burbujas summary { list-style:none; cursor:pointer; margin-left:auto; max-width:85%; background:var(--arena); color:var(--tinta); border-radius:16px 16px 4px 16px; padding:12px 16px; font-size:16px; font-weight:500; transition:background .2s; }
+    .burbujas summary::-webkit-details-marker { display:none; }
+    .burbujas details[open] summary { background:var(--bosque); color:var(--papel); }
+    .burbujas details p { max-width:85%; background:var(--blanco); border:1px solid var(--linea); border-radius:16px 16px 16px 4px; padding:12px 16px; font-size:16px; color:var(--tinta-2); margin:8px 0 6px; animation:rise .3s ease both; }
+
+    /* Cierre */
+    .cierre { padding-top:40px; padding-bottom:120px; display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 400px), 1fr)); gap:48px; align-items:center; }
+    .cierre .lamina { position:relative; aspect-ratio:5/4; }
+    .cierre .lamina .colina { position:absolute; inset:auto 0 0 0; height:62%; background:var(--bosque); border-radius:0 100% 0 0 / 0 100% 0 0; }
+    .cierre .lamina .sol { position:absolute; width:64px; height:64px; border-radius:50%; background:var(--mostaza); top:6%; left:18%; }
+    .cierre .lamina .cuadro { position:absolute; left:8%; top:10%; width:80%; height:84%; border-radius:28px; overflow:hidden; background:var(--salvia-2); box-shadow:0 30px 50px -30px rgba(47,58,44,.5); }
+    .cierre .lamina img { width:100%; height:100%; object-fit:cover; display:block; }
+    .cierre h2 { font-family:var(--serif); font-weight:400; font-size:clamp(40px, 4.6vw, 64px); letter-spacing:-.02em; margin:0 0 20px; line-height:1.02; color:var(--verde); }
+    .cierre h2 i { color:var(--terracota); }
+    .cierre p { font-size:18px; color:var(--gris); margin:0 0 28px; max-width:26em; }
+    .cierre .boton { background:var(--verde); }
+    .cierre .boton:hover { background:var(--bosque); }
 
     /* Para profesionales */
-    .para-pros { background:var(--green); color:#fff; border-radius:16px; padding:40px; display:grid; grid-template-columns:1.4fr 1fr; gap:28px; align-items:center; }
-    .para-pros h2 { color:#fff; }
-    .para-pros ul { margin:0; padding-left:20px; }
-    .para-pros li { margin-bottom:6px; }
-    .para-pros .acciones { display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
-    .para-pros .btn { background:#fff; color:var(--green); border-color:#fff; }
-    .para-pros .btn.secundario { background:transparent; color:#fff; }
-    @media (max-width:720px) { .para-pros { grid-template-columns:1fr; padding:28px 22px; } }
+    .soy { padding:0 16px 16px; }
+    .soy > div { background:var(--bosque); color:#f1ede4; border-radius:36px; position:relative; overflow:hidden; }
+    .soy .env { position:relative; padding-top:96px; padding-bottom:96px; display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap:56px; align-items:center; }
+    .soy .rotulo { color:#b5bfae; }
+    .soy .titular { margin-bottom:20px; }
+    .soy .titular i { color:#e0b89c; }
+    .soy p { font-size:18px; color:#cfd3c6; margin:0 0 32px; max-width:28em; }
+    .soy .boton { background:#f1ede4; color:var(--tinta); }
+    .soy .boton:hover { background:#fff; color:var(--tinta); }
+    .soy .ya { color:#f1ede4; padding:14px 8px; text-decoration:underline; text-underline-offset:4px; }
+    .ventajas { display:grid; grid-template-columns:1fr 1fr; gap:1px; background:#4a5646; border:1px solid #4a5646; border-radius:20px; overflow:hidden; list-style:none; margin:0; padding:0; }
+    .ventajas li { background:var(--bosque); padding:24px; font-size:16px; line-height:1.45; transition:background .3s; }
+    .ventajas li:hover { background:#3a4636; }
+    @media (max-width:480px) { .ventajas { grid-template-columns:1fr; } }
 
-    /* Pie */
-    footer { border-top:1px solid var(--rule); padding:28px 0; color:var(--muted); font-size:.9rem; }
-    footer .envoltura { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; }
-    footer a { color:var(--muted); }
+    footer { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; font-size:14px; color:var(--gris-2); padding-top:32px; padding-bottom:32px; }
+    footer nav { display:flex; gap:20px; flex-wrap:wrap; }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation:none !important; transition:none !important; }
+      .js [data-reveal] { opacity:1; transform:none; }
+    }
   </style>
+  <script>document.documentElement.classList.add("js");</script>
 </head>
-<body>
+<body data-para="yo">
 
-<div class="barra">
-  <div class="envoltura">
-    <a class="marca" href="{{ url_for('inicio') }}">FiBOT Consultorio</a>
-    <nav>
-      <a class="opcional" href="#como-funciona">¿Cómo funciona?</a>
-      <a class="opcional" href="{{ url_for('turnos_directorio') }}">Profesionales</a>
-      <a class="opcional" href="{{ url_for('sumate') }}">Soy profesional</a>
-      <a class="ingresar" href="{{ url_for('login') }}">Ingresar</a>
-    </nav>
-  </div>
-</div>
-
-<header class="portada">
-  <div class="envoltura">
-    <h1>Encontrá a tu psicólogo y sacá turno en un minuto</h1>
-    <p class="quiero">Quiero <span id="quiero">sentirme mejor</span></p>
-    <div class="acciones">
-      <a class="btn" href="{{ url_for('turnos_directorio') }}">Buscar profesional</a>
-      <a class="btn secundario" href="#como-funciona">Cómo funciona</a>
-    </div>
-    <form class="buscador" method="get" action="{{ url_for('turnos_directorio') }}" role="search">
-      <div><label for="b-tema">¿Qué te pasa?</label>
-        <select id="b-tema" name="tema"><option value="">Cualquier tema</option>
-          {% for clave, t in temas.items() %}<option value="{{ clave }}">{{ t[0] }}</option>{% endfor %}
-        </select></div>
-      <div><label for="b-modalidad">¿Cómo?</label>
-        <select id="b-modalidad" name="modalidad"><option value="">Presencial o videollamada</option>
-          <option value="presencial">Presencial</option><option value="virtual">Por videollamada</option>
-        </select></div>
-      <div><label for="b-obra">Obra social o prepaga</label>
-        <input id="b-obra" name="obra" type="text" placeholder="Ej. OSDE, Swiss Medical" autocomplete="off"></div>
-      <button class="btn" type="submit">Buscar</button>
-    </form>
-    <ul class="sellos">
-      <li>Horarios libres a la vista</li>
-      <li>Presencial o por videollamada</li>
-      <li>Confirmación por WhatsApp</li>
-    </ul>
-  </div>
+<header class="env barra">
+  <a class="marca" href="{{ url_for('inicio') }}"><span class="logo" aria-hidden="true">Fi</span><span>Fi<b>BOT</b> <span class="sub">Consultorio</span></span></a>
+  <nav aria-label="Principal">
+    <a class="opcional" href="#como">Cómo funciona</a>
+    <a class="opcional" href="{{ url_for('turnos_directorio') }}">Profesionales</a>
+    <a class="opcional" href="{{ url_for('sumate') }}">Soy profesional</a>
+    <a class="ingresar" href="{{ url_for('login') }}">Ingresar</a>
+  </nav>
 </header>
 
-<section id="temas">
-  <div class="envoltura">
-    <h2>¿En qué te podemos ayudar?</h2>
-    <p class="bajada">Pedir ayuda es el primer paso. Estos son algunos de los motivos más comunes por los que alguien empieza terapia. Tocá uno y te mostramos quién lo trabaja.</p>
-    <ul class="temas">
-      {% for clave, t in temas.items() %}
-      <li><a href="{{ url_for('turnos_directorio', tema=clave) }}"><strong>{{ t[0] }}</strong><span>{{ t[1] }}</span></a></li>
+<main>
+<div class="hero-fondo">
+  <div class="mancha" aria-hidden="true" style="width:520px;height:520px;background:#dfe6d6;filter:blur(70px);top:-120px;right:-80px;animation:drift 40s ease-in-out infinite"></div>
+  <div class="mancha" aria-hidden="true" style="width:420px;height:420px;background:#f0dccb;filter:blur(80px);bottom:-160px;left:-120px;animation:drift 52s ease-in-out infinite reverse"></div>
+  <section class="env hero">
+    <div>
+      <div class="rotulo vivo"><span class="punto" aria-hidden="true"></span>{% if total %}{{ total }} {{ 'profesional' if total == 1 else 'profesionales' }} con turnos online{% else %}Turnos online, presencial o por videollamada{% endif %}</div>
+      <div class="para">
+        <span id="para-label">¿Para quién es?</span>
+        <div class="interruptor" role="group" aria-labelledby="para-label">
+          <button type="button" data-para-btn="yo" aria-pressed="true">Para mí</button>
+          <button type="button" data-para-btn="hijo" aria-pressed="false">Para mi hijo/a</button>
+        </div>
+      </div>
+      <h1>Psicología y psicopedagogía. Encontrá a tu profesional y sacá turno en un minuto.</h1>
+      <p class="quiero" aria-live="polite">Quiero<span><i id="frase">sentirme mejor</i></span></p>
+      <p class="bajada">Elegís profesional, ves sus horarios libres y reservás. Sin llamar ni esperar respuesta: la confirmación te llega por WhatsApp.</p>
+      <div class="acciones">
+        <a class="boton" href="{{ url_for('turnos_directorio') }}">Buscar profesional</a>
+        <a class="boton suave" href="#temas">No sé por dónde empezar</a>
+      </div>
+      <form class="buscador" method="get" action="{{ url_for('turnos_directorio') }}" role="search">
+        <div><label for="b-tema">¿Qué te pasa?</label>
+          <select id="b-tema" name="tema"><option value="">Cualquier tema</option>
+            <optgroup label="Para vos">{% for k in temas_adultos %}<option value="{{ k }}">{{ temas[k][0] }}</option>{% endfor %}</optgroup>
+            <optgroup label="Para chicos y adolescentes">{% for k in temas_chicos %}<option value="{{ k }}">{{ temas[k][0] }}</option>{% endfor %}</optgroup>
+          </select></div>
+        <div><label for="b-modalidad">¿Cómo?</label>
+          <select id="b-modalidad" name="modalidad"><option value="">Cualquiera</option>
+            <option value="presencial">Presencial</option><option value="virtual">Por videollamada</option>
+          </select></div>
+        <div><label for="b-obra">Obra social o prepaga</label>
+          <input id="b-obra" name="obra" type="text" placeholder="Ej. OSDE" autocomplete="off"></div>
+        <button class="boton" type="submit">Buscar</button>
+      </form>
+    </div>
+
+    <div class="demo" aria-label="Conversación de ejemplo por WhatsApp" role="img">
+      <div class="pegatina" aria-hidden="true">sin llamar a nadie</div>
+      <div class="sello" aria-hidden="true">1 min<br>y listo</div>
+      <div class="chat" aria-hidden="true">
+        <div class="cabeza"><span class="avatar"></span>
+          <div><div class="quien">Lic. Martina Sosa · turnos</div><div class="estado" id="chat-estado">en línea</div></div>
+        </div>
+        <div class="mensajes" id="chat">
+          <div class="msj yo">Hola, quería un turno para esta semana<div class="hora">9:40</div></div>
+          <div class="msj bot">¡Hola! Lic. Sosa tiene estos horarios libres:<div class="horarios"><span>Mié 17:00</span><span class="elegible">Jue 18:00</span><span>Vie 11:30</span></div><div class="hora">9:40</div></div>
+          <div class="msj yo">Jueves 18 por videollamada<div class="hora">9:41</div></div>
+          <div class="msj bot">Listo ✓ Jueves a las 18:00, por videollamada. El día anterior te mando el link y un recordatorio.<div class="hora">9:41</div></div>
+        </div>
+        <div class="nota">Conversación de ejemplo</div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="cinta" aria-hidden="true"><div>
+  {% for _ in range(2) %}{% for w in ['ansiedad', 'aprendizaje', 'vínculos', 'lectoescritura', 'duelos y cambios', 'atención', 'estrés', 'autoestima', 'orientación vocacional', 'miedos'] %}<span>{{ w }}</span>{% endfor %}{% endfor %}
+</div></div>
+
+<section id="temas" style="margin-top:40px" aria-labelledby="temas-titulo">
+  <div class="curva" style="background:var(--verde);border-radius:0 100% 0 0 / 0 100% 0 0"></div>
+  <div class="temas">
+    <div class="mancha" aria-hidden="true" style="width:180px;height:180px;background:var(--verde-2);top:40px;left:-60px"></div>
+    <div class="mancha" aria-hidden="true" style="width:14px;height:14px;background:var(--mostaza);top:120px;left:160px"></div>
+    <div class="env grilla">
+      <div>
+        <div class="rotulo">01 — Por dónde empezar</div>
+        <h2 class="titular" id="temas-titulo" data-reveal>¿En qué te podemos ayudar?</h2>
+        <p class="intro" data-para-solo="yo">Pedir ayuda es el primer paso. Estos son los motivos más comunes para empezar terapia. Tocá uno y te mostramos quién lo trabaja.</p>
+        <p class="intro" data-para-solo="hijo">Dificultades para aprender, para concentrarse o para estar bien en la escuela. Tocá un tema y te mostramos qué profesionales lo trabajan.</p>
+        <div class="quienes" aria-live="polite">
+          {% for k, t in temas.items() %}
+          <div data-tema-panel="{{ k }}" hidden>
+            {% if por_tema[k] %}
+            <div class="que">Trabajan {{ t[0] | lower }}:</div>
+            <ul>{% for p in por_tema[k] %}<li><a href="{{ p.url }}"><span class="ini" aria-hidden="true">{{ p.nombre | replace('Lic. ', '') | first | upper }}</span><span class="nom">{{ p.nombre }}</span><span class="ir">Ver horarios →</span></a></li>{% endfor %}</ul>
+            <a class="todos" href="{{ url_for('turnos_directorio', tema=k) }}">Ver todos los de {{ t[0] | lower }}</a>
+            {% else %}
+            <p class="nadie">Todavía no hay profesionales que mencionen {{ t[0] | lower }} en su perfil. <a class="todos" href="{{ url_for('turnos_directorio') }}" style="margin:0">Ver a todos</a></p>
+            {% endif %}
+          </div>
+          {% endfor %}
+          <div data-tema-panel="" class="que" style="margin:0">Elegí un tema</div>
+        </div>
+      </div>
+      {% for grupo, claves in [('yo', temas_adultos), ('hijo', temas_chicos)] %}
+      <ul class="tarjetas-tema" data-para-solo="{{ grupo }}">
+        {% for k in claves %}
+        <li><a href="{{ url_for('turnos_directorio', tema=k) }}" data-tema="{{ k }}" title="{{ temas[k][1] }}">
+          <span class="dibujo pal{{ loop.index0 % 4 }}"><img src="{{ img(k) }}" alt="" loading="lazy" onerror="this.remove()"></span>
+          <span class="nombre">{{ temas[k][0] }}</span>
+        </a></li>
+        {% endfor %}
+      </ul>
       {% endfor %}
-    </ul>
+    </div>
   </div>
+  <div class="curva" style="background:var(--verde);border-radius:0 0 0 100% / 0 0 0 100%"></div>
 </section>
 
 {% if profesionales %}
-<section id="profesionales" class="fondo-blanco">
-  <div class="envoltura">
-    <h2>Profesionales</h2>
-    <p class="bajada">Conocé a cada uno, mirá su agenda y reservá directo el horario que te quede cómodo.</p>
-    <div class="profesionales">
+<section class="pros" id="profesionales" aria-labelledby="pros-titulo">
+  <div class="env">
+    <div class="encabezado">
+      <div>
+        <div class="rotulo">02 — Profesionales</div>
+        <h2 class="titular" id="pros-titulo" data-reveal>Conocelos antes de reservar.</h2>
+      </div>
+      <a class="ver" href="{{ url_for('turnos_directorio') }}">{% if hay_mas %}Ver todos{% else %}Ver el directorio{% endif %}</a>
+    </div>
+    <div class="grilla-pros">
       {% for t in profesionales %}
-      <a class="profesional" href="{{ url_for('publico', slug=t.slug) }}">
-        <div class="cabeza">
-          {% if t.foto %}<img class="foto" src="{{ t.foto }}" alt="" width="64" height="64">
-          {% else %}<span class="foto" aria-hidden="true">{{ t.nombre | replace('Lic. ', '') | first | upper }}</span>{% endif %}
-          <div>
-            <strong>{{ t.nombre }}</strong>
-            <div class="titulo">{% if t.titulo %}{{ t.titulo }}{% elif t.rubro %}<span style="text-transform:capitalize">{{ t.rubro }}</span>{% endif %}</div>
+      <a class="pro" href="{{ url_for('publico', slug=t.slug) }}" data-para-en="{{ t._para }}" data-reveal>
+        <div class="foto">{{ t.nombre | replace('Lic. ', '') | first | upper }}
+          {% if t.foto %}<img src="{{ url_for('publico_foto', slug=t.slug) }}" alt="" loading="lazy">{% endif %}
+          <span class="chapa{% if t.pausado %} espera{% endif %}">{% if t.pausado %}lista de espera{% elif t.modalidades_publicas == 'virtual' %}por videollamada{% elif t.modalidades_publicas == 'ambas' %}presencial u online{% else %}presencial{% endif %}</span>
+        </div>
+        <div class="datos">
+          <div class="nombre">{{ t.nombre }}</div>
+          {% if t.titulo %}<div class="titulo">{{ t.titulo }}</div>{% endif %}
+          {% if t.rubro %}<span class="rubro{% if 'pedagog' in (t.rubro | lower) %} pp{% endif %}">{{ t.rubro }}</span>{% endif %}
+          {% if t.descripcion %}<p class="frase">“{{ t.descripcion | truncate(140) }}”</p>
+          {% elif t.enfoques %}<p class="frase">{{ t.enfoques[:3] | join(' · ') }}</p>{% endif %}
+          <div class="pie">
+            <span class="donde">{% if t.ubicacion %}{{ t.ubicacion }}{% elif t.modalidades_publicas == 'virtual' %}Online{% endif %}</span>
+            <span class="ir">{% if t.pausado %}Anotarme →{% else %}Ver horarios →{% endif %}</span>
           </div>
         </div>
-        {% if t.descripcion %}<span>{{ t.descripcion }}</span>{% endif %}
-        {% if t.enfoques %}<ul class="chips">{% for x in t.enfoques[:3] %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
-        <span class="titulo">
-          {% if t.ubicacion %}{{ t.ubicacion }} · {% endif %}
-          {% if t.modalidades_publicas == 'virtual' %}Por videollamada{% elif t.modalidades_publicas == 'ambas' %}Presencial o videollamada{% else %}Presencial{% endif %}
-        </span>
-        <span class="ver">{% if t.pausado %}Anotarme en la lista de espera →{% else %}Ver horarios →{% endif %}</span>
       </a>
       {% endfor %}
     </div>
-    {% if hay_mas %}<div class="ver-todos"><a class="btn secundario" href="{{ url_for('turnos_directorio') }}">Ver todos los profesionales</a></div>{% endif %}
   </div>
 </section>
 {% endif %}
 
-<section id="como-funciona">
-  <div class="envoltura">
-    <h2>¿Cómo funciona?</h2>
-    <p class="bajada">Sin llamadas ni idas y vueltas por mensaje para encontrar un horario.</p>
-    <ol class="pasos">
-      <li><h3>Elegí a tu profesional</h3><p>Mirá su perfil: cómo trabaja, qué temas aborda y su formación.</p></li>
-      <li><h3>Reservá el horario</h3><p>Ves solo los horarios libres. Elegís día, hora y si es presencial o por videollamada.</p></li>
-      <li><h3>Confirmá por WhatsApp</h3><p>Te llega la confirmación y un recordatorio antes de la sesión. Si necesitás, cancelás o cambiás el horario desde el mismo link.</p></li>
-    </ol>
-    <a class="btn" href="{{ url_for('turnos_directorio') }}">Sacar turno</a>
+<section id="como" style="margin-top:40px" aria-labelledby="como-titulo">
+  <div class="curva" style="height:100px;background:var(--bosque);border-radius:100% 0 0 0 / 100% 0 0 0"></div>
+  <div class="como">
+    <div class="env">
+      <div class="rotulo">03 — Cómo funciona</div>
+      <h2 class="titular" id="como-titulo" data-reveal>Tres pasos. Ninguna llamada.</h2>
+      <ol class="pasos">
+        <li class="paso" data-reveal style="background:var(--mostaza)">
+          <div class="arriba"><div><div class="cual" style="color:#6b4a1c">PRIMER PASO</div><h3>Elegí a tu profesional</h3></div><div class="num" aria-hidden="true">1</div></div>
+          <span class="imagen"><img data-para-img="paso1" src="{{ img('paso1') }}" alt="" loading="lazy" onerror="this.remove()"></span>
+          <p>Leé cómo trabaja, qué temas aborda y su formación.</p>
+        </li>
+        <li class="paso" data-reveal style="background:var(--durazno)">
+          <div class="arriba"><div><div class="cual" style="color:#6e2f18">SEGUNDO PASO</div><h3>Reservá el horario</h3></div><div class="num" aria-hidden="true">2</div></div>
+          <span class="imagen"><img src="{{ img('paso2') }}" alt="" loading="lazy" onerror="this.remove()"></span>
+          <p>Ves solo lo libre. Elegís día, hora y si es presencial o por videollamada.</p>
+        </li>
+        <li class="paso" data-reveal style="background:var(--salvia)">
+          <div class="arriba"><div><div class="cual" style="color:#33502f">TERCER PASO</div><h3>Confirmá por WhatsApp</h3></div><div class="num" aria-hidden="true">3</div></div>
+          <span class="imagen"><img src="{{ img('paso3') }}" alt="" loading="lazy" onerror="this.remove()"></span>
+          <p>Te llega la confirmación y un recordatorio. Si algo cambia, lo resolvés desde el mismo link.</p>
+        </li>
+      </ol>
+      <a class="boton" href="{{ url_for('turnos_directorio') }}">Sacar turno →</a>
+    </div>
+  </div>
+  <div class="curva" style="height:100px;background:var(--bosque);border-radius:0 0 100% 0 / 0 0 100% 0"></div>
+</section>
+
+<section class="env modalidades" aria-label="Modalidades">
+  <div class="modalidad" data-reveal>
+    <span class="imagen"><img data-para-img="presencial" src="{{ img('presencial') }}" alt="" loading="lazy" onerror="this.remove()"></span>
+    <div class="texto"><h3>Presencial</h3><p>En el consultorio del profesional. La dirección figura en su página.</p></div>
+  </div>
+  <div class="modalidad virtual" data-reveal>
+    <span class="imagen"><img data-para-img="videollamada" src="{{ img('videollamada') }}" alt="" loading="lazy" onerror="this.remove()"></span>
+    <div class="texto"><h3>Por videollamada</h3><p>Desde donde estés, con la misma atención y el mismo horario fijo.</p></div>
   </div>
 </section>
 
-<section class="fondo-blanco">
-  <div class="envoltura">
-    <h2>Como te quede más cómodo</h2>
-    <p class="bajada">Cada profesional indica cómo atiende. Si ofrece las dos, elegís vos al reservar.</p>
-    <div class="modalidades">
-      <div class="modalidad"><h3>Presencial</h3><p>En el consultorio del profesional. La dirección figura en su página.</p></div>
-      <div class="modalidad"><h3>Por videollamada</h3><p>Desde donde estés, con la misma calidad de atención y el mismo horario fijo.</p></div>
+<section class="preguntas" id="preguntas" aria-labelledby="preguntas-titulo">
+  <div class="env">
+    <div>
+      <div class="rotulo">04 — Preguntas</div>
+      <h2 class="titular" id="preguntas-titulo" data-reveal>Lo que nos preguntan antes de empezar.</h2>
+      <div class="urgencia" data-reveal>
+        <div class="num" aria-hidden="true">135</div>
+        <b>¿Es urgente?</b> Esto no es un servicio de urgencias. Si estás en crisis o pensás en hacerte daño, llamá gratis a la línea <a href="tel:135">135</a> (CABA y GBA), al <a href="tel:+541152751135">(011) 5275-1135</a> desde todo el país, o acercate a la guardia más cercana.
+      </div>
+    </div>
+    <div class="burbujas">
+      <details open><summary>¿Cuánto cuesta una sesión?</summary><p>Cada profesional fija su honorario. Si lo publicó, lo ves en su página al reservar; si no, consultalo directamente.</p></details>
+      <details><summary>¿Atienden por obra social o prepaga?</summary><p>Depende del profesional: en su perfil figura con cuáles trabaja. Si no está, podés consultarle por reintegro.</p></details>
+      <details><summary>¿Puedo cancelar o cambiar el turno?</summary><p>Sí, desde el link que te llega por WhatsApp. Cada profesional define hasta cuántas horas antes.</p></details>
+      <details><summary>¿Y si no hay horarios libres?</summary><p>Anotate en la lista de espera desde la página del profesional y te avisamos cuando se libere un lugar.</p></details>
+      <details><summary>¿Mis datos son confidenciales?</summary><p>Sí. Solo tu profesional ve tus datos y tu historia. Podés leer cómo los cuidamos en la <a href="{{ url_for('privacidad') }}">política de privacidad</a>.</p></details>
     </div>
   </div>
 </section>
 
-<section id="preguntas" class="preguntas">
-  <div class="envoltura">
-    <h2>Preguntas frecuentes</h2>
-    <details><summary>¿Cuánto cuesta una sesión?</summary><p>Cada profesional fija su honorario. Si lo publicó, lo ves en su página al reservar; si no, consultalo directamente con él o ella.</p></details>
-    <details><summary>¿Atienden por obra social o prepaga?</summary><p>Depende del profesional: en su perfil figura con qué obras sociales trabaja. Si no está, podés consultarle por reintegro.</p></details>
-    <details><summary>¿Puedo cancelar o cambiar el turno?</summary><p>Sí, desde el link que te llega por WhatsApp. Cada profesional define hasta cuántas horas antes se puede hacer.</p></details>
-    <details><summary>¿Y si no hay horarios libres?</summary><p>Anotate en la lista de espera desde la página del profesional y te avisamos cuando se libere un lugar.</p></details>
-    <details><summary>¿Mis datos son confidenciales?</summary><p>Sí. Solo tu profesional ve tus datos y tu historia. Podés leer cómo los cuidamos en la <a href="{{ url_for('privacidad') }}">política de privacidad</a>.</p></details>
-    <details><summary>¿Es un servicio de urgencias?</summary><p>No. Si estás atravesando una crisis o pensás en hacerte daño, llamá a la línea 135 (gratuita, CABA y GBA) o al (011) 5275-1135 desde todo el país, o acercate a la guardia más cercana.</p></details>
+<section class="env cierre" aria-labelledby="cierre-titulo">
+  <div class="lamina" aria-hidden="true">
+    <div class="colina"></div><div class="sol"></div>
+    <div class="cuadro"><img data-para-img="cierre" src="{{ img('cierre') }}" alt="" loading="lazy" onerror="this.remove()"></div>
+  </div>
+  <div>
+    <h2 id="cierre-titulo" data-reveal>Pedir ayuda también es <i>cuidarse.</i></h2>
+    <p>Elegí a tu profesional y reservá tu primera sesión hoy.</p>
+    <a class="boton" href="{{ url_for('turnos_directorio') }}">Quiero empezar →</a>
   </div>
 </section>
 
-<section id="para-profesionales">
-  <div class="envoltura">
-    <div class="para-pros">
-      <div>
-        <h2>¿Sos profesional de la salud mental?</h2>
-        <p>Tu agenda, tus pacientes y tus cobros en un solo lugar, con un asistente que atiende por WhatsApp.</p>
-        <ul>
-          <li>Tu página para que te reserven turno online</li>
-          <li>Recordatorios y confirmaciones automáticas por WhatsApp</li>
-          <li>Cobro con Mercado Pago, recibos y planilla para obra social</li>
-          <li>Ficha de cada paciente y cuestionarios</li>
-        </ul>
-      </div>
-      <div class="acciones">
-        <a class="btn" href="{{ url_for('sumate') }}">Quiero sumarme</a>
-        <a class="btn secundario" href="{{ url_for('login') }}">Ya tengo cuenta</a>
-      </div>
+<section class="soy" id="soy" aria-labelledby="soy-titulo"><div>
+  <div class="mancha" aria-hidden="true" style="width:460px;height:460px;background:var(--verde);filter:blur(90px);opacity:.55;top:-160px;right:-100px;animation:drift 24s ease-in-out infinite"></div>
+  <div class="env">
+    <div>
+      <div class="rotulo">Para profesionales</div>
+      <h2 class="titular" id="soy-titulo" data-reveal>Tu agenda se atiende sola. <i>Vos atendé a tus pacientes.</i></h2>
+      <p>Agenda, pacientes y cobros en un solo lugar, con un asistente que responde por WhatsApp.</p>
+      <div class="acciones"><a class="boton" href="{{ url_for('sumate') }}">Quiero sumarme</a><a class="ya" href="{{ url_for('login') }}">Ya tengo cuenta</a></div>
     </div>
+    <ul class="ventajas">
+      <li>Tu página para que te reserven turno online</li>
+      <li>Recordatorios y confirmaciones automáticas por WhatsApp</li>
+      <li>Cobro con Mercado Pago, recibos y planilla para obra social</li>
+      <li>Ficha de cada paciente y cuestionarios</li>
+    </ul>
   </div>
-</section>
+</div></section>
+</main>
 
-<footer>
-  <div class="envoltura">
-    <span>© {{ anio }} FiBOT Consultorio</span>
-    <span><a href="{{ url_for('turnos_directorio') }}">Profesionales</a> · <a href="{{ url_for('sumate') }}">Sumate como profesional</a> · <a href="{{ url_for('privacidad') }}">Privacidad</a> · <a href="{{ url_for('login') }}">Ingresar</a></span>
-  </div>
+<footer class="env">
+  <span>© {{ anio }} FiBOT Consultorio · parte de <a href="https://fibot.ar">fibot.ar</a></span>
+  <nav aria-label="Pie"><a href="{{ url_for('turnos_directorio') }}">Profesionales</a><a href="{{ url_for('sumate') }}">Sumate como profesional</a><a href="{{ url_for('privacidad') }}">Privacidad</a><a href="{{ url_for('login') }}">Ingresar</a></nav>
 </footer>
 
 <script>
-  (function () {
-    var frases = ["sentirme mejor", "que alguien me escuche", "entender lo que me pasa", "manejar la ansiedad", "estar mejor con los demás"];
-    var el = document.getElementById("quiero"), i = 0;
-    if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
-    setInterval(function () {
-      el.style.opacity = 0;
-      setTimeout(function () { i = (i + 1) % frases.length; el.textContent = frases[i]; el.style.opacity = 1; }, 300);
-    }, 2600);
-  })();
+(function () {
+  var quieto = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  var body = document.body;
+  var FRASES = {
+    yo: ["sentirme mejor", "que alguien me escuche", "entender qué me pasa", "dormir tranquilo", "alguien con quien hablar"],
+    hijo: ["entender cómo aprende", "que disfrute la escuela", "acompañarlo mejor", "que lea con ganas", "que se sienta bien"]
+  };
+  var IMG_HIJO = { paso1: "k-paso1", presencial: "k-presencial", videollamada: "k-videollamada", cierre: "k-hero" };
+  var base = "{{ url_for('static', filename='portada/') }}";
+  var tema = null;
+
+  // Para mí / Para mi hijo/a: cambia frases, temas, profesionales e imágenes.
+  function elegirTema(clave) {
+    tema = clave;
+    document.querySelectorAll("[data-tema-panel]").forEach(function (p) { p.hidden = p.getAttribute("data-tema-panel") !== (clave || ""); });
+    document.querySelectorAll("[data-tema]").forEach(function (a) { a.setAttribute("aria-current", a.getAttribute("data-tema") === clave ? "true" : "false"); });
+  }
+  function ponerPara(para) {
+    body.setAttribute("data-para", para);
+    document.querySelectorAll("[data-para-btn]").forEach(function (b) { b.setAttribute("aria-pressed", b.getAttribute("data-para-btn") === para ? "true" : "false"); });
+    document.querySelectorAll("[data-para-solo]").forEach(function (el) { el.classList.toggle("activo", el.getAttribute("data-para-solo") === para); });
+    document.querySelectorAll("[data-para-en]").forEach(function (el) { el.hidden = (" " + el.getAttribute("data-para-en") + " ").indexOf(" " + para + " ") < 0; });
+    document.querySelectorAll("[data-para-img]").forEach(function (img) {
+      var n = img.getAttribute("data-para-img");
+      img.src = base + (para === "hijo" ? IMG_HIJO[n] : n) + ".webp";
+    });
+    i = 0; mostrarFrase();
+    elegirTema(para === "hijo" ? "aprendizaje" : "ansiedad");
+  }
+  document.querySelectorAll("[data-para-btn]").forEach(function (b) {
+    b.addEventListener("click", function () { ponerPara(b.getAttribute("data-para-btn")); });
+  });
+
+  // Tocar un tema muestra quién lo trabaja; tocarlo de nuevo (o con Ctrl) va a /turnos.
+  document.querySelectorAll("[data-tema]").forEach(function (a) {
+    a.addEventListener("click", function (e) {
+      if (e.metaKey || e.ctrlKey || e.shiftKey || tema === a.getAttribute("data-tema")) return;
+      e.preventDefault();
+      elegirTema(a.getAttribute("data-tema"));
+    });
+  });
+
+  // «Quiero …»
+  var frase = document.getElementById("frase"), i = 0;
+  function mostrarFrase() {
+    var lista = FRASES[body.getAttribute("data-para")];
+    frase.textContent = lista[i % lista.length];
+    frase.classList.remove("nueva"); void frase.offsetWidth; frase.classList.add("nueva");
+  }
+  if (!quieto) setInterval(function () { i++; mostrarFrase(); }, 3200);
+
+  // El chat de ejemplo se va escribiendo de a un mensaje.
+  var chat = document.getElementById("chat"), estado = document.getElementById("chat-estado");
+  if (chat && !quieto) {
+    var msjs = Array.prototype.slice.call(chat.querySelectorAll(".msj"));
+    var punt = document.createElement("div");
+    punt.className = "escribiendo"; punt.innerHTML = "<span></span><span></span><span></span>";
+    var paso = 0;
+    var tick = function () {
+      paso = paso >= 9 ? 0 : paso + 1;
+      var visibles = Math.min(Math.ceil(paso / 2), 4);
+      msjs.forEach(function (m, k) { m.style.display = k < visibles ? "" : "none"; });
+      chat.querySelector(".elegible").classList.toggle("elegido", visibles > 2);
+      var escribe = paso % 2 === 1 && visibles < 4 && msjs[visibles].classList.contains("bot");
+      if (escribe) chat.appendChild(punt); else if (punt.parentNode) punt.remove();
+      estado.textContent = escribe ? "escribiendo…" : "en línea";
+    };
+    tick(); setInterval(tick, 1600);
+  }
+
+  // Aparecer al bajar.
+  if ("IntersectionObserver" in window && !quieto) {
+    var io = new IntersectionObserver(function (es) {
+      es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add("visto"); io.unobserve(e.target); } });
+    }, { threshold: .15 });
+    document.querySelectorAll("[data-reveal]").forEach(function (el) { io.observe(el); });
+  } else {
+    document.querySelectorAll("[data-reveal]").forEach(function (el) { el.classList.add("visto"); });
+  }
+
+  ponerPara("yo");
+})();
 </script>
 </body>
 </html>

@@ -27,7 +27,29 @@ TEMAS = {
                   "psicopedagog", "tdah", "autismo", "tea ")),
     "miedos": ("Miedos", "Fobias, miedos que te frenan en el día a día.",
                ("miedo", "fobia", "panico")),
+    # Los de «Para mi hijo/a» en la portada (sobre todo psicopedagogía).
+    "aprendizaje": ("Aprendizaje", "Le cuesta aprender o seguir el ritmo de la clase.",
+                    ("aprendizaje", "psicopedagog", "dislexia", "discalculia")),
+    "lectoescritura": ("Lectoescritura", "Leer y escribir le cuesta más que a otros chicos.",
+                       ("lectoescritura", "lectura", "escritura", "dislexia")),
+    "atencion": ("Atención y concentración", "Se distrae, no termina las tareas, no para.",
+                 ("deficit de atencion", "concentracion", "tdah", "hiperactiv")),
+    "conducta": ("Conducta", "Berrinches, límites, peleas en casa o en la escuela.",
+                 ("conducta", "berrinche", "limites", "oposicion")),
+    "emociones": ("Emociones", "Miedos, enojo o tristeza que no sabe cómo decir.",
+                  ("infan", "nino", "nina", "chicos")),
+    "escuela": ("Escuela y amigos", "Le cuesta ir, hacer amigos o integrarse.",
+                ("escolar", "escuela", "colegio", "bullying", "integracion")),
+    "adolescencia": ("Adolescencia", "Cambios, vínculos y decisiones de esa etapa.",
+                     ("adolesc",)),
+    "vocacional": ("Orientación vocacional", "Qué estudiar, cómo organizarse para estudiar.",
+                   ("vocacional", "tecnicas de estudio", "habitos de estudio")),
 }
+
+# Qué temas muestra la portada con «Para mí» y con «Para mi hijo/a».
+TEMAS_ADULTOS = ("ansiedad", "animo", "estres", "vinculos", "autoestima", "duelos", "infancia", "miedos")
+TEMAS_CHICOS = ("aprendizaje", "lectoescritura", "atencion", "conducta", "emociones", "escuela",
+                "adolescencia", "vocacional")
 
 MODALIDADES = {"presencial": ("presencial", "ambas"), "virtual": ("virtual", "ambas")}
 
