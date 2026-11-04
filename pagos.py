@@ -465,6 +465,11 @@ def _anotar_devolucion(pago: dict, monto: int, a_mano: bool = False) -> None:
               "devuelto_at": datetime.now(timezone.utc).isoformat()}
     if devuelto >= int(pago["monto"]):
         campos["estado"] = "devuelto"
+        # Las sesiones que siguen reservadas con este pago dejan de figurar pagas.
+        for tid in pago.get("turnos") or []:
+            t = db.turno_por_id(pago["tenant_id"], tid)
+            if t and t["estado"] == "reservado" and t.get("pago_id") == pago["id"]:
+                db.actualizar_reserva(pago["tenant_id"], tid, {"pago": "pendiente", "pago_web": "devuelto"})
     elif pago.get("estado") == "aprobado_tarde":
         campos["estado"] = "aprobado"
     db.actualizar_pago(pago["id"], campos)
