@@ -3562,7 +3562,7 @@ def agenda_renovar():
 
 
 # ---------- página pública de reserva (sin login) ----------
-# consultorios.fibot.ar/<slug> — el link que cada profesional comparte con
+# consultorio.fibot.ar/<slug> — el link que cada profesional comparte con
 # sus pacientes. Solo existe para tenants con `slug` cargado (ver
 # scripts/crear_tenant.py); un tenant sin slug simplemente no tiene página
 # pública y sigue funcionando como antes (WhatsApp + panel).

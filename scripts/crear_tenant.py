@@ -10,6 +10,7 @@ import getpass
 import os
 import re
 import sys
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import bcrypt
 from supabase import create_client
@@ -46,6 +47,14 @@ if not (nombre and panel_user and clave):
 # de la plataforma (PLATAFORMA_PHONE_NUMBER_ID). Es lo que permite dar de alta
 # a alguien hoy en vez de esperar la verificación de Meta de su propio número.
 
+try:
+    ZoneInfo(timezone)
+except (ZoneInfoNotFoundError, ValueError):
+    sys.exit(f"Timezone inválida: '{timezone}'. Usá el nombre completo, ej. America/Argentina/Buenos_Aires "
+             "(o Enter para ese valor).")
+if not (duracion.isdigit() and recordatorio_horas.isdigit()):
+    sys.exit("Duración y horas del recordatorio van en números enteros.")
+
 if slug:
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]*", slug):
         sys.exit("Slug inválido: solo minúsculas, números y guiones (sin espacios ni acentos).")
@@ -78,4 +87,4 @@ if not phone_number_id:
     print("Sin número propio: sale por el número compartido de la plataforma\n"
           "  (PLATAFORMA_PHONE_NUMBER_ID tiene que estar cargada en Railway).")
 if slug:
-    print(f"Página pública de reserva: https://consultorios.fibot.ar/{slug}")
+    print(f"Página pública de reserva: https://consultorio.fibot.ar/{slug}")
