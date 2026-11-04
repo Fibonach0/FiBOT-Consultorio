@@ -2243,6 +2243,17 @@ with client.session_transaction() as ses:
 html = client.get("/admin").data.decode()
 chequear("lista profesionales con su uso", "Lic. Marcos" in html and "Dra. Otra" in html and "Alta de profesional" in html)
 chequear("admin: columna de Mercado Pago", "<th>Mercado Pago</th>" in html)
+_ahora_adm = datetime.now(timezone.utc).isoformat()
+TABLAS["pagos"] += [{"id": "pa1", "tenant_id": "t1", "monto": 30000, "metodo": "mercadopago", "estado": "aprobado", "devuelto": 0, "resuelto": _ahora_adm},
+                    {"id": "pa2", "tenant_id": "t1", "monto": 20000, "metodo": "transferencia", "estado": "devuelto", "devuelto": 5000, "resuelto": _ahora_adm},
+                    {"id": "pa3", "tenant_id": "t1", "monto": 99000, "metodo": "mercadopago", "estado": "esperando", "devuelto": 0, "resuelto": None},
+                    {"id": "pa4", "tenant_id": "t1", "monto": 77000, "metodo": "mercadopago", "estado": "aprobado", "devuelto": 0,
+                     "resuelto": "2020-01-05T12:00:00+00:00", "paciente_nombre": "Paciente Secreto"}]
+html = client.get("/admin").data.decode()
+chequear("admin: cobrado este mes por profesional", "<th>Cobrado este mes</th>" in html and "$ 45.000" in html
+         and "MP $ 30.000" in html and "transf. $ 15.000" in html and "devuelto $ 5.000" in html
+         and "$ 99.000" not in html and "$ 77.000" not in html, html[html.find("Cobrado"):][:200])
+TABLAS["pagos"] = [p for p in TABLAS["pagos"] if p["id"] not in ("pa1", "pa2", "pa3", "pa4")]
 import mail as _mail_adm  # noqa: E402
 _mad, _med = _mail_adm.disponible, _mail_adm.enviar_detalle
 _mail_adm.disponible = lambda: True
@@ -3907,13 +3918,15 @@ import mail as _mail
 _mails = []
 _md, _me, _dom = _mail.disponible, _mail.enviar, _pg.config.DOMINIO_PRINCIPAL
 _mail.disponible = lambda: True
-_mail.enviar = lambda para, asunto, texto: _mails.append((para, asunto, texto)) or True
+_mail.enviar = lambda para, asunto, texto, adjuntos=None: _mails.append((para, asunto, texto, adjuntos)) or True
 _pg.config.DOMINIO_PRINCIPAL = "consultorio.fibot.ar"
 _mp["pagos"]["114"] = {"status": "approved", "external_reference": pago6["token"], "transaction_amount": 25000}
 app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "114"}})
 chequear("recibo: al aprobar le llega el link por mail", pago6["estado"] == "aprobado" and len(_mails) == 1
          and _mails[0][0] == "fede@ejemplo.com" and f"/pago/{pago6['token']}/recibo" in _mails[0][2]
          and "Fede" not in _mails[0][2], _mails)
+chequear("recibo: va el PDF adjunto", _mails and _mails[0][3] and _mails[0][3][0][0].startswith("recibo-")
+         and _mails[0][3][0][1].startswith(b"%PDF") and "adjuntamos el recibo en PDF" in _mails[0][2])
 chequear("recibo: sin email no manda nada", _pg.mandar_recibo(_t1, {**pago6, "paciente_email": None}) is False)
 _mail.disponible, _mail.enviar, _pg.config.DOMINIO_PRINCIPAL = _md, _me, _dom
 _avs_mp = []
@@ -3922,7 +3935,18 @@ scheduler.avisar_profesional = lambda tenant, texto: _avs_mp.append(texto) or Tr
 _avs_adm = []
 _vadm = whatsapp_real.avisar_admin
 whatsapp_real.avisar_admin = lambda texto: _avs_adm.append(texto) or True
+_pg._pausa = lambda segundos: None
+_get_mp_prev = _pg.requests.get
+_me_resp = [200]
+_pg.requests.get = lambda url, headers=None, timeout=None: (_RMP(_me_resp.pop(0) if len(_me_resp) > 1 else _me_resp[0], {"id": 99})
+                                                            if url.endswith("/users/me") else _get_mp_prev(url, headers=headers, timeout=timeout))
 _pg.requests.post = lambda url, json=None, headers=None, timeout=None: _RMP(401, {"message": "invalid access token"})
+chequear("caída: un rechazo pasajero no corta la conexión", _pg.preferencia(_t1, pago6, "x", "http://x") is None
+         and not _t1.get("mp_caido_at") and not _avs_mp)
+_me_resp[:] = [401, 200]
+_pg.preferencia(_t1, pago6, "x", "http://x")
+chequear("caída: si al reintentar acepta, tampoco se corta", not _t1.get("mp_caido_at") and not _avs_mp)
+_me_resp[:] = [401]
 chequear("caída: si Mercado Pago rechaza el permiso no hay link", _pg.preferencia(_t1, pago6, "x", "http://x") is None)
 _pg.preferencia(_t1, pago6, "x", "http://x")
 chequear("caída: se marca y avisa una sola vez", _t1.get("mp_caido_at") and len(_avs_mp) == 1 and "Conectar Mercado Pago" in _avs_mp[0])
@@ -3940,6 +3964,10 @@ _pg.verificar_conexion(_t1, datetime.now(timezone.utc).date())
 chequear("caída: el chequeo es una vez por día", not _t1.get("mp_caido_at"))
 _pg.requests.get = _get_prev2
 _t1.update({"mp_vence": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(), "mp_refresh_cifrado": _pg.cifrar("TG-refresh")})
+_renov = [_RMP(400, {"error": "invalid_grant"}), _RMP(200, {"access_token": "TEST-renovado", "user_id": 99, "expires_in": 15552000})]
+_pg.requests.post = lambda url, json=None, headers=None, timeout=None: _renov.pop(0)
+chequear("caída: si renovar falla una vez, reintenta y sigue", _pg._token(_t1) == "TEST-renovado" and not _t1.get("mp_caido_at"))
+_t1.update({"mp_vence": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat(), "mp_refresh_cifrado": _pg.cifrar("TG-refresh")})
 _pg.requests.post = lambda url, json=None, headers=None, timeout=None: _RMP(400, {"error": "invalid_grant"})
 chequear("caída: si no se puede renovar el permiso", _pg._token(_t1) is None and bool(_t1.get("mp_caido_at")))
 _pg._guardar_tokens("t1", {"access_token": "TEST-token-del-profesional", "user_id": 99})
@@ -3947,6 +3975,7 @@ _t1.update({"mp_vence": (datetime.now(timezone.utc) + timedelta(days=100)).isofo
 _pg.requests.post = _mp_post
 scheduler.avisar_profesional = _va_mp
 whatsapp_real.avisar_admin = _vadm
+_pg.requests.get = _get_mp_prev
 
 # token de prueba pegado a mano (solo con MP_PRUEBA)
 _guardado = {k: _t1.get(k) for k in ("mp_user_id", "mp_token_cifrado", "mp_refresh_cifrado", "mp_vence", "cobro_web")}
@@ -4144,6 +4173,13 @@ _tr["foto"] = "data:text/html;base64,PHNjcmlwdD4="
 chequear("recibo: una foto rara no se muestra", 'class="foto"' not in wd.get(f"/pago/{pd1['token']}/recibo").data.decode())
 _tr["foto"] = None
 chequear("recibo: sin pago aprobado no hay recibo", wd.get("/pago/inventado/recibo").status_code == 404)
+_rp = wd.get(f"/pago/{pd1['token']}/recibo.pdf")
+chequear("recibo: se baja en PDF", _rp.status_code == 200 and _rp.mimetype == "application/pdf" and _rp.data.startswith(b"%PDF")
+         and "Descargar PDF" in html)
+chequear("recibo: sin pago aprobado no hay PDF", wd.get("/pago/inventado/recibo.pdf").status_code == 404)
+_tr["foto"] = "data:image/png;base64,iVBORw0KGgo="
+chequear("recibo: una foto rota no impide el PDF", wd.get(f"/pago/{pd1['token']}/recibo.pdf").data.startswith(b"%PDF"))
+_tr["foto"] = None
 chequear("recibo: la página de pago lo ofrece", "Ver tu recibo" in wd.get(f"/pago/{pd1['token']}").data.decode())
 chequear("política: se le muestra al paciente", "con 24 horas o más de anticipación, te devolvemos todo"
          in wd.get(f"/pago/{pd1['token']}").data.decode())

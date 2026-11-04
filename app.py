@@ -41,6 +41,7 @@ import directorio
 import fluidez
 import informe
 import mail
+import recibos
 import webauthn
 from webauthn.helpers import base64url_to_bytes, bytes_to_base64url
 from webauthn.helpers.structs import (AuthenticatorSelectionCriteria, PublicKeyCredentialDescriptor,
@@ -1000,7 +1001,14 @@ def admin_panel():
     ahora = datetime.now(ZoneInfo("UTC"))
     uso = db.uso_de_tenants((ahora - timedelta(days=30)).isoformat())
     tenants = db.todos_los_tenants()
+    inicio_mes = datetime.now(tz).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    try:
+        cobros = db.cobros_por_tenant(inicio_mes, (inicio_mes + timedelta(days=32)).replace(day=1))
+    except Exception:
+        logger.warning("admin: no se pudieron sumar los cobros del mes", exc_info=True)
+        cobros = {}
     for t in tenants:
+        t["cobros"] = cobros.get(t["id"])
         t["uso"] = uso.get(t["id"], {"sesiones": 0, "pacientes": 0, "cuestionarios": 0, "entregas": 0})
         t["_ingreso"] = datetime.fromisoformat(t["ultimo_ingreso"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if t.get("ultimo_ingreso") else "nunca"
     biblioteca = [dict(e, titulo=e["contenido"]["nombre"] + (f" · {e['contenido']['version']}" if e["contenido"].get("version") else ""))
@@ -4849,12 +4857,6 @@ def pago_comprobante(token):
     return redirect(url_for("pago_paciente", token=token))
 
 
-def _foto_valida(tenant: dict) -> str | None:
-    """La foto del perfil sólo si es una imagen PNG/JPG embebida como la guarda el panel."""
-    foto = tenant.get("foto") or ""
-    return foto if re.fullmatch(r"data:image/(?:png|jpeg);base64,[A-Za-z0-9+/=]+", foto) else None
-
-
 @app.get("/pago/<token>/recibo")
 def pago_recibo(token):
     """Recibo del pago web para el paciente (no es factura). El token es la
@@ -4862,12 +4864,22 @@ def pago_recibo(token):
     pago, tenant = _pago_y_tenant(token)
     if not pago or pago["estado"] not in ("aprobado", "aprobado_tarde", "devuelto"):
         return _sin_indexar(app.make_response(("Todavía no hay un pago aprobado con este link.", 404)))
-    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
-    sesiones = [datetime.fromisoformat(str(x)).astimezone(tz) for x in pago.get("sesiones") or []]
-    return _sin_indexar(app.make_response(render_template(
-        "recibo.html", tenant=tenant, pago=pago, foto=_foto_valida(tenant), sesiones=[f"{DIAS_LABEL[d.weekday()]} {d:%d/%m/%Y %H:%M}" for d in sesiones],
-        fecha=datetime.fromisoformat(str(pago.get("resuelto") or pago["creado"])).astimezone(tz).strftime("%d/%m/%Y"),
-        numero=str(pago["id"]).replace("-", "")[:8].upper())))
+    return _sin_indexar(app.make_response(render_template("recibo.html", tenant=tenant, pago=pago, **recibos.datos(tenant, pago))))
+
+
+@app.get("/pago/<token>/recibo.pdf")
+def pago_recibo_pdf(token):
+    """El mismo recibo, en PDF para guardar."""
+    pago, tenant = _pago_y_tenant(token)
+    if not pago or pago["estado"] not in ("aprobado", "aprobado_tarde", "devuelto"):
+        return _sin_indexar(app.make_response(("Todavía no hay un pago aprobado con este link.", 404)))
+    contenido = recibos.pdf(tenant, pago)
+    if not contenido:
+        return _sin_indexar(app.make_response(("No se pudo armar el PDF: usá «Imprimir o guardar en PDF».", 503)))
+    r = app.response_class(contenido, mimetype="application/pdf")
+    r.headers["Content-Disposition"] = f'inline; filename="recibo-{recibos.datos(tenant, pago)["numero"]}.pdf"'
+    r.headers["Cache-Control"] = "no-store"
+    return _sin_indexar(r)
 
 
 @app.post("/webhook/mercadopago")

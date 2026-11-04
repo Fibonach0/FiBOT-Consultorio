@@ -1567,6 +1567,23 @@ def pagos_resueltos_entre(tenant_id: str, desde: datetime, hasta: datetime) -> l
     return res.data
 
 
+def cobros_por_tenant(desde: datetime, hasta: datetime) -> dict[str, dict]:
+    """Para /admin: cuánto cobró cada cuenta por la web en el período, por
+    medio y neto de devoluciones. Sólo montos: nada de pacientes."""
+    res = (_client.table("pagos").select("tenant_id,monto,metodo,devuelto")
+           .in_("estado", ["aprobado", "aprobado_tarde", "devuelto"])
+           .gte("resuelto", desde.isoformat()).lt("resuelto", hasta.isoformat()).execute())
+    salida: dict[str, dict] = {}
+    for p in res.data or []:
+        c = salida.setdefault(p["tenant_id"], {"cantidad": 0, "total": 0, "mercadopago": 0, "transferencia": 0, "devuelto": 0})
+        neto = int(p.get("monto") or 0) - int(p.get("devuelto") or 0)
+        c["cantidad"] += 1
+        c["total"] += neto
+        c["devuelto"] += int(p.get("devuelto") or 0)
+        c["mercadopago" if p.get("metodo") == "mercadopago" else "transferencia"] += neto
+    return salida
+
+
 # ---------- interesados (/sumate) ----------
 # De la plataforma, no de un tenant (como `admins`): sólo los lee administración.
 

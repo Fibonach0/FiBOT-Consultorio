@@ -27,6 +27,7 @@ import base64
 import hashlib
 import logging
 import secrets
+import time
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlencode
 
@@ -189,6 +190,27 @@ def marcar_caida(tenant: dict) -> None:
         logger.exception("No se pudo avisar a administración la conexión caída de Mercado Pago")
 
 
+REINTENTOS_CAIDA = 2
+_pausa = time.sleep  # los tests la reemplazan
+
+
+def _rechazo_confirmado(token: str) -> bool:
+    """Mercado Pago a veces contesta 401/403 por algo pasajero. Antes de dar
+    la conexión por cortada se le pregunta de nuevo (`/users/me`), con una
+    pausa corta entre intentos: sólo si sigue rechazando se corta. Sin red no
+    se sabe nada, así que no se corta."""
+    for intento in range(REINTENTOS_CAIDA):
+        _pausa(intento + 1)
+        try:
+            r = requests.get(f"{API}/users/me", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        except requests.RequestException:
+            return False
+        if r.status_code not in (401, 403):
+            logger.info("Mercado Pago rechazó una vez y después aceptó: no se corta la conexión")
+            return False
+    return True
+
+
 _verificado: dict[str, object] = {}
 
 
@@ -205,7 +227,7 @@ def verificar_conexion(tenant: dict, hoy) -> None:
         r = requests.get(f"{API}/users/me", headers={"Authorization": f"Bearer {token}"}, timeout=15)
     except requests.RequestException:
         return
-    if r.status_code in (401, 403):
+    if r.status_code in (401, 403) and _rechazo_confirmado(token):
         marcar_caida(tenant)
 
 
@@ -216,19 +238,26 @@ def _token(tenant: dict) -> str | None:
     if token and vence and datetime.fromisoformat(str(vence)) - datetime.now(timezone.utc) < timedelta(days=15):
         refresh = descifrar(tenant.get("mp_refresh_cifrado"))
         if refresh:
-            try:
-                r = requests.post(f"{API}/oauth/token", json={
-                    "client_id": config.MP_CLIENT_ID, "client_secret": config.MP_CLIENT_SECRET,
-                    "grant_type": "refresh_token", "refresh_token": refresh}, timeout=15)
+            # invalid_grant (el profesional revocó el permiso) se reintenta
+            # una vez por si fue algo pasajero, antes de dar la conexión por cortada.
+            for intento in range(REINTENTOS_CAIDA):
+                try:
+                    r = requests.post(f"{API}/oauth/token", json={
+                        "client_id": config.MP_CLIENT_ID, "client_secret": config.MP_CLIENT_SECRET,
+                        "grant_type": "refresh_token", "refresh_token": refresh}, timeout=15)
+                except requests.RequestException:
+                    logger.warning("No se pudo renovar el token de Mercado Pago del tenant %s", tenant["id"])
+                    break
                 if r.status_code < 300 and r.json().get("access_token"):
                     _guardar_tokens(tenant["id"], r.json())
                     return r.json()["access_token"]
-                if r.status_code in (400, 401, 403):
-                    # invalid_grant: el profesional revocó el permiso.
-                    marcar_caida(tenant)
-                    return None
-            except requests.RequestException:
-                logger.warning("No se pudo renovar el token de Mercado Pago del tenant %s", tenant["id"])
+                if r.status_code not in (400, 401, 403):
+                    break
+                if intento + 1 < REINTENTOS_CAIDA:
+                    _pausa(intento + 1)
+                    continue
+                marcar_caida(tenant)
+                return None
     return token
 
 
@@ -303,7 +332,8 @@ def preferencia(tenant: dict, pago: dict, descripcion: str, base: str) -> str | 
     except requests.RequestException:
         return None
     if r.status_code in (401, 403):
-        marcar_caida(tenant)
+        if _rechazo_confirmado(token):
+            marcar_caida(tenant)
         return None
     if r.status_code >= 300:
         logger.warning("Mercado Pago no creó la preferencia (%s): %s", r.status_code, r.text[:300])
@@ -325,7 +355,8 @@ def revisar_pago_mp(tenant: dict, mp_pago_id: str) -> str | None:
     except requests.RequestException:
         return None
     if r.status_code in (401, 403):
-        marcar_caida(tenant)
+        if _rechazo_confirmado(token):
+            marcar_caida(tenant)
         return None
     if r.status_code >= 300:
         return None
@@ -401,10 +432,16 @@ def mandar_recibo(tenant: dict, pago: dict) -> bool:
     import mail
     if not pago.get("paciente_email") or not config.DOMINIO_PRINCIPAL or not mail.disponible():
         return False
+    import recibos
     link = f"https://{config.DOMINIO_PRINCIPAL}/pago/{pago['token']}/recibo"
+    pago_completo = db.pago_por_token(pago["token"]) or pago
+    contenido = recibos.pdf(tenant, pago_completo)
+    adjuntos = [(f"recibo-{recibos.datos(tenant, pago_completo)['numero']}.pdf", contenido)] if contenido else None
     return mail.enviar(pago["paciente_email"], f"Tu recibo de pago — {tenant['nombre']}",
                        f"Hola. Recibimos tu pago del turno con {tenant['nombre']}.\n\n"
-                       f"Tu recibo: {link}\n\nNo es una factura. Si tenés dudas, escribile directamente a {tenant['nombre']}.")
+                       + ("Te adjuntamos el recibo en PDF. " if adjuntos else "")
+                       + f"También lo podés ver acá: {link}\n\nNo es una factura. Si tenés dudas, escribile directamente a {tenant['nombre']}.",
+                       adjuntos)
 
 
 def _confirmar_al_paciente(tenant: dict, turnos: list[dict]) -> None:

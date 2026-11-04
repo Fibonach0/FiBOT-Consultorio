@@ -7,3 +7,4 @@ python-dotenv==1.0.1
 openpyxl==3.1.5
 segno==1.6.1
 webauthn==2.5.2
+fpdf2==2.8.1
