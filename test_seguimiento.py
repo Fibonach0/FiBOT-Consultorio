@@ -749,6 +749,14 @@ client.post("/agenda/avisos", data={"link_videollamada": "http://inseguro"})
 chequear("rechaza un link sin https", TABLAS["tenants"][0].get("link_videollamada") is None)
 client.post("/agenda/avisos", data={"link_videollamada": "https://meet.example/sala"})
 chequear("guarda el link", TABLAS["tenants"][0]["link_videollamada"] == "https://meet.example/sala")
+client.post("/agenda/avisos", data={"recibo_cuit": "20-12345678-0"})
+chequear("CUIT: uno con el verificador mal se rechaza", not TABLAS["tenants"][0].get("recibo_cuit"))
+client.post("/agenda/avisos", data={"recibo_cuit": "20 12345678 6", "recibo_domicilio": "  Av. Ficticia 123, CABA  "})
+chequear("CUIT y domicilio: se guardan prolijos", TABLAS["tenants"][0].get("recibo_cuit") == "20-12345678-6"
+         and TABLAS["tenants"][0].get("recibo_domicilio") == "Av. Ficticia 123, CABA")
+chequear("CUIT: el panel lo muestra", 'value="20-12345678-6"' in client.get("/agenda").data.decode())
+client.post("/agenda/avisos", data={"recibo_cuit": "", "recibo_domicilio": ""})
+chequear("CUIT y domicilio: se pueden borrar", not TABLAS["tenants"][0].get("recibo_cuit") and not TABLAS["tenants"][0].get("recibo_domicilio"))
 client.post("/agenda/agendar/libre-manana", data={"nombre": "Vera", "telefono": "5491100000030", "modalidad": "virtual",
                                                   "frecuencia": "semanal", "cantidad": "3"})
 veras = [f for f in TABLAS["turnos"] if f["paciente_nombre"] == "Vera"]
@@ -2253,6 +2261,14 @@ html = client.get("/admin").data.decode()
 chequear("admin: cobrado este mes por profesional", "<th>Cobrado este mes</th>" in html and "$ 45.000" in html
          and "MP $ 30.000" in html and "transf. $ 15.000" in html and "devuelto $ 5.000" in html
          and "$ 99.000" not in html and "$ 77.000" not in html, html[html.find("Cobrado"):][:200])
+html = client.get("/admin?cobros=2020-01").data.decode()
+chequear("admin: cobrado de otro mes", "<th>Cobrado 2020-01</th>" in html and "$ 77.000" in html and "$ 45.000" not in html
+         and "Paciente Secreto" not in html)
+chequear("admin: un mes raro cae en el actual", "<th>Cobrado este mes</th>" in client.get("/admin?cobros=nada").data.decode())
+_csv = client.get("/admin/uso.csv?mes=2020-01").data.decode("utf-8")
+chequear("CSV: trae lo cobrado del mes", "Cobrado web (neto)" in _csv
+         and any(l.startswith("Lic. Marcos;") and l.split(";")[9:] == ["1", "77000", "77000", "0", "0"] for l in _csv.splitlines())
+         and "Paciente Secreto" not in _csv, _csv[:400])
 TABLAS["pagos"] = [p for p in TABLAS["pagos"] if p["id"] not in ("pa1", "pa2", "pa3", "pa4")]
 import mail as _mail_adm  # noqa: E402
 _mad, _med = _mail_adm.disponible, _mail_adm.enviar_detalle
@@ -4176,6 +4192,12 @@ chequear("recibo: sin pago aprobado no hay recibo", wd.get("/pago/inventado/reci
 _rp = wd.get(f"/pago/{pd1['token']}/recibo.pdf")
 chequear("recibo: se baja en PDF", _rp.status_code == 200 and _rp.mimetype == "application/pdf" and _rp.data.startswith(b"%PDF")
          and "Descargar PDF" in html)
+_tr.update({"recibo_cuit": "20-12345678-6", "recibo_domicilio": "Av. Ficticia 123"})
+chequear("recibo: lleva CUIT y domicilio", "CUIT 20-12345678-6" in wd.get(f"/pago/{pd1['token']}/recibo").data.decode()
+         and "Av. Ficticia 123" in wd.get(f"/pago/{pd1['token']}/recibo").data.decode())
+import recibos as _rec  # noqa: E402
+chequear("recibo: el PDF se arma con CUIT", (_rec.pdf(_tr, pd1) or b"").startswith(b"%PDF"))
+_tr.update({"recibo_cuit": None, "recibo_domicilio": None})
 chequear("recibo: sin pago aprobado no hay PDF", wd.get("/pago/inventado/recibo.pdf").status_code == 404)
 _tr["foto"] = "data:image/png;base64,iVBORw0KGgo="
 chequear("recibo: una foto rota no impide el PDF", wd.get(f"/pago/{pd1['token']}/recibo.pdf").data.startswith(b"%PDF"))
@@ -4190,6 +4212,27 @@ chequear("cancelar con anticipación: devuelve sola por Mercado Pago", _reint an
          and _reint[-1][1] == {"amount": 20000.0} and pd1["estado"] == "devuelto" and pd1["devuelto"] == 20000
          and any("devolvieron" in x for x in _avd) and _reint[-1][2]["X-Idempotency-Key"])
 chequear("recibo: dice lo devuelto", "Devuelto" in wd.get(f"/pago/{pd1['token']}/recibo").data.decode())
+# resumen mensual de cobros al profesional
+import mail as _mail_r  # noqa: E402
+_rmd, _rme = _mail_r.disponible, _mail_r.enviar
+_mail_r.disponible = lambda: True
+_res_mails = []
+_mail_r.enviar = lambda para, asunto, texto, adjuntos=None: _res_mails.append((para, asunto, texto, adjuntos)) or True
+_zr = app.ZoneInfo("America/Argentina/Buenos_Aires")
+_hoy_r = datetime.now(_zr)
+_dia1 = (_hoy_r.replace(day=28) + timedelta(days=4)).replace(day=1, hour=10, minute=0, second=0, microsecond=0)
+_tr.update({"email": "profe@ejemplo.com", "resumen_cobros_mes": None})
+chequear("resumen: antes de las 9 no sale", _pg.mandar_resumen_mensual(_tr, _dia1.replace(hour=7)) is False and not _res_mails)
+chequear("resumen: el día 1 sale con el PDF", _pg.mandar_resumen_mensual(_tr, _dia1) is True and len(_res_mails) == 1
+         and _res_mails[0][0] == "profe@ejemplo.com" and "cobraste por tu página de reservas" in _res_mails[0][2]
+         and _res_mails[0][3][0][1].startswith(b"%PDF") and _tr["resumen_cobros_mes"] == _hoy_r.strftime("%Y-%m"))
+chequear("resumen: una sola vez por mes", _pg.mandar_resumen_mensual(_tr, _dia1 + timedelta(hours=3)) is False and len(_res_mails) == 1)
+_dia_sig = (_dia1.replace(day=28) + timedelta(days=4)).replace(day=1, hour=10)
+chequear("resumen: un mes sin cobros no escribe", _pg.mandar_resumen_mensual(_tr, _dia_sig) is False and len(_res_mails) == 1
+         and _tr["resumen_cobros_mes"] == _dia1.strftime("%Y-%m"))
+_tr.update({"email": None, "resumen_cobros_mes": None})
+chequear("resumen: sin mail no hace nada", _pg.mandar_resumen_mensual(_tr, _dia1) is False and len(_res_mails) == 1)
+_mail_r.disponible, _mail_r.enviar = _rmd, _rme
 
 # tarde para la política: no devuelve
 _t1["cancelar_hasta_horas"] = 0

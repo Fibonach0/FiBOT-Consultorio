@@ -29,7 +29,7 @@
   <h1>Recibo de pago</h1>
   <p class="sub">N.º {{ numero }} · {{ fecha }}</p>
   <table>
-    <tr><td>Profesional</td><td><strong>{{ tenant.nombre }}</strong>{% if tenant.matricula %}<br>Matrícula {{ tenant.matricula }}{% endif %}</td></tr>
+    <tr><td>Profesional</td><td><strong>{{ tenant.nombre }}</strong>{% if tenant.matricula %}<br>Matrícula {{ tenant.matricula }}{% endif %}{% if tenant.recibo_cuit %}<br>CUIT {{ tenant.recibo_cuit }}{% endif %}{% if tenant.recibo_domicilio %}<br>{{ tenant.recibo_domicilio }}{% endif %}</td></tr>
     {% if pago.paciente_nombre %}<tr><td>Paciente</td><td>{{ pago.paciente_nombre }}</td></tr>{% endif %}
     <tr><td>Concepto</td><td>{{ 'Sesiones' if sesiones|length > 1 else 'Sesión' }}{% if (tenant.cobro_modo or 'total') == 'sena' %} (seña){% endif %}
       {% for s in sesiones %}<br>{{ s }}{% endfor %}</td></tr>
