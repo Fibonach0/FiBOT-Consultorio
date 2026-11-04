@@ -3062,6 +3062,14 @@ chequear("página: muestra la presentación", all(x in _pub for x in (
     "Lic. en Psicología (UBA)", "Caballito, CABA", "Sobre mí", "Temas que trabajo", "Adolescentes", "Formación",
     "Posgrado TCC", "Un poco más de mí", "dos gatos", "Obras sociales", 'href="#horarios"', "presencial o por videollamada")))
 chequear("página: sin foto muestra la inicial", "perfil-iniciales" in _pub)
+chequear("tema: sin elegir sigue al dispositivo y trae el botón", 'data-tema="auto"' in _pub and 'id="tema-boton"' in _pub)
+_cli_osc = app.app.test_client()
+_cli_osc.set_cookie("tema", "oscuro")
+_cli_raro = app.app.test_client()
+_cli_raro.set_cookie("tema", '"><script>')
+chequear("tema: respeta la cookie y descarta valores raros",
+         'data-tema="oscuro"' in _cli_osc.get(f"/{t1['slug']}").data.decode()
+         and 'data-tema="auto"' in _cli_raro.get(f"/{t1['slug']}").data.decode())
 panel_c.post("/agenda/portada", data={"csrf_token": "tok", "portada": (_io_p.BytesIO(b"\xff\xd8\xff" + b"1" * 50), "p.jpg")},
              content_type="multipart/form-data")
 _pt = app.app.test_client().get(f"/{t1['slug']}/portada")
@@ -3078,6 +3086,7 @@ panel_c.post("/agenda/portada/borrar", data={"csrf_token": "tok"})
 chequear("portada: se quita", t1.get("portada_version") == 0
          and app.app.test_client().get(f"/{t1['slug']}/portada").status_code == 404)
 chequear("perfil: avisa si ofrece videollamada sin link", "no cargaste el link" in panel_c.get("/agenda").data.decode())
+chequear("panel: elegir foto y portada sube sola, sin botón aparte", 'class="btn chico secundario elegir-archivo"' in panel_c.get("/agenda").data.decode())
 panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "cualquiera", "en_directorio": "1"})
 chequear("perfil: modalidad inválida vuelve a presencial", t1["modalidades_publicas"] == "presencial" and t1["en_directorio"] is True)
 import io as _io  # noqa: E402
