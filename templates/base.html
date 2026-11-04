@@ -1,13 +1,22 @@
 <!doctype html>
-<html lang="es" data-tema="{{ request.cookies.get('tema') if request.cookies.get('tema') in ('claro', 'oscuro') else 'auto' }}">
+{% set v = vista_pagina() %}<html lang="es" data-tema="{{ v.tema }}" data-modo="{{ v.tema if v.tema in ('claro', 'oscuro') else 'auto' }}" data-letra="{{ v.letra }}">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  {% if session.get('tenant_id') %}<meta name="csrf" content="{{ csrf_token() }}">{% endif %}
+  <script>
+  // «Oscuro de noche»: de 20 a 8 h (hora del dispositivo). Corre antes de pintar.
+  (function () { var r = document.documentElement;
+    window.modoDeNoche = function () { var h = new Date().getHours(); return (h >= 20 || h < 8) ? 'oscuro' : 'claro'; };
+    if (r.dataset.tema === 'noche') r.dataset.modo = window.modoDeNoche(); })();
+  </script>
   <title>{% block titulo %}FiBOT Consultorio{% endblock %}</title>
   <style>
     :root { --ink:#1c1b19; --muted:#5b584f; --green:#2f5233; --green-solid:#2f5233; --on-green:#fff; --green-bg:#eef3ec; --green-mid:#6f8f63; --rule:#dcd6c7; --cream:#faf6ef; --card:#fff; --warn-bg:#fbeee4; --warn:#c1652f; --accent2:#b5533c; --chip-bg:#f0ece3; --hover:#faf7f0; --stripe:#f6f0e4; --paper:#fffdf5; --danger-bg:#fbeeee; color-scheme:light; }
-    :root[data-tema="oscuro"] { --ink:#e7e3da; --muted:#aaa497; --green:#93c48f; --green-solid:#3e6a44; --on-green:#f4f2ec; --green-bg:#22302a; --green-mid:#4c6b48; --rule:#3a3832; --cream:#151412; --card:#1e1d1a; --warn-bg:#3a2a1f; --warn:#e8a073; --accent2:#d98a74; --chip-bg:#2c2a25; --hover:#25231f; --stripe:#2a2722; --paper:#22201c; --danger-bg:#3a2222; color-scheme:dark; }
-    @media (prefers-color-scheme: dark) { :root[data-tema="auto"] { --ink:#e7e3da; --muted:#aaa497; --green:#93c48f; --green-solid:#3e6a44; --on-green:#f4f2ec; --green-bg:#22302a; --green-mid:#4c6b48; --rule:#3a3832; --cream:#151412; --card:#1e1d1a; --warn-bg:#3a2a1f; --warn:#e8a073; --accent2:#d98a74; --chip-bg:#2c2a25; --hover:#25231f; --stripe:#2a2722; --paper:#22201c; --danger-bg:#3a2222; color-scheme:dark; } }
+    :root[data-modo="oscuro"] { --ink:#e7e3da; --muted:#aaa497; --green:#93c48f; --green-solid:#3e6a44; --on-green:#f4f2ec; --green-bg:#22302a; --green-mid:#4c6b48; --rule:#3a3832; --cream:#151412; --card:#1e1d1a; --warn-bg:#3a2a1f; --warn:#e8a073; --accent2:#d98a74; --chip-bg:#2c2a25; --hover:#25231f; --stripe:#2a2722; --paper:#22201c; --danger-bg:#3a2222; color-scheme:dark; }
+    @media (prefers-color-scheme: dark) { :root[data-modo="auto"] { --ink:#e7e3da; --muted:#aaa497; --green:#93c48f; --green-solid:#3e6a44; --on-green:#f4f2ec; --green-bg:#22302a; --green-mid:#4c6b48; --rule:#3a3832; --cream:#151412; --card:#1e1d1a; --warn-bg:#3a2a1f; --warn:#e8a073; --accent2:#d98a74; --chip-bg:#2c2a25; --hover:#25231f; --stripe:#2a2722; --paper:#22201c; --danger-bg:#3a2222; color-scheme:dark; } }
+    :root[data-letra="grande"] { font-size:112.5%; }
+    :root[data-letra="enorme"] { font-size:125%; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: -apple-system, system-ui, sans-serif; background: var(--cream); color: var(--ink); }
     header { background: var(--green-solid); color: var(--on-green); padding: 14px 20px; display:flex; justify-content:space-between; align-items:center; }
@@ -213,40 +222,93 @@
     .perfil-cuerpo h1 { font-size:1.35rem; }
   }
   a { color:var(--green); }
-  .tema-boton { position:fixed; right:14px; bottom:14px; z-index:40; width:40px; height:40px; border-radius:50%; border:1px solid var(--rule);
+  .tema-boton { width:40px; height:40px; border-radius:50%; border:1px solid var(--rule);
     background:var(--card); color:var(--ink); font-size:1.1rem; cursor:pointer; box-shadow:0 2px 8px rgba(0,0,0,.18); display:flex; align-items:center; justify-content:center; }
   .tema-boton:focus-visible { outline:2px solid var(--green); outline-offset:2px; }
   @media print { .tema-boton { display:none; } }
   .elegir-archivo { position:relative; display:inline-flex; align-items:center; cursor:pointer; }
   .elegir-archivo input[type=file] { position:absolute; inset:0; opacity:0; width:100%; cursor:pointer; font-size:0; }
   .elegir-archivo:focus-within { outline:2px solid var(--green); outline-offset:2px; border-radius:6px; }
+  .vista { position:fixed; right:14px; bottom:14px; z-index:40; }
+  .tema-boton { position:static; font-size:.95rem; font-weight:700; }
+  .vista-menu { position:absolute; right:0; bottom:50px; width:250px; max-width:calc(100vw - 28px); background:var(--card); color:var(--ink);
+    border:1px solid var(--rule); border-radius:12px; padding:12px; box-shadow:0 6px 24px rgba(0,0,0,.25); }
+  .vista-menu[hidden] { display:none; }
+  .vista-titulo { font-size:.75rem; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:2px 0 6px; }
+  .vista-opciones { display:flex; flex-direction:column; gap:4px; margin-bottom:10px; }
+  .vista-opciones.fila-letra { flex-direction:row; }
+  .vista-opciones button { text-align:left; padding:7px 10px; border:1px solid var(--rule); border-radius:8px; background:var(--card); color:var(--ink); cursor:pointer; font:inherit; font-size:.9rem; }
+  .fila-letra button { flex:1; text-align:center; }
+  .vista-opciones button[aria-pressed="true"] { border-color:var(--green); background:var(--green-bg); color:var(--green); font-weight:700; }
+  .vista-nota { font-size:.75rem; color:var(--muted); }
+  .colores { display:flex; gap:8px; flex-wrap:wrap; }
+  .color-opcion { display:inline-flex !important; align-items:center; gap:6px; margin:0 !important; padding:6px 10px; border:1px solid var(--rule); border-radius:999px; cursor:pointer; color:var(--ink) !important; font-size:.88rem !important; }
+  .color-opcion input { width:auto; margin:0; }
+  .color-opcion:has(input:checked) { border-color:var(--green); box-shadow:0 0 0 1px var(--green); }
+  .color-muestra { width:16px; height:16px; border-radius:50%; display:inline-block; }
+  .recorte { border:1px solid var(--rule); border-radius:12px; background:var(--card); color:var(--ink); padding:16px; max-width:calc(100vw - 24px); }
+  .recorte::backdrop { background:rgba(20, 18, 14, .6); }
+  .recorte-marco { position:relative; line-height:0; }
+  .recorte-marco canvas { max-width:100%; touch-action:none; cursor:grab; border-radius:6px; }
+  .recorte-mascara { position:absolute; inset:0; pointer-events:none; border-radius:6px; box-shadow:inset 0 0 0 2px rgba(255,255,255,.8); }
+  .recorte-mascara.redonda { border-radius:50%; box-shadow:0 0 0 999px rgba(0,0,0,.45), inset 0 0 0 2px rgba(255,255,255,.8); }
+  .recorte-marco { overflow:hidden; border-radius:6px; }
 </style>
 </head>
 <body>
   {% block cuerpo %}{% endblock %}
-  <button type="button" class="tema-boton no-imprimir" id="tema-boton" aria-label="Cambiar a modo oscuro" title="Modo oscuro">☾</button>
+  <div class="vista no-imprimir">
+    <button type="button" class="tema-boton" id="vista-boton" aria-expanded="false" aria-controls="vista-menu" title="Vista: modo oscuro y tamaño de letra" aria-label="Vista: modo oscuro y tamaño de letra">Aa</button>
+    <div class="vista-menu" id="vista-menu" hidden>
+      <div class="vista-titulo">Colores</div>
+      <div class="vista-opciones" data-grupo="tema">
+        <button type="button" data-valor="claro">☀ Claro</button>
+        <button type="button" data-valor="oscuro">☾ Oscuro</button>
+        <button type="button" data-valor="noche">Oscuro de noche <small>(20 a 8 h)</small></button>
+        <button type="button" data-valor="auto">Como el dispositivo</button>
+      </div>
+      <div class="vista-titulo">Tamaño de letra</div>
+      <div class="vista-opciones fila-letra" data-grupo="letra">
+        <button type="button" data-valor="normal" style="font-size:.9rem">A</button>
+        <button type="button" data-valor="grande" style="font-size:1.05rem">A+</button>
+        <button type="button" data-valor="enorme" style="font-size:1.2rem">A++</button>
+      </div>
+      <div class="vista-nota">{{ 'Se guarda en tu cuenta: te sigue en cualquier dispositivo.' if session.get('tenant_id') else 'Se recuerda en este dispositivo.' }}</div>
+    </div>
+  </div>
   <script>
   (function () {
-    // Tema claro / oscuro: queda en una cookie del navegador (no es un dato de
-    // la cuenta). Sin elegir, sigue al dispositivo.
-    var raiz = document.documentElement, boton = document.getElementById('tema-boton');
-    function oscuro() {
-      var t = raiz.dataset.tema;
-      return t === 'oscuro' || (t === 'auto' && window.matchMedia && matchMedia('(prefers-color-scheme: dark)').matches);
+    // Tema y letra: cookies del navegador; con la sesión de un profesional,
+    // además se guardan en su cuenta.
+    var raiz = document.documentElement, boton = document.getElementById('vista-boton'), menu = document.getElementById('vista-menu');
+    var csrf = document.querySelector('meta[name=csrf]');
+    function modo() { var t = raiz.dataset.tema; return (t === 'claro' || t === 'oscuro') ? t : (t === 'noche' ? window.modoDeNoche() : 'auto'); }
+    function marcar() {
+      menu.querySelectorAll('[data-grupo]').forEach(function (g) {
+        var actual = raiz.dataset[g.dataset.grupo];
+        g.querySelectorAll('button').forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.valor === actual ? 'true' : 'false'); });
+      });
     }
-    function pintar() {
-      var o = oscuro();
-      boton.textContent = o ? '☀' : '☾';
-      boton.title = o ? 'Modo claro' : 'Modo oscuro';
-      boton.setAttribute('aria-label', o ? 'Cambiar a modo claro' : 'Cambiar a modo oscuro');
+    function guardar(clave, valor) {
+      document.cookie = clave + '=' + valor + '; Max-Age=31536000; Path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
+      if (csrf) {
+        var datos = new FormData(); datos.append('csrf_token', csrf.content); datos.append(clave, valor);
+        fetch('/agenda/vista', {method: 'POST', body: datos, credentials: 'same-origin'}).catch(function () {});
+      }
     }
-    boton.addEventListener('click', function () {
-      raiz.dataset.tema = oscuro() ? 'claro' : 'oscuro';
-      document.cookie = 'tema=' + raiz.dataset.tema + '; Max-Age=31536000; Path=/; SameSite=Lax' + (location.protocol === 'https:' ? '; Secure' : '');
-      pintar();
+    menu.addEventListener('click', function (e) {
+      var b = e.target.closest('button[data-valor]'); if (!b) return;
+      var clave = b.parentNode.dataset.grupo;
+      raiz.dataset[clave] = b.dataset.valor;
+      if (clave === 'tema') raiz.dataset.modo = modo();
+      guardar(clave, b.dataset.valor); marcar();
     });
-    if (window.matchMedia) matchMedia('(prefers-color-scheme: dark)').addEventListener('change', pintar);
-    pintar();
+    boton.addEventListener('click', function () {
+      var abrir = menu.hidden; menu.hidden = !abrir; boton.setAttribute('aria-expanded', abrir ? 'true' : 'false'); marcar();
+    });
+    document.addEventListener('click', function (e) { if (!menu.hidden && !e.target.closest('.vista')) { menu.hidden = true; boton.setAttribute('aria-expanded', 'false'); } });
+    document.addEventListener('keydown', function (e) { if (e.key === 'Escape' && !menu.hidden) { menu.hidden = true; boton.setAttribute('aria-expanded', 'false'); boton.focus(); } });
+    setInterval(function () { if (raiz.dataset.tema === 'noche') raiz.dataset.modo = modo(); }, 60000);
   })();
   </script>
 </body>

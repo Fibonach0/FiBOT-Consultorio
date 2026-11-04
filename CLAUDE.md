@@ -200,13 +200,22 @@ en la tabla `portadas` (no en `tenants`, que se lee en cada pedido), hasta
 El panel achica foto (512) y portada (1600×400, recorte centrado) en el navegador
 antes de subirlas. Sin foto, la página muestra la inicial.
 
-Tema claro/oscuro: `base.html` define los colores como variables en `:root` y
-las redefine en `:root[data-tema="oscuro"]` (y en `auto` con
-`prefers-color-scheme: dark`). `data-tema` sale de la cookie `tema`
-(claro/oscuro; cualquier otro valor = auto) y el botón flotante ☾/☀ la cambia.
+Vista (tema y letra, `migrations/059`): `base.html` define los colores como
+variables en `:root` y las redefine en `:root[data-modo="oscuro"]` (y en
+`data-modo="auto"` con `prefers-color-scheme: dark`). `app._vista()` (global
+`vista_pagina`; no llamarlo `vista`, el panel ya usa esa variable) decide
+`data-tema` (claro / oscuro / auto / noche) y `data-letra` (normal / grande /
+enorme): con sesión de profesional manda `tenants.preferencias_vista`, si no las
+cookies. «noche» = oscuro de 20 a 8 h del dispositivo (script en el `<head>`,
+antes de pintar). El menú «Aa» abajo a la derecha cambia todo, guarda cookies y,
+con sesión, `POST /agenda/vista` (CSRF por `<meta name="csrf">`).
 Nada de colores fijos en templates que extienden base: usar `--card`,
 `--green-solid`/`--on-green` (fondo verde con texto), `--warn`, `--warn-bg`,
 `--danger-bg`, etc. Recibo e impresión quedan siempre claros.
+`tenants.color_pagina` (`app.COLORES_PAGINA`: claro y oscuro de cada paleta) pisa
+el verde en las páginas del paciente con `_color_pagina.html` (incluido en
+publico*, pago, agendar*, espera_listo). Foto y portada pasan por un recorte
+(`<dialog id="recorte">`: arrastrar y acercar) antes de subirse.
 
 Confirmación por WhatsApp de la reserva web: con `CONFIRMACION_TEMPLATE`
 (plantilla con botones «Sí, confirmo» / «Cancelar», `{{1}}` profesional,
