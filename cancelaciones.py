@@ -76,6 +76,23 @@ def ofrecer_a_espera(tenant: dict, turno: dict) -> str | None:
     return None
 
 
+def ofrecer_a_toda_la_espera(tenant: dict, turno: dict, hoy) -> int:
+    """Le ofrece `turno` a cada persona de la lista de espera que hoy no
+    recibió otro ofrecimiento (al reactivar una pausa o abrir un feriado).
+    Devuelve a cuántos se les pudo escribir."""
+    if not tenant.get("slug"):
+        return 0
+    cuando = scheduler.cuando_de(turno, tenant, _tz(tenant))
+    avisados = 0
+    for p in db.lista_de_espera(tenant["id"]):
+        if p.get("ofrecido_en") == hoy.isoformat():
+            continue
+        db.marcar_ofrecido(tenant["id"], p["id"], hoy.isoformat())
+        if ofrecer_horario(tenant, p["telefono"], cuando, f"{base_url()}/{tenant['slug']}"):
+            avisados += 1
+    return avisados
+
+
 def tras_cancelar(tenant: dict, turno: dict, por: str) -> None:
     """Después de que el paciente canceló `turno` (ya liberado). `por` es
     «la web» o «WhatsApp», para el aviso."""
@@ -174,14 +191,8 @@ def reactivar_si_toca(tenant: dict, hoy) -> bool:
     tenant = {**tenant, "pausado": False}
     avisados = 0
     proximo = db.turnos_libres(tenant["id"], datetime.now(ZoneInfo("UTC")), limite=1)
-    if proximo and tenant.get("slug"):
-        cuando = scheduler.cuando_de(proximo[0], tenant, _tz(tenant))
-        for p in db.lista_de_espera(tenant["id"]):
-            if p.get("ofrecido_en") == hoy.isoformat():
-                continue
-            db.marcar_ofrecido(tenant["id"], p["id"], hoy.isoformat())
-            if ofrecer_horario(tenant, p["telefono"], cuando, f"{base_url()}/{tenant['slug']}"):
-                avisados += 1
+    if proximo:
+        avisados = ofrecer_a_toda_la_espera(tenant, proximo[0], hoy)
     scheduler.avisar_profesional(tenant, "terminó tu pausa: tu página vuelve a tomar turnos"
                                  + (f"; le avisamos a {avisados} de tu lista de espera" if avisados else ""))
     return True
