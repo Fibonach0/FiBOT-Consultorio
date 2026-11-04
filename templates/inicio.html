@@ -1,0 +1,249 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FiBOT Consultorio — Encontrá tu psicólogo y sacá turno online</title>
+  <meta name="description" content="Encontrá un profesional de la salud mental, mirá sus horarios libres y reservá tu sesión online, presencial o por videollamada. Te confirmamos por WhatsApp.">
+  <style>
+    :root { --ink:#1c1b19; --muted:#5b584f; --green:#2f5233; --green-bg:#eef3ec; --rule:#dcd6c7; --cream:#faf6ef; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; font-family:-apple-system, system-ui, sans-serif; background:var(--cream); color:var(--ink); line-height:1.5; }
+    a { color:var(--green); }
+    .envoltura { max-width:1080px; margin:0 auto; padding:0 20px; }
+    section { padding:56px 0; }
+    h1, h2, h3 { margin-top:0; line-height:1.2; }
+    h2 { font-size:1.8rem; margin-bottom:8px; }
+    .bajada { color:var(--muted); margin:0 0 28px; max-width:640px; }
+    .btn { display:inline-block; background:var(--green); color:#fff; border:1px solid var(--green); border-radius:8px; padding:12px 22px; font-size:1rem; font-weight:600; text-decoration:none; }
+    .btn.secundario { background:transparent; color:var(--green); }
+
+    /* Barra */
+    .barra { position:sticky; top:0; z-index:10; background:rgba(250,246,239,.94); backdrop-filter:blur(6px); border-bottom:1px solid var(--rule); }
+    .barra .envoltura { display:flex; align-items:center; justify-content:space-between; gap:16px; height:60px; }
+    .marca { font-weight:700; color:var(--green); text-decoration:none; font-size:1.1rem; }
+    .barra nav { display:flex; gap:20px; align-items:center; }
+    .barra nav a { color:var(--ink); text-decoration:none; font-size:.95rem; }
+    .barra nav a.ingresar { color:var(--green); font-weight:600; }
+    @media (max-width:720px) { .barra nav a.opcional { display:none; } }
+
+    /* Portada */
+    .portada { padding:72px 0 56px; }
+    .portada h1 { font-size:clamp(2rem, 5vw, 3.2rem); max-width:760px; margin-bottom:14px; }
+    .portada .quiero { font-size:clamp(1.15rem, 2.6vw, 1.5rem); color:var(--muted); margin:0 0 30px; min-height:1.6em; }
+    .portada .quiero span { color:var(--green); font-weight:600; transition:opacity .3s; }
+    .portada .acciones { display:flex; gap:12px; flex-wrap:wrap; }
+    .portada .sellos { display:flex; gap:22px; flex-wrap:wrap; margin-top:32px; color:var(--muted); font-size:.92rem; padding:0; list-style:none; }
+    .portada .sellos li::before { content:"✓ "; color:var(--green); font-weight:700; }
+
+    /* Temas */
+    .temas { display:grid; grid-template-columns:repeat(auto-fill, minmax(190px, 1fr)); gap:12px; padding:0; list-style:none; margin:0; }
+    .temas li { background:#fff; border:1px solid var(--rule); border-radius:10px; padding:16px; }
+    .temas strong { display:block; margin-bottom:4px; }
+    .temas span { color:var(--muted); font-size:.9rem; }
+
+    /* Profesionales */
+    .fondo-blanco { background:#fff; border-top:1px solid var(--rule); border-bottom:1px solid var(--rule); }
+    .profesionales { display:grid; grid-template-columns:repeat(auto-fill, minmax(250px, 1fr)); gap:16px; }
+    .profesional { display:flex; flex-direction:column; gap:8px; background:var(--cream); border:1px solid var(--rule); border-radius:12px; padding:18px; text-decoration:none; color:inherit; }
+    .profesional:hover { border-color:var(--green); }
+    .profesional .cabeza { display:flex; gap:12px; align-items:center; }
+    .profesional .foto { width:64px; height:64px; border-radius:50%; object-fit:cover; flex:none; background:var(--green-bg); color:var(--green); display:flex; align-items:center; justify-content:center; font-size:1.6rem; font-weight:700; }
+    .profesional .titulo { color:var(--muted); font-size:.9rem; }
+    .profesional .chips { display:flex; flex-wrap:wrap; gap:6px; padding:0; margin:0; list-style:none; }
+    .profesional .chips li { font-size:.78rem; background:#fff; border:1px solid var(--rule); border-radius:12px; padding:2px 9px; color:var(--muted); }
+    .profesional .ver { margin-top:auto; padding-top:6px; color:var(--green); font-weight:600; font-size:.95rem; }
+    .ver-todos { margin-top:24px; }
+
+    /* Cómo funciona */
+    .pasos { display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:20px; padding:0; margin:0 0 28px; list-style:none; counter-reset:paso; }
+    .pasos li { counter-increment:paso; }
+    .pasos li::before { content:counter(paso); display:flex; align-items:center; justify-content:center; width:40px; height:40px; border-radius:50%; background:var(--green); color:#fff; font-weight:700; margin-bottom:12px; }
+    .pasos h3 { font-size:1.1rem; margin-bottom:6px; }
+    .pasos p { color:var(--muted); margin:0; }
+
+    /* Modalidades */
+    .modalidades { display:grid; grid-template-columns:repeat(auto-fit, minmax(260px, 1fr)); gap:16px; }
+    .modalidad { background:#fff; border:1px solid var(--rule); border-radius:12px; padding:22px; }
+    .modalidad p { color:var(--muted); margin:0; }
+
+    /* Preguntas */
+    .preguntas details { background:#fff; border:1px solid var(--rule); border-radius:10px; margin-bottom:10px; }
+    .preguntas summary { cursor:pointer; padding:16px 18px; font-weight:600; list-style:none; display:flex; justify-content:space-between; gap:12px; }
+    .preguntas summary::-webkit-details-marker { display:none; }
+    .preguntas summary::after { content:"+"; color:var(--green); font-size:1.3rem; line-height:1; }
+    .preguntas details[open] summary::after { content:"–"; }
+    .preguntas details p { margin:0; padding:0 18px 16px; color:var(--muted); }
+
+    /* Para profesionales */
+    .para-pros { background:var(--green); color:#fff; border-radius:16px; padding:40px; display:grid; grid-template-columns:1.4fr 1fr; gap:28px; align-items:center; }
+    .para-pros h2 { color:#fff; }
+    .para-pros ul { margin:0; padding-left:20px; }
+    .para-pros li { margin-bottom:6px; }
+    .para-pros .acciones { display:flex; flex-direction:column; gap:10px; align-items:flex-start; }
+    .para-pros .btn { background:#fff; color:var(--green); border-color:#fff; }
+    .para-pros .btn.secundario { background:transparent; color:#fff; }
+    @media (max-width:720px) { .para-pros { grid-template-columns:1fr; padding:28px 22px; } }
+
+    /* Pie */
+    footer { border-top:1px solid var(--rule); padding:28px 0; color:var(--muted); font-size:.9rem; }
+    footer .envoltura { display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; }
+    footer a { color:var(--muted); }
+  </style>
+</head>
+<body>
+
+<div class="barra">
+  <div class="envoltura">
+    <a class="marca" href="{{ url_for('inicio') }}">FiBOT Consultorio</a>
+    <nav>
+      <a class="opcional" href="#como-funciona">¿Cómo funciona?</a>
+      <a class="opcional" href="{{ url_for('turnos_directorio') }}">Profesionales</a>
+      <a class="opcional" href="#para-profesionales">Soy profesional</a>
+      <a class="ingresar" href="{{ url_for('login') }}">Ingresar</a>
+    </nav>
+  </div>
+</div>
+
+<header class="portada">
+  <div class="envoltura">
+    <h1>Encontrá a tu psicólogo y sacá turno en un minuto</h1>
+    <p class="quiero">Quiero <span id="quiero">sentirme mejor</span></p>
+    <div class="acciones">
+      <a class="btn" href="{{ url_for('turnos_directorio') }}">Buscar profesional</a>
+      <a class="btn secundario" href="#como-funciona">Cómo funciona</a>
+    </div>
+    <ul class="sellos">
+      <li>Horarios libres a la vista</li>
+      <li>Presencial o por videollamada</li>
+      <li>Confirmación por WhatsApp</li>
+    </ul>
+  </div>
+</header>
+
+<section id="temas">
+  <div class="envoltura">
+    <h2>¿En qué te podemos ayudar?</h2>
+    <p class="bajada">Pedir ayuda es el primer paso. Estos son algunos de los motivos más comunes por los que alguien empieza terapia.</p>
+    <ul class="temas">
+      <li><strong>Ansiedad</strong><span>Preocupación constante, nervios, ataques de pánico.</span></li>
+      <li><strong>Ánimo</strong><span>Tristeza, desgano, sentir que nada tiene sentido.</span></li>
+      <li><strong>Estrés y cansancio</strong><span>Trabajo, estudio, sentir que no das más.</span></li>
+      <li><strong>Vínculos</strong><span>Pareja, familia, amistades, separaciones.</span></li>
+      <li><strong>Autoestima</strong><span>Inseguridades, cómo te ves y te tratás.</span></li>
+      <li><strong>Duelos y cambios</strong><span>Pérdidas, mudanzas, etapas nuevas.</span></li>
+      <li><strong>Infancia y adolescencia</strong><span>Aprendizaje, conducta, acompañar a tus hijos.</span></li>
+      <li><strong>Miedos</strong><span>Fobias, miedos que te frenan en el día a día.</span></li>
+    </ul>
+  </div>
+</section>
+
+{% if profesionales %}
+<section id="profesionales" class="fondo-blanco">
+  <div class="envoltura">
+    <h2>Profesionales</h2>
+    <p class="bajada">Conocé a cada uno, mirá su agenda y reservá directo el horario que te quede cómodo.</p>
+    <div class="profesionales">
+      {% for t in profesionales %}
+      <a class="profesional" href="{{ url_for('publico', slug=t.slug) }}">
+        <div class="cabeza">
+          {% if t.foto %}<img class="foto" src="{{ t.foto }}" alt="" width="64" height="64">
+          {% else %}<span class="foto" aria-hidden="true">{{ t.nombre | replace('Lic. ', '') | first | upper }}</span>{% endif %}
+          <div>
+            <strong>{{ t.nombre }}</strong>
+            <div class="titulo">{% if t.titulo %}{{ t.titulo }}{% elif t.rubro %}<span style="text-transform:capitalize">{{ t.rubro }}</span>{% endif %}</div>
+          </div>
+        </div>
+        {% if t.descripcion %}<span>{{ t.descripcion }}</span>{% endif %}
+        {% if t.enfoques %}<ul class="chips">{% for x in t.enfoques[:3] %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
+        <span class="titulo">
+          {% if t.ubicacion %}{{ t.ubicacion }} · {% endif %}
+          {% if t.modalidades_publicas == 'virtual' %}Por videollamada{% elif t.modalidades_publicas == 'ambas' %}Presencial o videollamada{% else %}Presencial{% endif %}
+        </span>
+        <span class="ver">{% if t.pausado %}Anotarme en la lista de espera →{% else %}Ver horarios →{% endif %}</span>
+      </a>
+      {% endfor %}
+    </div>
+    {% if hay_mas %}<div class="ver-todos"><a class="btn secundario" href="{{ url_for('turnos_directorio') }}">Ver todos los profesionales</a></div>{% endif %}
+  </div>
+</section>
+{% endif %}
+
+<section id="como-funciona">
+  <div class="envoltura">
+    <h2>¿Cómo funciona?</h2>
+    <p class="bajada">Sin llamadas ni idas y vueltas por mensaje para encontrar un horario.</p>
+    <ol class="pasos">
+      <li><h3>Elegí a tu profesional</h3><p>Mirá su perfil: cómo trabaja, qué temas aborda y su formación.</p></li>
+      <li><h3>Reservá el horario</h3><p>Ves solo los horarios libres. Elegís día, hora y si es presencial o por videollamada.</p></li>
+      <li><h3>Confirmá por WhatsApp</h3><p>Te llega la confirmación y un recordatorio antes de la sesión. Si necesitás, cancelás o cambiás el horario desde el mismo link.</p></li>
+    </ol>
+    <a class="btn" href="{{ url_for('turnos_directorio') }}">Sacar turno</a>
+  </div>
+</section>
+
+<section class="fondo-blanco">
+  <div class="envoltura">
+    <h2>Como te quede más cómodo</h2>
+    <p class="bajada">Cada profesional indica cómo atiende. Si ofrece las dos, elegís vos al reservar.</p>
+    <div class="modalidades">
+      <div class="modalidad"><h3>Presencial</h3><p>En el consultorio del profesional. La dirección figura en su página.</p></div>
+      <div class="modalidad"><h3>Por videollamada</h3><p>Desde donde estés, con la misma calidad de atención y el mismo horario fijo.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="preguntas" class="preguntas">
+  <div class="envoltura">
+    <h2>Preguntas frecuentes</h2>
+    <details><summary>¿Cuánto cuesta una sesión?</summary><p>Cada profesional fija su honorario. Si lo publicó, lo ves en su página al reservar; si no, consultalo directamente con él o ella.</p></details>
+    <details><summary>¿Atienden por obra social o prepaga?</summary><p>Depende del profesional: en su perfil figura con qué obras sociales trabaja. Si no está, podés consultarle por reintegro.</p></details>
+    <details><summary>¿Puedo cancelar o cambiar el turno?</summary><p>Sí, desde el link que te llega por WhatsApp. Cada profesional define hasta cuántas horas antes se puede hacer.</p></details>
+    <details><summary>¿Y si no hay horarios libres?</summary><p>Anotate en la lista de espera desde la página del profesional y te avisamos cuando se libere un lugar.</p></details>
+    <details><summary>¿Mis datos son confidenciales?</summary><p>Sí. Solo tu profesional ve tus datos y tu historia. Podés leer cómo los cuidamos en la <a href="{{ url_for('privacidad') }}">política de privacidad</a>.</p></details>
+    <details><summary>¿Es un servicio de urgencias?</summary><p>No. Si estás atravesando una crisis o pensás en hacerte daño, llamá a la línea 135 (gratuita, CABA y GBA) o al (011) 5275-1135 desde todo el país, o acercate a la guardia más cercana.</p></details>
+  </div>
+</section>
+
+<section id="para-profesionales">
+  <div class="envoltura">
+    <div class="para-pros">
+      <div>
+        <h2>¿Sos profesional de la salud mental?</h2>
+        <p>Tu agenda, tus pacientes y tus cobros en un solo lugar, con un asistente que atiende por WhatsApp.</p>
+        <ul>
+          <li>Tu página para que te reserven turno online</li>
+          <li>Recordatorios y confirmaciones automáticas por WhatsApp</li>
+          <li>Cobro con Mercado Pago, recibos y planilla para obra social</li>
+          <li>Ficha de cada paciente y cuestionarios</li>
+        </ul>
+      </div>
+      <div class="acciones">
+        {% if contacto_profesionales %}<a class="btn" href="{{ contacto_profesionales }}">Quiero sumarme</a>{% endif %}
+        <a class="btn secundario" href="{{ url_for('login') }}">Ya tengo cuenta</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="envoltura">
+    <span>© {{ anio }} FiBOT Consultorio</span>
+    <span><a href="{{ url_for('turnos_directorio') }}">Profesionales</a> · <a href="{{ url_for('privacidad') }}">Privacidad</a> · <a href="{{ url_for('login') }}">Ingresar</a></span>
+  </div>
+</footer>
+
+<script>
+  (function () {
+    var frases = ["sentirme mejor", "que alguien me escuche", "entender lo que me pasa", "manejar la ansiedad", "estar mejor con los demás"];
+    var el = document.getElementById("quiero"), i = 0;
+    if (!el || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    setInterval(function () {
+      el.style.opacity = 0;
+      setTimeout(function () { i = (i + 1) % frases.length; el.textContent = frases[i]; el.style.opacity = 1; }, 300);
+    }, 2600);
+  })();
+</script>
+</body>
+</html>

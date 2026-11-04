@@ -73,10 +73,32 @@ MESES_LABEL = ["Enero", "Febrero", "Marzo", "Abril", "Mayo", "Junio", "Julio", "
 
 # ---------- salud ----------
 
-@app.get("/")
 @app.get("/health")
 def salud():
     return "FiBOT Consultorio activo.", 200
+
+
+# ---------- portada del sitio (consultorio.fibot.ar) ----------
+
+INICIO_PROFESIONALES = 6
+
+
+@app.get("/")
+def inicio():
+    """La main para futuros pacientes: qué es, cómo se saca turno y algunos
+    profesionales del directorio (los mismos que /turnos). Si la base no
+    responde, la página sale igual, sin la grilla de profesionales."""
+    try:
+        visibles = [t for t in db.tenants_activos() if t.get("slug") and t.get("en_directorio", True) is not False]
+    except Exception:
+        logger.exception("inicio: no se pudieron leer los profesionales")
+        visibles = []
+    # Primero los que pueden tomar turnos y tienen foto: es lo que más invita a entrar.
+    visibles.sort(key=lambda t: (bool(t.get("pausado")), not t.get("foto"), t["nombre"].casefold()))
+    return render_template("inicio.html", profesionales=visibles[:INICIO_PROFESIONALES],
+                           hay_mas=len(visibles) > INICIO_PROFESIONALES,
+                           contacto_profesionales=os.environ.get("CONTACTO_PROFESIONALES", "").strip(),
+                           anio=datetime.now().year)
 
 
 # ---------- webhook de Meta ----------
