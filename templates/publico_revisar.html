@@ -1,9 +1,8 @@
 {% extends "base.html" %}
 {% block titulo %}Revisá tu turno — {{ tenant.nombre }}{% endblock %}
+{% block head %}{% include "_sitio.html" %}<style>main .card { border-radius:14px; } main h2 { font-family:var(--serif); font-weight:400; font-size:30px; }</style>{% endblock %}
 {% block cuerpo %}{% include "_color_pagina.html" %}
-<header>
-  <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
-</header>
+{% import "_sitio_macros.html" as sitio %}{{ sitio.barra(volver=(url_for('publico', slug=tenant.slug), tenant.nombre)) }}
 <main>
   <div class="card">
     <h2>Revisá antes de reservar</h2>
@@ -33,4 +32,5 @@
     </form>
   </div>
 </main>
+{{ sitio.pie() }}
 {% endblock %}

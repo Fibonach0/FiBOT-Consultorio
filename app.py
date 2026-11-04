@@ -18,6 +18,7 @@ import logging
 import os
 import re
 import secrets
+import time
 import unicodedata
 from datetime import date, datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
@@ -170,7 +171,10 @@ def sumate():
     en `interesados` (lo ve administración) y avisa por WhatsApp. El alta sigue
     siendo a mano: esto sólo junta los datos de contacto."""
     if request.method == "GET":
-        return render_template("sumate.html", enviado=False, error=None, datos={}, profesiones=PROFESIONES_SUMATE)
+        # «Ver una página de ejemplo»: alguien del directorio, mejor con foto y sin pausa.
+        ejemplo = min(_directorio(), key=lambda t: (bool(t.get("pausado")), not t.get("foto")), default=None)
+        return render_template("sumate.html", enviado=False, error=None, datos={}, profesiones=PROFESIONES_SUMATE,
+                               ejemplo=ejemplo["slug"] if ejemplo else None)
     f = request.form
     datos = {
         "nombre": " ".join((f.get("nombre") or "").split())[:80],
@@ -434,6 +438,7 @@ COLORES_PAGINA = {
                 "oscuro": ("#a7bcc6", "#455a64", "#222a2e", "#4e6570"), "muestra": "#37474f"},
 }
 app.jinja_env.globals["colores_pagina"] = COLORES_PAGINA
+app.jinja_env.globals["anio_actual"] = lambda: datetime.now().year
 app.jinja_env.filters["pesos"] = lambda v: f"$ {v:,}".replace(",", ".")
 _pesos = app.jinja_env.filters["pesos"]
 
@@ -4172,19 +4177,82 @@ def agenda_qr_pagina():
     return app.response_class(svg, mimetype="image/svg+xml")
 
 
+DIAS_CORTOS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
+PROXIMOS_EN_DIRECTORIO = 4
+_proximos_cache: dict[str, tuple[float, list[dict]]] = {}
+
+
+def _proximos_libres(tenant: dict) -> list[dict]:
+    """Los próximos horarios libres de un profesional para el directorio:
+    «Jue 6 · 18:00», cada uno con su link. Se guardan 60 segundos en memoria
+    (hay un solo worker) para no consultar la base por cada tarjeta en cada
+    visita. Con varios tipos de turno el link va a la semana, porque primero
+    hay que elegir el tipo. Si la base falla, sin horarios."""
+    if tenant.get("pausado"):
+        return []
+    guardado = _proximos_cache.get(tenant["id"])
+    if guardado and time.monotonic() - guardado[0] < 60:
+        return guardado[1]
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    try:
+        libres = db.turnos_libres(tenant["id"], datetime.now(ZoneInfo("UTC")), limite=PROXIMOS_EN_DIRECTORIO)
+    except Exception:
+        logger.exception("directorio: no se pudieron leer los horarios de %s", tenant.get("slug"))
+        return []
+    hoy = datetime.now(tz).date()
+    con_tipos = bool(tipos_de(tenant))
+    salida = []
+    for t in libres:
+        local = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+        dia = "Hoy" if local.date() == hoy else f"{DIAS_CORTOS[local.weekday()]} {local.day}"
+        url = (url_for("publico", slug=tenant["slug"], semana=local.date().isoformat()) if con_tipos
+               else url_for("publico_reservar_form", slug=tenant["slug"], turno_id=t["id"]))
+        salida.append({"texto": f"{dia} · {local:%H:%M}", "url": url, "inicio": local,
+                       "esta_semana": (local.date() - hoy).days < 7})
+    _proximos_cache[tenant["id"]] = (time.monotonic(), salida)
+    return salida
+
+
+ESPECIALIDADES = {"psicologia": "Psicología", "psicopedagogia": "Psicopedagogía"}
+
+
+def _especialidad(tenant: dict) -> str:
+    rubro = directorio.normalizar(tenant.get("rubro"))
+    return next((k for k in ESPECIALIDADES if rubro.startswith(k)), "")
+
+
 @app.get("/turnos")
 def turnos_directorio():
     """La puerta de entrada para pacientes: todos los profesionales con página
     pública. Cada uno lleva a SU calendario (/<slug>), que es también el link
-    que el profesional comparte."""
+    que el profesional comparte. Filtros: especialidad, tema, modalidad, obra
+    social y «con turno esta semana»; orden por próximo turno o por nombre."""
     tema = request.args.get("tema", "") if request.args.get("tema") in directorio.TEMAS else ""
     modalidad = request.args.get("modalidad", "") if request.args.get("modalidad") in directorio.MODALIDADES else ""
     obra = " ".join((request.args.get("obra") or "").split())[:60]
+    esp = request.args.get("especialidad", "") if request.args.get("especialidad") in ESPECIALIDADES else ""
+    semana = request.args.get("semana") == "1"
+    orden = "nombre" if request.args.get("orden") == "nombre" else "turno"
     todos = sorted(_directorio(), key=lambda t: t["nombre"].casefold())
-    profesionales = directorio.filtrar(todos, tema, modalidad, obra)
+    cuenta_esp = {"": len(todos), **{k: sum(1 for t in todos if _especialidad(t) == k) for k in ESPECIALIDADES}}
+    profesionales = directorio.filtrar([t for t in todos if not esp or _especialidad(t) == esp], tema, modalidad, obra)
+    profesionales = [dict(t, _proximos=_proximos_libres(t), _especialidad=_especialidad(t)) for t in profesionales]
+    if semana:
+        profesionales = [t for t in profesionales if t["_proximos"] and t["_proximos"][0]["esta_semana"]]
+    if orden == "turno":
+        # Primero el que tiene el horario libre más cercano; los pausados y los
+        # que no tienen horarios, al final (por nombre, el orden de `todos`).
+        lejos = datetime.max.replace(tzinfo=ZoneInfo("UTC"))
+        profesionales.sort(key=lambda t: t["_proximos"][0]["inicio"] if t["_proximos"] else lejos)
+    filtros = {"especialidad": esp or None, "tema": tema or None, "modalidad": modalidad or None,
+               "obra": obra or None, "semana": "1" if semana else None, "orden": "nombre" if orden == "nombre" else None}
+    temas_esp = (directorio.TEMAS_ADULTOS if esp == "psicologia" else directorio.TEMAS_CHICOS if esp == "psicopedagogia"
+                 else directorio.TEMAS_ADULTOS + directorio.TEMAS_CHICOS)
     return render_template("turnos.html", profesionales=profesionales, hay_profesionales=bool(todos),
-                           temas=directorio.TEMAS, tema=tema, modalidad=modalidad, obra=obra,
-                           filtrando=bool(tema or modalidad or obra))
+                           temas=directorio.TEMAS, temas_esp=temas_esp, tema=tema, modalidad=modalidad, obra=obra,
+                           especialidad=esp, especialidades=ESPECIALIDADES, cuenta_esp=cuenta_esp,
+                           semana=semana, orden=orden, f=filtros,
+                           filtrando=bool(tema or modalidad or obra or esp or semana))
 
 
 def tipos_de(tenant: dict) -> list[dict]:

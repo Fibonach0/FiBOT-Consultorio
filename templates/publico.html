@@ -4,6 +4,7 @@
 <link rel="canonical" href="{{ url_for('publico', slug=tenant.slug, _external=True) }}">
 {% if cambiar or tenant.en_directorio is sameas false %}<meta name="robots" content="noindex">{% endif %}
 <script type="application/ld+json">{{ tenant | perfil_ld | tojson }}</script>
+{% include "_sitio.html" %}
 {% endblock %}
 {% block meta %}
   {# Vista previa al compartir y buscadores (canonical, robots y datos estructurados van en el bloque head). #}
@@ -21,161 +22,236 @@
   <meta name="twitter:card" content="{{ 'summary_large_image' if tenant.portada_version and not tenant.foto else 'summary' }}">
 {% endblock %}
 {% block cuerpo %}{% include "_color_pagina.html" %}
+{% import "_sitio_macros.html" as sitio %}
 {% macro url_semana(sem) %}{% if cambiar %}{{ url_for('agendar_cambiar', token=cambiar, semana=sem) }}{% else %}{{ url_for('publico', slug=tenant.slug, semana=sem, tipo=i_tipo) }}{% endif %}{% endmacro %}
 {% macro url_hora(t) %}{% if cambiar %}{{ url_for('agendar_cambiar_a', token=cambiar, turno_id=t.id) }}{% else %}{{ url_for('publico_reservar_form', slug=tenant.slug, turno_id=t.id, tipo=i_tipo) }}{% endif %}{% endmacro %}
 <style>
-  .semana-nav { display:flex; justify-content:space-between; align-items:center; gap:8px; flex-wrap:wrap; }
-  .semana { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:8px; }
-  .dia-col { border:1px solid var(--rule); border-radius:8px; padding:8px; min-height:90px; background:var(--card); }
-  .dia-col.pasado { opacity:.45; }
-  .dia-col h4 { margin:0 0 6px; font-size:.9rem; }
-  .dia-col h4 span { color:var(--muted); font-weight:400; }
-  .hora { display:block; text-align:center; padding:7px 4px; margin-bottom:6px; border:1px solid var(--green); border-radius:6px;
-          color:var(--green); text-decoration:none; font-weight:600; }
-  .hora:hover { background:var(--green-solid); color:var(--on-green); }
-  .nada { color:var(--muted); font-size:.85rem; }
-  .vistas { display:flex; gap:6px; justify-content:flex-end; margin-bottom:8px; font-size:.9rem; }
-  .vistas a, .vistas span { padding:4px 10px; border-radius:6px; text-decoration:none; }
-  .vistas span { background:var(--green-solid); color:var(--on-green); }
-  .mes { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:4px; text-align:center; }
-  .mes .cab { font-size:.75rem; color:var(--muted); }
-  .mes .dia { padding:8px 2px; border-radius:6px; font-size:.95rem; color:var(--muted); }
-  .mes .dia.otro { opacity:.3; }
-  .mes a.dia { background:var(--green-bg); color:var(--green); font-weight:700; text-decoration:none; border:1px solid var(--green); }
-  .mes a.dia small { display:block; font-weight:400; font-size:.7rem; }
-  @media (max-width: 720px) {
-    .semana { grid-template-columns:1fr; }
-    .dia-col { min-height:0; }
-    .dia-col .horas { display:flex; flex-wrap:wrap; gap:6px; }
-    .dia-col .hora { margin:0; padding:7px 12px; }
-  }
+  .pf { display:flex; flex-wrap:wrap; gap:56px; align-items:flex-start; padding-top:24px; padding-bottom:96px; }
+  .pf-art { flex:1 1 520px; min-width:0; }
+  .pf-portada { aspect-ratio:4/1; border-radius:14px; background-size:cover; background-position:center; margin-bottom:32px; }
+  .pf-cabeza { display:grid; grid-template-columns:minmax(0, 220px) minmax(0, 1fr); gap:32px; align-items:end; }
+  @media (max-width:600px) { .pf-cabeza { grid-template-columns:110px minmax(0, 1fr); gap:18px; align-items:center; } }
+  .pf-foto { position:relative; aspect-ratio:4/5; border-radius:10px; overflow:hidden; background:repeating-linear-gradient(135deg, var(--s-arena) 0 8px, var(--s-arena-2) 8px 16px); display:grid; place-items:center; font-family:var(--serif); font-size:80px; color:var(--muted); }
+  .pf-foto img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .pf-cabeza h1 { font-family:var(--serif); font-weight:400; font-size:clamp(36px, 5vw, 68px); letter-spacing:-.025em; line-height:.98; margin:10px 0 14px; }
+  .pf-frase { font-family:var(--serif); font-style:italic; font-size:22px; line-height:1.35; color:var(--s-acento); margin:0 0 14px; }
+  .pf-datos { font-size:15px; color:var(--s-texto); }
+  .pf-ir { display:none; margin-top:18px; }
+  @media (max-width:980px) { .pf-ir { display:inline-block; } }
+  @media (max-width:600px) { .pf-frase { font-size:18px; } .pf-cabeza h1 { font-size:34px; } }
+  .pf-secciones { margin-top:56px; display:flex; flex-direction:column; gap:44px; max-width:640px; }
+  .pf-secciones h2 { font-family:var(--mono); font-weight:500; font-size:13px; color:var(--muted); margin:0 0 12px; letter-spacing:.04em; text-transform:uppercase; }
+  .pf-sobre { font-size:19px; line-height:1.6; margin:0; white-space:pre-line; text-wrap:pretty; }
+  .pf-temas { display:flex; flex-wrap:wrap; gap:8px; list-style:none; margin:0; padding:0; }
+  .pf-temas li { padding:8px 14px; border-radius:999px; background:var(--s-salvia); font-size:15px; }
+  .pf-dos { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap:32px; }
+  .pf-renglones { list-style:none; margin:0; padding:0; font-size:16px; display:flex; flex-direction:column; gap:10px; }
+  .pf-renglones li, .pf-renglon { border-top:1px solid var(--rule); padding-top:10px; margin:0; font-size:16px; }
+  .pf-mas { background:var(--chip-bg); border-radius:10px; padding:24px 26px; }
+  .pf-mas p { font-family:var(--serif); font-size:22px; line-height:1.4; margin:0; white-space:pre-line; }
+
+  .pf-lado { flex:1 1 380px; max-width:440px; position:sticky; top:20px; scroll-margin-top:20px; }
+  @media (max-width:980px) { .pf-lado { position:static; max-width:none; } }
+  .pf-caja { background:var(--card); border:1px solid var(--rule); border-radius:14px; padding:26px; box-shadow:0 30px 60px -44px var(--s-sombra); }
+  @media (max-width:600px) { .pf-caja { padding:20px 16px; } }
+  .pf-caja h2 { font-family:var(--serif); font-weight:400; font-size:28px; margin:0 0 20px; line-height:1.1; }
+  .pf-caja .rot { font-size:14px; font-weight:600; margin-bottom:8px; }
+  .pf-tipos { display:flex; flex-direction:column; gap:8px; margin-bottom:22px; }
+  .pf-tipos a { display:flex; justify-content:space-between; gap:12px; padding:13px 16px; border-radius:10px; border:1.5px solid var(--rule); color:var(--ink); text-decoration:none; font-size:15px; transition:all .2s; }
+  .pf-tipos a[aria-current="true"] { border-color:var(--green); background:var(--green-bg); }
+  .pf-tipos a span { color:var(--muted); }
+  .pf-nav { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
+  .pf-nav strong { font-size:14px; font-weight:600; }
+  .pf-flechas { display:flex; gap:6px; }
+  .pf-flechas a, .pf-flechas span { width:30px; height:30px; display:grid; place-items:center; border-radius:50%; border:1px solid var(--s-linea-2); color:var(--ink); text-decoration:none; }
+  .pf-flechas span { opacity:.35; }
+  .pf-vistas { margin:0 0 16px; }
+  .pf-dias { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:4px; margin-bottom:16px; }
+  .pf-dias button { all:unset; cursor:pointer; text-align:center; padding:8px 0; border-radius:10px; background:var(--hover); transition:all .2s; }
+  .pf-dias button:disabled { cursor:default; opacity:.45; }
+  .pf-dias button[aria-pressed="true"] { background:var(--green-solid); color:var(--on-green); }
+  .pf-dias button:focus-visible { outline:3px solid var(--green); }
+  .pf-dias .d { font-size:11px; text-transform:uppercase; letter-spacing:.04em; }
+  .pf-dias .n { font-family:var(--serif); font-size:22px; line-height:1.1; }
+  .pf-dias .l { font-size:10px; }
+  .pf-horas-dia h3 { font-size:14px; font-weight:600; margin:14px 0 8px; }
+  .js .pf-horas-dia h3 { display:none; }
+  .js .pf-horas-dia:not(.activo) { display:none; }
+  .no-js-oculto { display:none; }
+  .js .no-js-oculto { display:grid; }
+  .pf-horas { display:grid; grid-template-columns:repeat(3, 1fr); gap:6px; }
+  .pf-horas a { text-align:center; padding:11px 2px; border-radius:8px; font-size:15px; border:1px solid var(--s-linea-2); background:var(--card); color:var(--ink); text-decoration:none; animation:s-rise .25s ease both; line-height:1.2; }
+  .pf-horas a:hover { background:var(--green-solid); border-color:var(--green-solid); color:var(--on-green); }
+  .pf-horas a small { display:block; font-size:11px; color:var(--muted); }
+  .pf-horas a:hover small { color:inherit; }
+  .pf-nada { font-size:14px; color:var(--muted); margin:10px 0 0; }
+  .pf-pie { font-size:13px; color:var(--muted); text-align:center; margin:18px 0 0; }
+  .pf-mes { display:grid; grid-template-columns:repeat(7, minmax(0, 1fr)); gap:4px; text-align:center; }
+  .pf-mes .cab { font-size:11px; color:var(--muted); text-transform:uppercase; }
+  .pf-mes .dia { padding:8px 2px; border-radius:8px; font-size:15px; color:var(--muted); border:0; }
+  .pf-mes .dia.otro { opacity:.3; }
+  .pf-mes a.dia { background:var(--green-bg); color:var(--green); font-weight:700; text-decoration:none; }
+  .pf-mes a.dia small { display:block; font-weight:400; font-size:10px; }
+  .pf-espera { margin-top:14px; padding:18px 20px; border:1px solid var(--rule); border-radius:14px; }
+  .pf-espera summary { display:flex; justify-content:space-between; gap:12px; cursor:pointer; font-size:15px; }
+  .pf-espera summary::after { content:"+"; color:var(--s-acento); font-size:18px; line-height:1; }
+  .pf-espera[open] summary::after { content:"−"; }
+  .pf-espera form { display:flex; flex-direction:column; gap:8px; margin-top:14px; }
+  .pf-espera p { margin:12px 0 0; font-size:14px; color:var(--s-texto); }
+  .pf-espera label { margin:4px 0 0; font-size:13px; }
+  .pf-espera .s-campo { padding:11px 12px; font-size:14px; }
+  .pf-aviso { font-size:15px; color:var(--s-texto); background:var(--green-bg); border-radius:10px; padding:12px 14px; margin:0 0 18px; }
 </style>
-<header>
-  <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
-  {% if hay_directorio and not cambiar %}<a href="{{ url_for('turnos_directorio') }}">Otros profesionales</a>{% endif %}
-</header>
-<main>
+{% if hay_directorio and not cambiar %}{{ sitio.barra(volver=(url_for('turnos_directorio'), 'Otros profesionales')) }}
+{% else %}{{ sitio.barra('nada') }}{% endif %}
+<main class="s-main">
   {% set modalidad_txt = 'por videollamada' if tenant.modalidades_publicas == 'virtual' else ('presencial o por videollamada' if tenant.modalidades_publicas == 'ambas' else 'presencial') %}
-  <div class="card perfil">
-    <div class="perfil-portada"{% if tenant.portada_version %} style="background-image:url('{{ url_for('publico_portada', slug=tenant.slug, v=tenant.portada_version) }}')"{% endif %}></div>
-    <div class="perfil-cuerpo">
-      {% if tenant.foto %}<img class="perfil-foto" src="{{ tenant.foto }}" alt="Foto de {{ tenant.nombre }}" width="128" height="128">
-      {% else %}<div class="perfil-foto perfil-iniciales" aria-hidden="true">{{ (tenant.nombre or '?').replace('Lic.', '').replace('Dra.', '').replace('Dr.', '').strip()[:1] }}</div>{% endif %}
-      <h1>{{ tenant.nombre }}</h1>
-      <p class="perfil-titulo">{% if tenant.titulo %}{{ tenant.titulo }}{% elif tenant.rubro %}<span style="text-transform:capitalize">{{ tenant.rubro }}</span>{% endif %}</p>
-      <p class="perfil-datos">
-        {% if tenant.ubicacion %}{{ tenant.ubicacion }} · {% endif %}Atiende {{ modalidad_txt }}{% if tenant.matricula %} · Matrícula {{ tenant.matricula }}{% endif %}
-      </p>
-      {% if tenant.descripcion %}<p class="perfil-linea">{{ tenant.descripcion }}</p>{% endif %}
-      {% if cambiar %}
-      <p class="perfil-linea">Tu turno de ahora es el <strong>{{ actual._dia }} a las {{ actual._hora }}</strong>. Tocá el horario nuevo. <a href="{{ url_for('agendar', token=cambiar) }}">Volver sin cambiar</a></p>
-      {% elif not pausado %}
-      <div class="perfil-acciones"><a class="btn" style="text-decoration:none" href="#horarios">Ver horarios y reservar</a></div>
-      {% endif %}
-    </div>
-  </div>
-  {% set hay_sobre = tenant.sobre_mi or tenant.enfoques or tenant.formacion or tenant.mas_de_mi or tenant.obras_sociales %}
-  {% if hay_sobre and not cambiar %}
-  <div class="card sobre">
-    {% if tenant.sobre_mi %}<h3>Sobre mí</h3><p>{{ tenant.sobre_mi }}</p>{% endif %}
-    {% if tenant.enfoques %}<h3>Temas que trabajo</h3><ul class="chips">{% for x in tenant.enfoques %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
-    {% if tenant.formacion %}<h3>Formación</h3><ul class="formacion">{% for x in tenant.formacion %}<li>{{ x }}</li>{% endfor %}</ul>{% endif %}
-    {% if tenant.mas_de_mi %}<h3>Un poco más de mí</h3><p>{{ tenant.mas_de_mi }}</p>{% endif %}
-    {% if tenant.obras_sociales %}<h3>Obras sociales y prepagas</h3><p>{{ tenant.obras_sociales }}</p>{% endif %}
-  </div>
-  {% endif %}
-  <div id="horarios">{% if not cambiar and not pausado and not elegir_tipo %}<p class="tenue" style="margin:4px 4px 8px">Tocá un horario libre para reservar tu turno.</p>{% endif %}</div>
-
-  {% with mensajes = get_flashed_messages() %}
-    {% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}
-  {% endwith %}
-
-  {% if tipos and tipos|length > 1 and not cambiar and not pausado %}
-  <div class="card" id="tipos">
-    <strong>{{ '¿Qué turno querés?' if elegir_tipo else 'Tipo de turno' }}</strong>
-    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:8px">
-      {% for x in tipos %}
-      <a class="btn {{ '' if (i_tipo is not none and i_tipo == loop.index0) else 'secundario' }}" style="text-decoration:none"
-         href="{{ url_for('publico', slug=tenant.slug, tipo=loop.index0) }}">{{ x.nombre }} · {{ x.minutos }} min{% if x.precio %} · {{ x.precio|pesos }}{% endif %}</a>
-      {% endfor %}
-    </div>
-  </div>
-  {% endif %}
-  {% if elegir_tipo and not pausado %}{# todavía no eligió: no se muestra el calendario #}
-  {% elif pausado %}
-  <div class="card">
-    <h3 style="margin-top:0">Por ahora no toma turnos nuevos{% if tenant.pausado_hasta %}: vuelve el {{ tenant.pausado_hasta[8:10] }}/{{ tenant.pausado_hasta[5:7] }}{% endif %}</h3>
-    {% if tenant.mensaje_pausa %}<p>{{ tenant.mensaje_pausa }}</p>{% endif %}
-    <p style="color:var(--muted);margin-bottom:0">Si ya tenés un turno, sigue en pie. Anotate abajo y te avisamos cuando vuelva a haber horarios.</p>
-  </div>
-  {% else %}
-  <div class="card">
-    {% if not cambiar %}
-    <div class="vistas">
-      {% if vista_mes %}<a href="{{ url_for('publico', slug=tenant.slug, tipo=i_tipo) }}">Semana</a><span>Mes</span>
-      {% else %}<span>Semana</span><a href="{{ url_for('publico', slug=tenant.slug, vista='mes', tipo=i_tipo) }}">Mes</a>{% endif %}
-    </div>
-    {% endif %}
-    {% if vista_mes %}
-    <div class="semana-nav">
-      {% if mes_anterior %}<a class="btn secundario" href="{{ url_for('publico', slug=tenant.slug, vista='mes', mes=mes_anterior, tipo=i_tipo) }}" style="text-decoration:none">‹ Anterior</a>{% else %}<span></span>{% endif %}
-      <strong>{{ titulo_mes }}</strong>
-      <a class="btn secundario" href="{{ url_for('publico', slug=tenant.slug, vista='mes', mes=mes_siguiente, tipo=i_tipo) }}" style="text-decoration:none">Siguiente ›</a>
-    </div>
-    <div class="mes" style="margin-top:12px">
-      {% for c in ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'] %}<div class="cab">{{ c }}</div>{% endfor %}
-      {% for semana in semanas_mes %}{% for d in semana %}
-        {% if d.libres and d.del_mes %}<a class="dia" href="{{ url_for('publico', slug=tenant.slug, semana=d.lunes, tipo=i_tipo) }}">{{ d.numero }}<small>{{ d.libres }} libre{{ 's' if d.libres > 1 }}</small></a>
-        {% else %}<div class="dia{% if not d.del_mes %} otro{% endif %}">{{ d.numero }}</div>{% endif %}
-      {% endfor %}{% endfor %}
-    </div>
-    {% if not hay_en_mes %}<p style="color:var(--muted);margin-bottom:0">No hay horarios libres este mes. Probá el siguiente o anotate en la lista de espera.</p>{% endif %}
-    {% else %}
-    <div class="semana-nav">
-      {% if anterior %}<a class="btn secundario" href="{{ url_semana(anterior) }}" style="text-decoration:none">‹ Anterior</a>{% else %}<span></span>{% endif %}
-      <strong>Semana del {{ titulo_semana }}</strong>
-      <a class="btn secundario" href="{{ url_semana(siguiente) }}" style="text-decoration:none">Siguiente ›</a>
-    </div>
-    <div class="semana" style="margin-top:12px">
-      {% for d in dias %}
-      <div class="dia-col{% if d.pasado %} pasado{% endif %}">
-        <h4>{{ d.nombre }} <span>{{ d.numero }}</span></h4>
-        <div class="horas">
-        {% for t in d.turnos %}
-          <a class="hora" href="{{ url_hora(t) }}"{% if t.solo_modalidad %} title="{{ 'Por videollamada' if t.solo_modalidad == 'virtual' else 'En el consultorio' }}"{% endif %}>{{ t._hora }}{% if t.solo_modalidad == 'virtual' %} <small>· video</small>{% elif t.solo_modalidad == 'presencial' and tenant.modalidades_publicas in ('ambas', 'virtual') %} <small>· consultorio</small>{% endif %}{% if t.sede and tenant.sedes and tenant.sedes|length > 1 %} <small>· {{ t.sede }}</small>{% endif %}</a>
-        {% else %}
-          <span class="nada">—</span>
-        {% endfor %}
+  {% set inicial = (tenant.nombre or '?').replace('Lic.', '').replace('Dra.', '').replace('Dr.', '').strip()[:1] %}
+  <div class="pf">
+    <article class="pf-art">
+      {% if tenant.portada_version and not cambiar %}<div class="pf-portada" role="img" aria-label="Portada de {{ tenant.nombre }}" style="background-image:url('{{ url_for('publico_portada', slug=tenant.slug, v=tenant.portada_version) }}')"></div>{% endif %}
+      <div class="pf-cabeza">
+        <div class="pf-foto">{% if tenant.foto %}<img src="{{ url_for('publico_foto', slug=tenant.slug) }}" alt="Foto de {{ tenant.nombre }}">{% else %}<span aria-hidden="true">{{ inicial }}</span>{% endif %}</div>
+        <div>
+          <div class="s-rotulo">{{ [tenant.titulo or (tenant.rubro | capitalize if tenant.rubro else none), ('Matrícula ' ~ tenant.matricula) if tenant.matricula else none] | select | join(' · ') }}</div>
+          <h1>{{ tenant.nombre }}</h1>
+          {% if tenant.descripcion %}<p class="pf-frase">{{ tenant.descripcion }}</p>{% endif %}
+          <div class="pf-datos">{% if tenant.ubicacion %}{{ tenant.ubicacion }} · {% endif %}Atiende {{ modalidad_txt }}</div>
+          {% if not cambiar and not pausado %}<a class="s-boton pf-ir" href="#horarios">Ver horarios y reservar</a>{% endif %}
         </div>
       </div>
-      {% endfor %}
-    </div>
-    {% if not hay %}
-    <p style="color:var(--muted);margin-bottom:0">
-      No hay horarios libres esta semana.
-      {% if proximo_despues %}El próximo es el <a href="{{ url_semana(proximo_despues._semana) }}">{{ proximo_despues._dia }} a las {{ proximo_despues._hora }}</a>.{% else %}Volvé a pasar más tarde.{% endif %}
-    </p>
-    {% endif %}
-    {% endif %}
-  </div>
+      {% set hay_sobre = tenant.sobre_mi or tenant.enfoques or tenant.formacion or tenant.mas_de_mi or tenant.obras_sociales %}
+      {% if hay_sobre and not cambiar %}
+      <div class="pf-secciones">
+        {% if tenant.sobre_mi %}<section><h2>Sobre mí</h2><p class="pf-sobre">{{ tenant.sobre_mi }}</p></section>{% endif %}
+        {% if tenant.enfoques %}<section><h2>Temas que trabajo</h2><ul class="pf-temas">{% for x in tenant.enfoques %}<li>{{ x }}</li>{% endfor %}</ul></section>{% endif %}
+        {% if tenant.formacion or tenant.obras_sociales %}
+        <section class="pf-dos">
+          {% if tenant.formacion %}<div><h2>Formación</h2><ul class="pf-renglones">{% for x in tenant.formacion %}<li>{{ x }}</li>{% endfor %}</ul></div>{% endif %}
+          {% if tenant.obras_sociales %}<div><h2>Obras sociales y prepagas</h2><p class="pf-renglon">{{ tenant.obras_sociales }}</p></div>{% endif %}
+        </section>
+        {% endif %}
+        {% if tenant.mas_de_mi %}<section class="pf-mas"><h2>Un poco más de mí</h2><p>{{ tenant.mas_de_mi }}</p></section>{% endif %}
+        {% if tenant.ubicacion or (tenant.sedes and tenant.sedes|length > 1) %}
+        <section><h2>Dónde atiendo</h2>
+          <p class="pf-renglon">{% if tenant.sedes and tenant.sedes|length > 1 %}{{ tenant.sedes | map(attribute='nombre') | join(' · ') }}{% else %}{{ tenant.ubicacion }}{% endif %}{% if tenant.modalidades_publicas in ('ambas', 'virtual') %} · también por videollamada{% endif %}</p>
+          {% if tenant.modalidades_publicas != 'virtual' %}<p style="font-size:15px;color:var(--s-texto);margin:10px 0 0">La dirección exacta la ves al elegir el horario.</p>{% endif %}
+        </section>
+        {% endif %}
+      </div>
+      {% endif %}
+    </article>
 
-  {% endif %}
-  {% if not cambiar %}
-  <div class="card" id="espera">
-    <details{% if pausado or (not hay and not proximo_despues) %} open{% endif %}>
-      <summary><strong>¿No te sirve ningún horario?</strong> <span style="color:var(--muted)">Anotate en la lista de espera</span></summary>
-      <p style="color:var(--muted)">Si se libera un horario, {{ tenant.nombre }} te escribe por WhatsApp con el link para reservarlo.</p>
-      <form method="post" action="{{ url_for('publico_espera', slug=tenant.slug) }}">
-        <label for="espera-nombre">Nombre y apellido</label>
-        <input type="text" id="espera-nombre" name="nombre" required maxlength="120">
-        <label for="espera-tel">WhatsApp (con código de país, ej. 5491123456789)</label>
-        <input type="tel" id="espera-tel" name="telefono" required placeholder="5491123456789">
-        <label for="espera-pref">¿Qué días u horarios te quedan bien? (opcional)</label>
-        <input type="text" id="espera-pref" name="preferencia" maxlength="200" placeholder="Martes o jueves a la tarde">
-        <button class="btn" type="submit" style="margin-top:12px">Anotarme</button>
-      </form>
-    </details>
+    <aside class="pf-lado" id="horarios" aria-label="Reservar turno">
+      <div class="pf-caja">
+        {% with mensajes = get_flashed_messages() %}{% if mensajes %}<div class="error" role="alert">{{ mensajes[0] }}</div>{% endif %}{% endwith %}
+        {% if cambiar %}
+        <h2>Elegí el horario nuevo</h2>
+        <p class="pf-aviso">Tu turno de ahora es el <strong>{{ actual._dia }} a las {{ actual._hora }}</strong>. <a href="{{ url_for('agendar', token=cambiar) }}">Volver sin cambiar</a></p>
+        {% elif pausado %}
+        <h2>Por ahora no toma turnos nuevos{% if tenant.pausado_hasta %}: vuelve el {{ tenant.pausado_hasta[8:10] }}/{{ tenant.pausado_hasta[5:7] }}{% endif %}</h2>
+        {% if tenant.mensaje_pausa %}<p style="white-space:pre-line">{{ tenant.mensaje_pausa }}</p>{% endif %}
+        <p style="color:var(--muted);margin-bottom:0">Si ya tenés un turno, sigue en pie. Anotate abajo y te avisamos cuando vuelva a haber horarios.</p>
+        {% else %}
+        <h2>Reservá tu turno</h2>
+        {% endif %}
+
+        {% if tipos and tipos|length > 1 and not cambiar and not pausado %}
+        <div class="rot" id="tipos">¿Qué turno querés?</div>
+        <div class="pf-tipos">
+          {% for x in tipos %}
+          <a href="{{ url_for('publico', slug=tenant.slug, tipo=loop.index0) }}#horarios" aria-current="{{ 'true' if (i_tipo is not none and i_tipo == loop.index0) else 'false' }}"><span style="color:inherit"><b style="font-weight:600">{{ x.nombre }}</b> <span>· {{ x.minutos }} min</span></span>{% if x.precio %}<span style="color:inherit">{{ x.precio|pesos }}</span>{% endif %}</a>
+          {% endfor %}
+        </div>
+        {% endif %}
+
+        {% if pausado or (elegir_tipo and not pausado) %}
+        {# pausado: sin calendario. Con varios tipos, primero se elige uno. #}
+        {% elif vista_mes %}
+        <div class="s-seg pf-vistas"><a href="{{ url_for('publico', slug=tenant.slug, tipo=i_tipo) }}#horarios" aria-current="false">Semana</a><a aria-current="true">Mes</a></div>
+        <div class="pf-nav">
+          <strong>{{ titulo_mes }}</strong>
+          <span class="pf-flechas">
+            {% if mes_anterior %}<a href="{{ url_for('publico', slug=tenant.slug, vista='mes', mes=mes_anterior, tipo=i_tipo) }}#horarios" aria-label="Mes anterior">‹</a>{% else %}<span aria-hidden="true">‹</span>{% endif %}
+            <a href="{{ url_for('publico', slug=tenant.slug, vista='mes', mes=mes_siguiente, tipo=i_tipo) }}#horarios" aria-label="Mes siguiente">›</a>
+          </span>
+        </div>
+        <div class="pf-mes">
+          {% for c in ['Lu', 'Ma', 'Mi', 'Ju', 'Vi', 'Sá', 'Do'] %}<div class="cab">{{ c }}</div>{% endfor %}
+          {% for semana in semanas_mes %}{% for d in semana %}
+            {% if d.libres and d.del_mes %}<a class="dia" href="{{ url_for('publico', slug=tenant.slug, semana=d.lunes, tipo=i_tipo) }}#horarios">{{ d.numero }}<small>{{ d.libres }} libre{{ 's' if d.libres > 1 }}</small></a>
+            {% else %}<div class="dia{% if not d.del_mes %} otro{% endif %}">{{ d.numero }}</div>{% endif %}
+          {% endfor %}{% endfor %}
+        </div>
+        {% if not hay_en_mes %}<p class="pf-nada">No hay horarios libres este mes. Probá el siguiente o anotate en la lista de espera.</p>{% endif %}
+        {% else %}
+        {% if not cambiar %}<div class="s-seg pf-vistas"><a aria-current="true">Semana</a><a href="{{ url_for('publico', slug=tenant.slug, vista='mes', tipo=i_tipo) }}#horarios" aria-current="false">Mes</a></div>{% endif %}
+        <div class="pf-nav">
+          <strong>Semana del {{ titulo_semana }}</strong>
+          <span class="pf-flechas">
+            {% if anterior %}<a href="{{ url_semana(anterior) }}#horarios" aria-label="Semana anterior">‹</a>{% else %}<span aria-hidden="true">‹</span>{% endif %}
+            <a href="{{ url_semana(siguiente) }}#horarios" aria-label="Semana siguiente">›</a>
+          </span>
+        </div>
+        <div class="pf-dias no-js-oculto" role="group" aria-label="Días">
+          {% for d in dias %}
+          <button type="button" data-dia="{{ loop.index0 }}" aria-pressed="false" {% if not d.turnos or d.pasado %}disabled{% endif %} aria-label="{{ d.nombre }} {{ d.numero }}: {{ d.turnos|length }} libre{{ 's' if d.turnos|length != 1 }}">
+            <div class="d">{{ d.nombre[:3] }}</div><div class="n">{{ d.numero.split('/')[0] }}</div><div class="l">{% if d.turnos %}{{ d.turnos|length }} libre{{ 's' if d.turnos|length > 1 }}{% else %}—{% endif %}</div>
+          </button>
+          {% endfor %}
+        </div>
+        {% for d in dias if d.turnos %}
+        <div class="pf-horas-dia" data-dia="{{ loop.index0 }}" data-dia-real="{{ dias.index(d) }}">
+          <h3>{{ d.nombre }} {{ d.numero }}</h3>
+          <div class="pf-horas">
+            {% for t in d.turnos %}
+            <a href="{{ url_hora(t) }}">{{ t._hora }}{% if t.solo_modalidad == 'virtual' %}<small>video</small>{% elif t.solo_modalidad == 'presencial' and tenant.modalidades_publicas in ('ambas', 'virtual') %}<small>consultorio</small>{% endif %}{% if t.sede and tenant.sedes and tenant.sedes|length > 1 %}<small>{{ t.sede }}</small>{% endif %}</a>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+        {% if not hay %}
+        <p class="pf-nada">No hay horarios libres esta semana.
+          {% if proximo_despues %}El próximo es el <a href="{{ url_semana(proximo_despues._semana) }}#horarios">{{ proximo_despues._dia }} a las {{ proximo_despues._hora }}</a>.{% else %}Volvé a pasar más tarde.{% endif %}</p>
+        {% else %}
+        <p class="pf-pie">Tocá un horario. Después dejás tu nombre y WhatsApp, y te confirmamos por ahí.</p>
+        {% endif %}
+        {% endif %}
+      </div>
+
+      {% if not cambiar %}
+      <details class="pf-espera" id="espera"{% if pausado or (not hay and not proximo_despues) %} open{% endif %}>
+        <summary><span><b style="font-weight:600">¿No te sirve ningún horario?</b> Anotate en la lista de espera</span></summary>
+        <p>Si se libera un horario, {{ tenant.nombre }} te escribe por WhatsApp con el link para reservarlo.</p>
+        <form method="post" action="{{ url_for('publico_espera', slug=tenant.slug) }}">
+          <label for="espera-nombre">Nombre y apellido</label>
+          <input class="s-campo" type="text" id="espera-nombre" name="nombre" required maxlength="120" autocomplete="name">
+          <label for="espera-tel">WhatsApp (con código de país, ej. 5491123456789)</label>
+          <input class="s-campo" type="tel" id="espera-tel" name="telefono" required placeholder="5491123456789" autocomplete="tel">
+          <label for="espera-pref">¿Qué días u horarios te quedan bien? (opcional)</label>
+          <input class="s-campo" type="text" id="espera-pref" name="preferencia" maxlength="200" placeholder="Martes o jueves a la tarde">
+          <button class="s-boton borde" type="submit" style="margin-top:6px;padding:11px">Anotarme</button>
+        </form>
+      </details>
+      {% endif %}
+    </aside>
   </div>
-  {% endif %}
 </main>
+{{ sitio.pie() }}
+<script>
+(function () {
+  // Días de la semana: se elige uno y se ven sus horarios. Sin JS se ven todos.
+  var botones = document.querySelectorAll('.pf-dias button');
+  if (!botones.length) return;
+  document.documentElement.classList.add('js');
+  var bloques = document.querySelectorAll('.pf-horas-dia');
+  function elegir(i) {
+    botones.forEach(function (b) { b.setAttribute('aria-pressed', b.dataset.dia === String(i)); });
+    bloques.forEach(function (x) { x.classList.toggle('activo', x.dataset.diaReal === String(i)); });
+  }
+  botones.forEach(function (b) { b.addEventListener('click', function () { elegir(b.dataset.dia); }); });
+  var primero = Array.prototype.find.call(botones, function (b) { return !b.disabled; });
+  if (primero) elegir(primero.dataset.dia);
+})();
+</script>
 {% endblock %}
