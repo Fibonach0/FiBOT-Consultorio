@@ -1037,6 +1037,62 @@ TABLAS["bloqueos"].append({"id": "fer", "tenant_id": "t1", "motivo": "Feriado: P
 html = client.get("/agenda?vista=mes&semana=" + _fer.isoformat()).data.decode() + client.get("/agenda").data.decode()
 chequear("el mes pinta distinto los feriados", " bloqueado feriado" in html)
 TABLAS["bloqueos"] = [x for x in TABLAS["bloqueos"] if x["id"] != "fer"]
+# Abrir con horario reducido y avisando a la lista de espera
+_hl = _norm(fila("libre-manana")["inicio"]).astimezone(zona)
+_tarde = (_hl + timedelta(hours=1)).strftime("%H:%M")
+r = client.post(f"/agenda/dia/{dia_libre.isoformat()}/abrir", data={"abrir": "1", "hora_desde": _tarde}, follow_redirects=True)
+chequear("abrir sólo unas horas deja afuera las de antes", fila("libre-manana")["abierto"] is not True
+         and "en esas horas" in r.data.decode(), r.data.decode()[-400:])
+r = client.post(f"/agenda/dia/{dia_libre.isoformat()}/abrir", data={"abrir": "1", "hora_desde": "10:00", "hora_hasta": "09:00"},
+                follow_redirects=True)
+chequear("abrir con horas al revés se rechaza", "posterior a la inicial" in r.data.decode())
+TABLAS["tenants"][0]["slug"] = "marcos"
+TABLAS["lista_espera"] = [
+    {"id": "e1", "tenant_id": "t1", "nombre": "Eva", "telefono": "5491100000070", "preferencia": None, "ofrecido_en": None, "created_at": ahora.isoformat()},
+    {"id": "e2", "tenant_id": "t1", "nombre": "Leo", "telefono": "5491100000071", "preferencia": None, "ofrecido_en": None, "created_at": ahora.isoformat()},
+    {"id": "e3", "tenant_id": "t2", "nombre": "Ajena", "telefono": "5491100000072", "preferencia": None, "ofrecido_en": None, "created_at": ahora.isoformat()}]
+html = client.get(f"/agenda?semana={dia_libre.isoformat()}").data.decode()
+chequear("abrir ofrece avisar a la lista de espera", "Avisarle a mi lista de espera (2)" in html)
+enviados.clear()
+r = client.post(f"/agenda/dia/{dia_libre.isoformat()}/abrir",
+                data={"abrir": "1", "hora_desde": _hl.strftime("%H:%M"), "hora_hasta": (_hl + timedelta(minutes=50)).strftime("%H:%M"),
+                      "avisar_espera": "1"}, follow_redirects=True)
+chequear("abrir en ese rango y avisar a la lista", fila("libre-manana")["abierto"] is True and "Le avisamos a 2" in r.data.decode()
+         and sorted(e[1] for e in enviados) == ["5491100000070", "5491100000071"], (r.data.decode()[-300:], enviados))
+client.post(f"/agenda/dia/{dia_libre.isoformat()}/abrir", data={"abrir": "0"})
+TABLAS["lista_espera"] = []
+TABLAS["tenants"][0].pop("slug", None)
+# Pasar todas las sesiones del día a la semana siguiente
+_p1 = datetime.combine(dia_libre, datetime.min.time(), tzinfo=zona).replace(hour=15)
+_p2 = _p1.replace(hour=17)
+TABLAS["turnos"] += [
+    turno("pasar-1", "t1", _p1, estado="reservado", paciente_nombre="Paz", paciente_telefono="5491100000080"),
+    turno("pasar-2", "t1", _p2, estado="reservado", paciente_nombre="Sol", paciente_telefono="5491100000081"),
+    turno("ocupa", "t1", _p2 + timedelta(days=7), estado="reservado", paciente_nombre="Fijo", paciente_telefono="5491100000082")]
+html = client.get(f"/agenda?semana={dia_libre.isoformat()}").data.decode()
+chequear("el día bloqueado ofrece pasar sus sesiones", "Pasarlas a la semana siguiente" in html and f"/agenda/dia/{dia_libre.isoformat()}/pasar" in html)
+enviados.clear()
+r = client.post(f"/agenda/dia/{dia_libre.isoformat()}/pasar", data={"avisar": "1"}, follow_redirects=True).data.decode()
+_nueva = next((t for t in TABLAS["turnos"] if t["tenant_id"] == "t1" and t["estado"] == "reservado" and t["paciente_nombre"] == "Paz"), None)
+chequear("pasar: la sesión va al mismo horario una semana después",
+         _nueva and _norm(_nueva["inicio"]) == _norm(_p1.isoformat()) + timedelta(days=7) and "Pasamos " in r, r[-500:])
+chequear("pasar: la que choca queda donde estaba y se avisa", fila("pasar-2")["estado"] == "reservado"
+         and fila("pasar-2")["paciente_nombre"] == "Sol" and "17:00" in r and "Pasalas a mano" in r)
+chequear("pasar: le avisa al paciente que se movió", any(e[1] == "5491100000080" for e in enviados)
+         and not any(e[1] == "5491100000081" for e in enviados), enviados)
+chequear("pasar: el otro tenant no se toca", fila("ajeno")["estado"] == "reservado")
+TABLAS["turnos"] = [t for t in TABLAS["turnos"] if t["id"] not in ("pasar-1", "pasar-2", "ocupa") and t.get("paciente_nombre") != "Paz"]
+# Atajos desde el mes
+_mes = dia_libre.strftime("%Y-%m")
+html = client.get(f"/agenda?mes={_mes}").data.decode()
+chequear("mes: el día bloqueado tiene menú para abrirlo o desbloquearlo",
+         f'action="/agenda/dia/{dia_libre.isoformat()}/abrir"' in html and f"/agenda/bloqueo/{b['id']}/borrar" in html)
+_otro = dia_libre + timedelta(days=2)
+chequear("mes: los demás días se pueden bloquear", f'name="desde" value="{_otro.isoformat()}"' in html and "Bloquear este día" in html)
+r = client.post("/agenda/bloqueo", data={"desde": _otro.isoformat(), "hasta": _otro.isoformat(), "mes": _mes})
+chequear("mes: bloquear vuelve al mismo mes", r.status_code == 302 and f"mes={_mes}" in r.headers["Location"]
+         and len(TABLAS["bloqueos"]) == 2)
+TABLAS["bloqueos"] = [x for x in TABLAS["bloqueos"] if x["id"] == b["id"]]
 client.post(f"/agenda/bloqueo/{b['id']}/borrar")
 chequear("se puede quitar", TABLAS["bloqueos"] == [] and "libre-manana" in [t["id"] for t in db.turnos_libres("t1", ahora)])
 html = client.post("/agenda/bloqueo", data={"desde": "2030-02-10", "hasta": "2030-02-01"}, follow_redirects=True).data.decode()
@@ -3879,6 +3935,15 @@ scheduler.sincronizar_feriados(dict(_t1), _hoy)
 chequear("feriados: no duplica", len(TABLAS["bloqueos"]) == _n)
 scheduler.sincronizar_feriados(dict(_t1, feriados="atender"), _hoy)
 chequear("feriados: «atiendo igual» los saca", not any((b["motivo"] or "").startswith("Feriado") for b in TABLAS["bloqueos"]))
+scheduler.sincronizar_feriados(dict(_t1), _hoy)
+chequear("puentes: por defecto se bloquean", any("Puente" in b["motivo"] for b in TABLAS["bloqueos"]))
+scheduler.sincronizar_feriados(dict(_t1, puentes="atender"), _hoy)
+_motivos = [b["motivo"] for b in TABLAS["bloqueos"]]
+chequear("puentes: «atiendo» saca sólo los puentes", not any("Puente" in m for m in _motivos) and "Feriado: Navidad" in _motivos, _motivos)
+_fer._tipos["2026-11-23"] = "puente"
+scheduler.sincronizar_feriados(dict(_t1, puentes="atender"), _hoy)
+chequear("puentes: respeta el tipo que manda la API", not any("Soberan" in b["motivo"] for b in TABLAS["bloqueos"]))
+_fer._tipos.clear()
 _fer._actualizados.update(_viejo_fer)
 
 # consultorios

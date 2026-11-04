@@ -127,14 +127,50 @@
     <div class="cal">
       {% for d in ['Lun','Mar','Mié','Jue','Vie','Sáb','Dom'] %}<div class="cal-cabecera">{{ d }}</div>{% endfor %}
       {% for semana_cal in semanas %}{% for d in semana_cal %}
-      <a class="cal-dia{% if d.de_otro_mes %} otro-mes{% endif %}{% if d.es_hoy %} hoy{% endif %}{% if d.bloqueado %} bloqueado{% if (d.bloqueado.motivo or '').startswith('Feriado: ') %} feriado{% endif %}{% endif %}" href="{{ url_for('agenda', semana=d.fecha) }}#dia-{{ d.fecha }}">
+      <div class="cal-dia{% if d.de_otro_mes %} otro-mes{% endif %}{% if d.es_hoy %} hoy{% endif %}{% if d.bloqueado %} bloqueado{% if (d.bloqueado.motivo or '').startswith('Feriado: ') %} feriado{% endif %}{% endif %}">
+      {% if not d.pasado %}
+      <details class="cal-menu">
+        <summary aria-label="Acciones del {{ d.numero }}" title="Acciones del día">⋯</summary>
+        <div class="cal-menu-lista">
+          {% if d.bloqueado %}
+          {% if d.libres %}
+          <form method="post" action="{{ url_for('agenda_abrir_dia', fecha=d.fecha) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="mes" value="{{ mes_mirado }}">
+            <input type="hidden" name="abrir" value="{{ '0' if d.abiertos == d.libres else '1' }}">
+            <button class="btn chico secundario" type="submit">{{ 'Volver a cerrarlo a pacientes' if d.abiertos == d.libres else 'Abrir a pacientes' }}</button>
+          </form>
+          {% endif %}
+          {% if not (d.bloqueado.motivo or '').startswith('Feriado: ') and d.bloqueado._desde == d.bloqueado._hasta %}
+          <form method="post" action="{{ url_for('agenda_bloqueo_borrar', bloqueo_id=d.bloqueado.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="mes" value="{{ mes_mirado }}">
+            <button class="btn chico secundario" type="submit">Desbloquear</button>
+          </form>
+          {% endif %}
+          {% else %}
+          <form method="post" action="{{ url_for('agenda_bloqueo') }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="mes" value="{{ mes_mirado }}">
+            <input type="hidden" name="desde" value="{{ d.fecha }}">
+            <input type="hidden" name="hasta" value="{{ d.fecha }}">
+            <button class="btn chico secundario" type="submit">Bloquear este día</button>
+          </form>
+          {% endif %}
+          <a class="btn chico secundario" href="{{ url_for('agenda', semana=d.fecha) }}#dia-{{ d.fecha }}">Ver el día</a>
+        </div>
+      </details>
+      {% endif %}
+      <a class="cal-ir" href="{{ url_for('agenda', semana=d.fecha) }}#dia-{{ d.fecha }}">
         <span class="cal-numero">{{ d.numero }}</span>
         {% for t in d.sesiones %}
         <span class="cal-sesion{% if t.asistencia == 'vino' %} ok{% elif t.asistencia == 'no_vino' %} alerta{% endif %}">{{ t._hora }} {{ t.paciente_nombre or t.paciente_telefono }}</span>
         {% endfor %}
         {% if d.bloqueado %}<span class="cal-libres">{{ d.bloqueado.motivo or 'bloqueado' }}</span>
         {% elif d.libres %}<span class="cal-libres">{{ d.libres }} libre{{ 's' if d.libres > 1 }}</span>{% endif %}
+        {% if d.bloqueado and d.abiertos %}<span class="cal-libres">{{ d.abiertos }} abierto{{ 's' if d.abiertos > 1 }} a pacientes</span>{% endif %}
       </a>
+      </div>
       {% endfor %}{% endfor %}
     </div>
   </div>
@@ -160,12 +196,46 @@
       {% if dia.bloqueado %}<span class="chip {{ 'chip-feriado' if (dia.bloqueado.motivo or '').startswith('Feriado: ') else 'chip-alerta' }}">bloqueado{% if dia.bloqueado.motivo %}: {{ dia.bloqueado.motivo }}{% endif %}</span>
       {% set libres_dia = dia.turnos|selectattr('estado', 'equalto', 'libre')|rejectattr('hueco')|rejectattr('_paso')|list %}
       {% if libres_dia %}{% set todos_abiertos = libres_dia|selectattr('abierto')|list|length == libres_dia|length %}
+      {% if todos_abiertos %}
       <form method="post" action="{{ url_for('agenda_abrir_dia', fecha=dia.fecha) }}" class="abrir-dia">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="hidden" name="semana" value="{{ semana }}">
-        <input type="hidden" name="abrir" value="{{ '0' if todos_abiertos else '1' }}">
-        <button class="btn chico secundario" type="submit">{{ 'Volver a cerrarlo a pacientes' if todos_abiertos else 'Abrir este día a pacientes' }}</button>
+        <input type="hidden" name="abrir" value="0">
+        <button class="btn chico secundario" type="submit">Volver a cerrarlo a pacientes</button>
       </form>
+      {% else %}
+      <details class="cascada abrir-dia">
+        <summary class="btn chico secundario">Abrir este día a pacientes ▾</summary>
+        <div class="cascada-lista">
+          <form class="apilado" method="post" action="{{ url_for('agenda_abrir_dia', fecha=dia.fecha) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="semana" value="{{ semana }}">
+            <input type="hidden" name="abrir" value="1">
+            <div class="fila">
+              <div><label for="ad-desde-{{ dia.fecha }}">Desde <span class="tenue">(opcional)</span></label><input id="ad-desde-{{ dia.fecha }}" type="time" name="hora_desde"></div>
+              <div><label for="ad-hasta-{{ dia.fecha }}">Hasta <span class="tenue">(opcional)</span></label><input id="ad-hasta-{{ dia.fecha }}" type="time" name="hora_hasta"></div>
+            </div>
+            <p class="tenue">Sin horas se abre el día entero.</p>
+            {% if espera %}<div><label><input type="checkbox" name="avisar_espera" value="1"> Avisarle a mi lista de espera ({{ espera|length }})</label></div>{% endif %}
+            <button class="btn chico" type="submit">Abrir</button>
+          </form>
+        </div>
+      </details>
+      {% endif %}{% endif %}
+      {% set por_pasar = dia.turnos|selectattr('estado', 'equalto', 'reservado')|rejectattr('_paso')|list %}
+      {% if por_pasar %}
+      <details class="cascada abrir-dia">
+        <summary class="btn chico secundario">Pasarlas a la semana siguiente ▾</summary>
+        <div class="cascada-lista">
+          <form class="apilado" method="post" action="{{ url_for('agenda_pasar_dia', fecha=dia.fecha) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="semana" value="{{ semana }}">
+            <p>Las {{ por_pasar|length }} sesi{{ 'ones' if por_pasar|length > 1 else 'ón' }} de este día pasan al mismo horario, una semana después. Si ese horario ya está ocupado o bloqueado, esa queda donde está.</p>
+            <div><label><input type="checkbox" name="avisar" value="1" checked> Avisarles por WhatsApp</label></div>
+            <button class="btn chico" type="submit">Pasarlas</button>
+          </form>
+        </div>
+      </details>
       {% endif %}{% endif %}
       {% if not dia.turnos %}
         <div class="tenue">sin horarios cargados</div>
@@ -461,6 +531,10 @@
         <div><label>Feriados nacionales</label><select name="feriados">
           <option value="bloquear"{% if tenant.feriados != 'atender' %} selected{% endif %}>No atiendo (se bloquean solos)</option>
           <option value="atender"{% if tenant.feriados == 'atender' %} selected{% endif %}>Atiendo igual</option>
+        </select></div>
+        <div><label>Días puente (no laborables)</label><select name="puentes">
+          <option value="bloquear"{% if tenant.puentes != 'atender' %} selected{% endif %}>No atiendo (se bloquean solos)</option>
+          <option value="atender"{% if tenant.puentes == 'atender' %} selected{% endif %}>Atiendo igual</option>
         </select></div>
         <div><label>Generar con anticipación</label><select name="horario_semanas">
           {% for x in range(1, 13) %}<option value="{{ x }}"{% if (tenant.horario_semanas or 4) == x %} selected{% endif %}>{{ x }} semana{{ 's' if x > 1 }}</option>{% endfor %}
@@ -855,7 +929,7 @@
       <div><label>Obra social</label>
         <select name="obra_social" required>{% for o in obras %}<option>{{ o }}</option>{% endfor %}</select>
       </div>
-      <div><label>Mes</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
+      <div><label>Mes</label><input type="month" name="mes" value="{{ mes_mirado }}" required></div>
       <div class="al-pie"><button class="btn chico secundario" type="submit">Generar</button></div>
     </form>
   </details>
@@ -1511,7 +1585,7 @@
       <h5>Constancia de sesiones</h5>
       <form method="post" action="{{ url_for('agenda_constancia') }}" target="_blank" class="fila">
         {{ ocultos(f.clave) }}
-        <div><label>Mes</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
+        <div><label>Mes</label><input type="month" name="mes" value="{{ mes_mirado }}" required></div>
         <div class="al-pie"><button class="btn chico secundario" type="submit">Generar</button></div>
       </form>
 

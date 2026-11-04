@@ -32,6 +32,12 @@ EMBEBIDOS = {
 }
 
 _actualizados: dict[str, str] = {}
+_tipos: dict[str, str] = {}
+
+# Los días puente son «no laborables»: el profesional puede atender aunque
+# bloquee los feriados (tenants.puentes). La API los marca con tipo «puente»;
+# en la lista embebida se reconocen por el nombre.
+PUENTE = "puente"
 _ultimo_intento: date | None = None
 
 
@@ -48,6 +54,8 @@ def actualizar(hoy: date) -> None:
                 for f in r.json():
                     if f.get("fecha") and f.get("nombre"):
                         _actualizados[f["fecha"]] = f["nombre"]
+                        if f.get("tipo"):
+                            _tipos[f["fecha"]] = f["tipo"]
         except (requests.RequestException, ValueError):
             logger.info("No se pudieron actualizar los feriados de %s; quedan los embebidos", anio)
 
@@ -58,3 +66,10 @@ def todos() -> dict[str, str]:
 
 def entre(desde: date, hasta: date) -> list[tuple[date, str]]:
     return sorted((date.fromisoformat(f), n) for f, n in todos().items() if desde <= date.fromisoformat(f) <= hasta)
+
+
+def es_puente(dia: date) -> bool:
+    clave = dia.isoformat()
+    if clave in _tipos:
+        return _tipos[clave] == PUENTE
+    return "puente" in todos().get(clave, "").lower()

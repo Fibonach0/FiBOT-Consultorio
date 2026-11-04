@@ -1663,6 +1663,9 @@ def _calendario(tenant: dict, primero: date, tz: ZoneInfo, ahora: datetime, bloq
                     "de_otro_mes": cursor.month != primero.month,
                     "sesiones": [t for t in turnos if t["estado"] == "reservado"],
                     "libres": sum(t["estado"] == "libre" for t in turnos),
+                    "abiertos": sum(t["estado"] == "libre" and bool(t.get("abierto")) and not t.get("hueco")
+                                    for t in turnos),
+                    "pasado": cursor < ahora.date(),
                 }
             )
             cursor += timedelta(days=1)
@@ -1992,7 +1995,12 @@ def _volver_a_agenda():
     try:
         datetime.strptime(semana, "%Y-%m-%d")
     except ValueError:
-        return redirect(url_for("agenda"))
+        mes = request.form.get("mes") or ""
+        try:
+            datetime.strptime(mes, "%Y-%m")
+        except ValueError:
+            return redirect(url_for("agenda"))
+        return redirect(url_for("agenda", mes=mes))
     return redirect(url_for("agenda", semana=semana))
 
 
@@ -2096,6 +2104,7 @@ def agenda():
             vista="mes",
             semanas=_calendario(tenant, primero, tz, ahora, bloqueado),
             mes_titulo=_meses_label(primero),
+            mes_mirado=primero.strftime("%Y-%m"),
             mes_anterior=(primero - timedelta(days=1)).strftime("%Y-%m"),
             mes_siguiente=(primero + timedelta(days=32)).strftime("%Y-%m"),
             semana=_lunes_de(None, tz).strftime("%Y-%m-%d"),
@@ -3281,16 +3290,97 @@ def agenda_abrir_dia(fecha):
     except ValueError:
         return "fecha inválida", 400
     abrir = request.form.get("abrir") == "1"
+    # Horario reducido: «abrir sólo de 10 a 14». Sin horas, el día entero.
+    try:
+        hora_desde = dtime.fromisoformat(request.form["hora_desde"]) if abrir and request.form.get("hora_desde") else None
+        hora_hasta = dtime.fromisoformat(request.form["hora_hasta"]) if abrir and request.form.get("hora_hasta") else None
+    except ValueError:
+        flash("Revisá las horas.")
+        return _volver_a_agenda()
+    if hora_desde and hora_hasta and hora_hasta <= hora_desde:
+        flash("La hora final tiene que ser posterior a la inicial.")
+        return _volver_a_agenda()
     desde = datetime.combine(dia, dtime.min, tzinfo=tz)
-    libres = [t["id"] for t in db.agenda_semana(tenant["id"], desde.astimezone(ZoneInfo("UTC")),
-                                                (desde + timedelta(days=1)).astimezone(ZoneInfo("UTC")))
-              if t["estado"] == "libre" and not t.get("hueco")]
-    cambiados = db.abrir_libres(tenant["id"], libres, abrir)
-    if abrir:
-        flash(f"Abriste el {dia.day}/{dia.month:02d} a tus pacientes: {cambiados} horario{'s' if cambiados != 1 else ''} "
-              f"se ofrece{'n' if cambiados != 1 else ''} en tu página." if cambiados else "Ese día no tiene horarios libres para abrir.")
-    else:
-        flash(f"El {dia.day}/{dia.month:02d} volvió a estar cerrado a tus pacientes.")
+    libres = []
+    for t in db.agenda_semana(tenant["id"], desde.astimezone(ZoneInfo("UTC")),
+                              (desde + timedelta(days=1)).astimezone(ZoneInfo("UTC"))):
+        if t["estado"] != "libre" or t.get("hueco"):
+            continue
+        ini = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+        fin = datetime.fromisoformat(t["fin"]).astimezone(tz)
+        if hora_desde and ini.time() < hora_desde:
+            continue
+        if hora_hasta and (fin.date() > dia or fin.time() > hora_hasta):
+            continue
+        libres.append(t)
+    cambiados = db.abrir_libres(tenant["id"], [t["id"] for t in libres], abrir)
+    fecha = f"{dia.day}/{dia.month:02d}"
+    if not abrir:
+        flash(f"El {fecha} volvió a estar cerrado a tus pacientes.")
+        return _volver_a_agenda()
+    if not cambiados:
+        flash("Ese día no tiene horarios libres para abrir" + (" en esas horas." if hora_desde or hora_hasta else "."))
+        return _volver_a_agenda()
+    rango = ""
+    if hora_desde or hora_hasta:
+        rango = f" de {hora_desde.strftime('%H:%M') if hora_desde else 'la mañana'} a {hora_hasta.strftime('%H:%M') if hora_hasta else 'la noche'}"
+    texto = (f"Abriste el {fecha}{rango} a tus pacientes: {cambiados} horario{'s' if cambiados != 1 else ''} "
+             f"se ofrece{'n' if cambiados != 1 else ''} en tu página.")
+    if request.form.get("avisar_espera") == "1":
+        primero = min(libres, key=lambda t: t["inicio"])
+        avisados = cancelaciones.ofrecer_a_toda_la_espera(tenant, primero, datetime.now(tz).date())
+        texto += (f" Le avisamos a {avisados} de tu lista de espera." if avisados
+                  else " Nadie de tu lista de espera quedó para avisar hoy.")
+    flash(texto)
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/dia/<fecha>/pasar")
+@login_required
+def agenda_pasar_dia(fecha):
+    """Pasa todas las sesiones de un día (un feriado, un día que se bloqueó) al
+    mismo horario de la semana siguiente. La que no entra (ya hay otra sesión,
+    o ese día también está bloqueado) queda donde estaba y se avisa."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    try:
+        dia = date.fromisoformat(fecha)
+    except ValueError:
+        return "fecha inválida", 400
+    utc = ZoneInfo("UTC")
+    ahora = datetime.now(utc)
+    desde = datetime.combine(dia, dtime.min, tzinfo=tz)
+    sesiones = [t for t in db.agenda_semana(tenant["id"], desde.astimezone(utc), (desde + timedelta(days=1)).astimezone(utc))
+                if t["estado"] == "reservado" and datetime.fromisoformat(t["inicio"]) > ahora]
+    if not sesiones:
+        flash("Ese día no tiene sesiones por venir para pasar.")
+        return _volver_a_agenda()
+    avisar = request.form.get("avisar") == "1"
+    pasadas, quedaron, sin_aviso = 0, [], 0
+    for t in sorted(sesiones, key=lambda t: t["inicio"]):
+        inicio = datetime.fromisoformat(t["inicio"])
+        # Misma hora local una semana después (con cambio de horario incluido).
+        nuevo = datetime.combine(inicio.astimezone(tz).date() + timedelta(days=7), inicio.astimezone(tz).time(),
+                                 tzinfo=tz).astimezone(utc)
+        minutos = int((datetime.fromisoformat(t["fin"]) - inicio).total_seconds() // 60)
+        error = db.reprogramar_turno(tenant["id"], t["id"], nuevo, minutos)
+        hora = inicio.astimezone(tz).strftime("%H:%M")
+        if error:
+            quedaron.append(hora)
+            continue
+        pasadas += 1
+        if avisar and not (db.tiene_whatsapp(t.get("paciente_telefono")) and _avisar_cambio(tenant, t, nuevo, tz)):
+            sin_aviso += 1
+    destino = dia + timedelta(days=7)
+    texto = (f"Pasamos {pasadas} sesi{'ones' if pasadas != 1 else 'ón'} al {DIAS_LABEL[destino.weekday()].lower()} "
+             f"{destino.day}/{destino.month:02d}, a la misma hora." if pasadas else "No se pudo pasar ninguna sesión.")
+    if quedaron:
+        texto += (f" Quedaron donde estaban las de las {', '.join(quedaron)}: ese horario de la semana siguiente "
+                  f"está ocupado o bloqueado. Pasalas a mano.")
+    if avisar and pasadas:
+        texto += (f" A {sin_aviso} no se le pudo avisar por WhatsApp: escribiles vos." if sin_aviso
+                  else " Les avisamos por WhatsApp.")
+    flash(texto)
     return _volver_a_agenda()
 
 
@@ -3437,7 +3527,8 @@ def agenda_horario():
                            **({"sede": sede} if sede else {})})
     semanas = int(f.get("horario_semanas")) if (f.get("horario_semanas") or "") in {str(x) for x in range(1, 13)} else 4
     campos = {"horario_semanal": rangos or None, "horario_semanas": semanas,
-              "feriados": "atender" if f.get("feriados") == "atender" else "bloquear"}
+              "feriados": "atender" if f.get("feriados") == "atender" else "bloquear",
+              "puentes": "atender" if f.get("puentes") == "atender" else "bloquear"}
     duracion, descanso = f.get("duracion_turno_minutos") or "", f.get("descanso_minutos") or ""
     if duracion:
         if not duracion.isdigit() or not 10 <= int(duracion) <= 240:

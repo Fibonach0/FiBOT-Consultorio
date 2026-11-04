@@ -111,7 +111,8 @@ def _bloqueos_con_sesiones(tenant: dict, hoy, sesiones: list[dict]) -> list[str]
         motivo = b.get("motivo") or ""
         que = "es feriado" if motivo.startswith(PREFIJO_FERIADO) else "lo tenés bloqueado"
         partes.append(f"el {DIAS[dia.weekday()]} {dia.day}/{dia.month:02d} {que} y tenés {cuantas} "
-                      f"sesi{'ones' if cuantas > 1 else 'ón'}: decidí si atendés o las pasás")
+                      f"sesi{'ones' if cuantas > 1 else 'ón'}: decidí si atendés o las pasás "
+                      f"(en el panel, «Pasarlas a la semana siguiente» las mueve todas)")
     return partes
 
 
@@ -417,7 +418,9 @@ PREFIJO_FERIADO = "Feriado: "
 def sincronizar_feriados(tenant: dict, hoy) -> int:
     """Con `feriados = 'bloquear'`, cada feriado de los próximos 12 meses es un
     bloqueo (y así lo respetan la página, el bot y la generación). Con
-    'atender', se borran los bloqueos de feriado futuros. Idempotente.
+    'atender', se borran los bloqueos de feriado futuros. Los días puente (no
+    laborables) siguen `puentes` aparte: se pueden atender aunque los feriados
+    se bloqueen. Idempotente.
     Devuelve cuántos agregó o quitó."""
     import feriados
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
@@ -425,13 +428,18 @@ def sincronizar_feriados(tenant: dict, hoy) -> int:
                   for b in db.bloqueos_vigentes(tenant["id"], datetime.now(timezone.utc))
                   if (b.get("motivo") or "").startswith(PREFIJO_FERIADO)}
     cambios = 0
-    if (tenant.get("feriados") or "bloquear") == "atender":
-        for b in existentes.values():
+    atiende_feriados = (tenant.get("feriados") or "bloquear") == "atender"
+    atiende_puentes = atiende_feriados or tenant.get("puentes") == "atender"
+
+    def atiende(dia) -> bool:
+        return atiende_puentes if feriados.es_puente(dia) else atiende_feriados
+
+    for dia, b in existentes.items():
+        if atiende(dia):
             db.borrar_bloqueo(tenant["id"], b["id"])
             cambios += 1
-        return cambios
     for dia, nombre in feriados.entre(hoy, hoy + timedelta(days=365)):
-        if dia in existentes:
+        if dia in existentes or atiende(dia):
             continue
         desde = datetime.combine(dia, datetime.min.time(), tzinfo=tz)
         db.agregar_bloqueo(tenant["id"], desde.astimezone(timezone.utc), (desde + timedelta(days=1)).astimezone(timezone.utc),
