@@ -74,7 +74,7 @@ def get_tenant_by_id(tenant_id: str) -> dict | None:
 
 
 def get_tenant_by_slug(slug: str) -> dict | None:
-    """Resuelve la página pública de reserva (consultorios.fibot.ar/<slug>)."""
+    """Resuelve la página pública de reserva (consultorio.fibot.ar/<slug>)."""
     res = (
         _client.table("tenants")
         .select("*")

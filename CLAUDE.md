@@ -159,7 +159,7 @@ scripts/          alta de tenants a mano (crear_tenant.py)
 ### Página pública de reserva (`/<slug>`)
 
 Cada tenant puede tener un `slug` (columna en `tenants`, cargada por
-`scripts/crear_tenant.py`) que habilita `consultorios.fibot.ar/<slug>`: una
+`scripts/crear_tenant.py`) que habilita `consultorio.fibot.ar/<slug>`: una
 página sin login donde cualquiera ve los horarios libres y reserva dejando
 nombre y WhatsApp — sin escribirle nada al bot primero. Es el link que el
 profesional comparte en su firma, Instagram, etc.
