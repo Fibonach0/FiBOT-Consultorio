@@ -1,67 +1,226 @@
 {% extends "base.html" %}
-{% block titulo %}Sumate como profesional — FiBOT Consultorio{% endblock %}
+{% import "_sitio_macros.html" as sitio %}
+{% block titulo %}Para profesionales — FiBOT Consultorio{% endblock %}
 {% block head %}
-<meta name="description" content="Tu agenda, tus pacientes y tus cobros en un solo lugar, con turnos online y recordatorios por WhatsApp. Dejanos tus datos y te contactamos.">
+<meta name="description" content="Tu agenda, tus pacientes y tus cobros en un solo lugar, con turnos online y un asistente que responde por WhatsApp. Dejanos tus datos y te contactamos.">
 <link rel="canonical" href="{{ url_for('sumate', _external=True) }}">
+<meta property="og:title" content="Tu agenda se atiende sola. Vos atendé a tus pacientes.">
+<meta property="og:image" content="{{ url_for('static', filename='portada/pro.webp', _external=True) }}">
+{% include "_sitio.html" %}
+<style>
+  .p-oscuro { background:#2f3a2c; color:#f1ede4; }
+  .p-oscuro header.s-barra a { color:#f1ede4; }
+  .p-oscuro header.s-barra a:hover { color:#e0b89c; }
+  .p-oscuro .s-marca .logo { background:#f1ede4; color:#2f3a2c; }
+  .p-oscuro .s-marca .sub { color:#b5bfae; }
+  .p-oscuro header.s-barra .s-nav a.ingresar { background:#f1ede4; color:#2f3a2c; border:0; }
+  .p-hero { padding-top:56px; padding-bottom:96px; display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 460px), 1fr)); gap:56px; align-items:center; }
+  .p-hero .s-rotulo { color:#b5bfae; }
+  .p-hero h1 { font-family:var(--serif); font-weight:400; font-size:clamp(46px, 6vw, 82px); line-height:.98; letter-spacing:-.025em; margin:20px 0 24px; text-wrap:balance; }
+  .p-hero h1 i { color:#e0b89c; }
+  .p-hero p { font-size:19px; color:#cfd3c6; max-width:29em; margin:0 0 36px; }
+  .p-acciones { display:flex; gap:12px; flex-wrap:wrap; align-items:center; }
+  .p-claro { background:#f1ede4; color:#2a2620; }
+  .p-claro:hover { background:#fff; color:#2a2620; }
+  .p-link { color:#f1ede4; padding:15px 10px; text-decoration:underline; text-underline-offset:4px; }
+  .p-link:hover { color:#e0b89c; }
+  .p-demo { background:#3a4636; border-radius:20px; padding:18px; display:grid; grid-template-columns:minmax(0, 1fr) minmax(0, 1fr); gap:14px; }
+  @media (max-width:520px) { .p-demo { grid-template-columns:1fr; } }
+  .p-agenda { background:#f4efe6; color:#2a2620; border-radius:12px; padding:16px; }
+  .p-demo .rot { font-family:var(--mono); font-size:11px; color:#6e6559; letter-spacing:.04em; margin-bottom:12px; }
+  .p-agenda ol { list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:6px; }
+  .p-agenda li { display:grid; grid-template-columns:44px 1fr; gap:8px; align-items:center; padding:9px 10px; border-radius:8px; background:#fbf8f2; font-size:14px; line-height:1.25; transition:background .4s; }
+  .p-agenda li.cambio { background:#f1e2d6; }
+  .p-agenda .h { font-family:var(--mono); font-size:12px; color:#6e6559; }
+  .p-agenda b { font-weight:600; }
+  .p-agenda small { display:block; font-size:12px; color:#6e6559; }
+  .p-agenda small.ok { color:#4a6347; } .p-agenda small.ojo { color:#9a5c3e; }
+  .p-chat { background:#e3e8dc; color:#2a2620; border-radius:12px; padding:14px; display:flex; flex-direction:column; gap:8px; min-height:320px; }
+  .p-chat .rot { color:#56664f; margin-bottom:4px; }
+  .p-chat .m { max-width:90%; border-radius:12px; padding:9px 11px; font-size:13px; line-height:1.4; animation:s-rise .35s ease both; }
+  .p-chat .bot { align-self:flex-start; background:#fbf8f2; }
+  .p-chat .yo { align-self:flex-end; background:#4a6347; color:#fff; }
+  .p-demo .nota { grid-column:1 / -1; font-family:var(--mono); font-size:11px; color:#b5bfae; text-align:center; }
+
+  .p-seccion { padding-top:96px; padding-bottom:96px; }
+  .p-seccion h2 { font-family:var(--serif); font-weight:400; font-size:clamp(36px, 4vw, 56px); letter-spacing:-.02em; margin:12px 0 48px; line-height:1.02; max-width:16em; }
+  .p-tabs { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 260px), 1fr)); gap:12px; margin-bottom:28px; }
+  .p-tabs button { all:unset; cursor:pointer; padding:22px; border-radius:12px; border:1.5px solid var(--rule); display:flex; flex-direction:column; gap:8px; transition:all .2s; }
+  .p-tabs button[aria-selected="true"] { background:var(--card); border-color:var(--ink); }
+  .p-tabs button:focus-visible { outline:3px solid var(--green); }
+  .p-tabs .n { font-family:var(--mono); font-size:12px; color:var(--s-acento); }
+  .p-tabs .t { font-size:19px; font-weight:600; line-height:1.25; }
+  .p-detalle { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 380px), 1fr)); gap:40px; align-items:center; background:var(--card); border:1px solid var(--rule); border-radius:14px; padding:clamp(20px, 3vw, 36px); }
+  .p-detalle img { display:block; width:100%; aspect-ratio:16/10; object-fit:cover; border-radius:14px; background:var(--s-arena); }
+  .p-detalle h3 { font-family:var(--serif); font-weight:400; font-size:36px; line-height:1.05; margin:0 0 14px; }
+  .p-detalle p { font-size:17px; line-height:1.55; color:var(--s-texto); margin:0; }
+  .p-detalle [role="tabpanel"][hidden] { display:none; }
+  .p-pasos { background:var(--chip-bg); border-top:1px solid var(--rule); }
+  .p-pasos ol { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 280px), 1fr)); gap:40px; list-style:none; margin:0; padding:0; }
+  .p-pasos li { border-top:2px solid var(--ink); padding-top:20px; }
+  .p-pasos .num { font-family:var(--serif); font-size:64px; line-height:1; color:var(--s-acento); }
+  .p-pasos h3 { font-size:21px; margin:16px 0 8px; font-weight:600; }
+  .p-pasos p { font-size:16px; color:var(--s-texto); margin:0; }
+  .p-cierre { display:grid; grid-template-columns:repeat(auto-fit, minmax(min(100%, 420px), 1fr)); gap:56px; align-items:start; }
+  .p-cierre h2 { font-size:clamp(38px, 4.4vw, 62px); line-height:1; margin:0 0 20px; }
+  .p-cierre .bajada { font-size:18px; color:var(--s-texto); margin:0; max-width:24em; }
+  .p-form { background:var(--card); border:1px solid var(--rule); border-radius:14px; padding:26px; box-shadow:0 30px 60px -44px var(--s-sombra); display:flex; flex-direction:column; gap:10px; }
+  .p-form label { font-size:14px; font-weight:600; color:var(--ink); margin:6px 0 0; }
+  .p-form .dos { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  @media (max-width:520px) { .p-form .dos { grid-template-columns:1fr; } }
+  .p-form textarea { resize:vertical; }
+  .p-form .tenue { margin:4px 0 0; }
+  .p-form .s-boton { margin-top:8px; }
+  .trampa { position:absolute; left:-5000px; width:1px; height:1px; overflow:hidden; }
+  .p-listo .ok { width:44px; height:44px; border-radius:50%; background:var(--green); color:#fff; display:grid; place-items:center; font-size:20px; margin-bottom:16px; }
+  .p-listo h3 { font-family:var(--serif); font-weight:400; font-size:32px; line-height:1.05; margin:0 0 8px; }
+  .p-listo p { margin:0 0 20px; color:var(--s-texto); }
+</style>
 {% endblock %}
 {% block cuerpo %}
-<style>
-  .sumate { display:grid; grid-template-columns:1fr 1fr; gap:16px; align-items:start; }
-  .sumate ul { padding-left:20px; margin:0; }
-  .sumate li { margin-bottom:8px; }
-  .trampa { position:absolute; left:-5000px; width:1px; height:1px; overflow:hidden; }
-  select, textarea, input[type=email], input[type=tel] { width:100%; padding:8px 10px; border:1px solid var(--rule); border-radius:6px; font-size:1rem; background:var(--card); color:var(--ink); font-family:inherit; }
-  @media (max-width:720px) { .sumate { grid-template-columns:1fr; } }
-</style>
-<header>
-  <a href="{{ url_for('inicio') }}">FiBOT Consultorio</a>
-  <a href="{{ url_for('login') }}">Ingresar</a>
-</header>
-<main>
-  <div class="card">
-    <h1 style="margin-bottom:4px">Sumate como profesional</h1>
-    <p class="tenue" style="margin-top:0">Para psicólogos, psicopedagogos y profesionales de la salud mental.</p>
-  </div>
-  <div class="sumate">
-    <div class="card">
-      <h3>Qué tenés</h3>
-      <ul>
-        <li><strong>Tu página de turnos</strong>: tus pacientes ven tus horarios libres y reservan solos, y aparecés en el directorio.</li>
-        <li><strong>WhatsApp automático</strong>: confirmación, recordatorio la noche anterior, cancelaciones y lista de espera.</li>
-        <li><strong>Cobros</strong>: Mercado Pago o transferencia al reservar, recibos, constancias y planilla para obra social.</li>
-        <li><strong>Fichas de pacientes</strong>: notas de cada sesión, fechas importantes, contactos de emergencia y cuestionarios por link.</li>
-        <li><strong>Tu agenda</strong>: horario semanal, pacientes fijos, feriados y días bloqueados.</li>
-      </ul>
+<div class="p-oscuro">
+  {{ sitio.barra('sumate') }}
+  <section class="s-env p-hero">
+    <div>
+      <div class="s-rotulo">Psicología · psicopedagogía · salud mental</div>
+      <h1>Tu agenda se atiende sola. <i>Vos atendé a tus pacientes.</i></h1>
+      <p>Agenda, pacientes y cobros en un solo lugar, con un asistente que responde por WhatsApp: confirma, recuerda, reprograma y avisa cuando se libera un horario.</p>
+      <div class="p-acciones"><a class="s-boton p-claro" href="#sumate">Quiero sumarme</a>{% if ejemplo %}<a class="p-link" href="{{ url_for('publico', slug=ejemplo) }}">Ver una página de ejemplo</a>{% endif %}</div>
     </div>
-    <div class="card">
-      {% if enviado %}
-      <h3>¡Listo, gracias!</h3>
-      <p>Recibimos tus datos. Te escribimos en los próximos días para contarte cómo seguir.</p>
-      <a class="btn secundario" href="{{ url_for('inicio') }}" style="text-decoration:none">Volver al inicio</a>
-      {% else %}
-      <h3>Dejanos tus datos</h3>
-      {% if error %}<div class="error">{{ error }}</div>{% endif %}
-      <form method="post" action="{{ url_for('sumate') }}">
-        <label for="s-nombre">Nombre y apellido</label>
-        <input id="s-nombre" type="text" name="nombre" value="{{ datos.nombre or '' }}" maxlength="80" autocomplete="name" required>
-        <label for="s-profesion">Profesión</label>
-        <select id="s-profesion" name="profesion">
-          {% for p in profesiones %}<option {% if datos.profesion == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
-        </select>
-        <label for="s-whatsapp">WhatsApp</label>
-        <input id="s-whatsapp" type="tel" name="whatsapp" value="{{ datos.whatsapp or '' }}" placeholder="11 2345 6789" autocomplete="tel">
-        <label for="s-email">Mail</label>
-        <input id="s-email" type="email" name="email" value="{{ datos.email or '' }}" maxlength="120" autocomplete="email">
-        <label for="s-zona">¿Dónde atendés?</label>
-        <input id="s-zona" type="text" name="zona" value="{{ datos.zona or '' }}" maxlength="80" placeholder="Ej. Palermo, CABA · online">
-        <label for="s-mensaje">¿Algo que quieras contarnos? (opcional)</label>
-        <textarea id="s-mensaje" name="mensaje" rows="3" maxlength="600">{{ datos.mensaje or '' }}</textarea>
-        <div class="trampa" aria-hidden="true"><label>Web <input type="text" name="web" tabindex="-1" autocomplete="off"></label></div>
-        <p class="tenue">Con un WhatsApp o un mail alcanza. Sólo los usamos para contactarte por esto.</p>
-        <button class="btn" type="submit">Quiero sumarme</button>
-      </form>
-      {% endif %}
+    <div class="p-demo" role="img" aria-label="Ejemplo: el asistente le cambia el horario a una paciente por WhatsApp y la agenda se actualiza sola">
+      <div class="p-agenda" aria-hidden="true">
+        <div class="rot">HOY · JUEVES</div>
+        <ol>
+          <li><span class="h">10:00</span><span><b>Lucía M.</b><small class="ok">Confirmó ✓</small></span></li>
+          <li><span class="h">11:00</span><span><b>Pablo R.</b><small class="ok">Confirmó ✓</small></span></li>
+          <li data-antes="Sofía G.|Sin confirmar|" data-despues="Libre|Avisado a la lista de espera|ojo"><span class="h">17:00</span><span><b>Sofía G.</b><small>Sin confirmar</small></span></li>
+          <li><span class="h">18:00</span><span><b>Diego A.</b><small>Primera entrevista · video</small></span></li>
+          <li data-antes="Libre|—|" data-despues="Sofía G.|Reprogramado por WhatsApp|ok"><span class="h">19:00</span><span><b>Libre</b><small>—</small></span></li>
+        </ol>
+      </div>
+      <div class="p-chat" aria-hidden="true" id="p-chat">
+        <div class="rot">ASISTENTE · WHATSAPP</div>
+        <div class="m bot">Hola Sofía, te recuerdo tu sesión de hoy a las 17:00. ¿Confirmás?</div>
+        <div class="m yo">Uh, ¿se puede más tarde? Salgo 18:30 del trabajo</div>
+        <div class="m bot">Hay lugar a las 19:00. ¿Te lo cambio?</div>
+        <div class="m yo">Sí, dale, gracias</div>
+        <div class="m bot">Listo ✓ Hoy 19:00.</div>
+      </div>
+      <div class="nota" aria-hidden="true">Ejemplo con datos inventados</div>
+    </div>
+  </section>
+</div>
+
+<section class="s-env p-seccion">
+  <div class="s-rotulo">01 — Qué incluye</div>
+  <h2>Lo administrativo, resuelto sin que lo tengas que mirar.</h2>
+  {% set funciones = [
+    ('Tu página de reservas', 'Un perfil con tu enfoque, formación y temas, y la agenda con tus horarios libres. Tus pacientes eligen tipo de sesión, día y modalidad sin escribirte. Además aparecés en el directorio.'),
+    ('Recordatorios y confirmaciones por WhatsApp', 'El asistente confirma cada turno, manda el recordatorio el día anterior y resuelve cambios y cancelaciones dentro de las reglas que vos definas. Si se libera un horario, le avisa a tu lista de espera.'),
+    ('Cobros, recibos y obra social', 'Cobro con Mercado Pago o transferencia al reservar, recibos, constancias y la planilla lista para presentar a la obra social.'),
+    ('Ficha de cada paciente', 'Notas de cada sesión, fechas importantes, contactos de emergencia y cuestionarios por link, en un solo lugar. Solo vos ves los datos de tus pacientes.'),
+  ] %}
+  <div class="p-tabs" role="tablist" aria-label="Qué incluye">
+    {% for titulo, texto in funciones %}
+    <button type="button" role="tab" id="tab-{{ loop.index }}" aria-controls="panel-{{ loop.index }}" aria-selected="{{ 'true' if loop.first else 'false' }}" tabindex="{{ 0 if loop.first else -1 }}"><span class="n">0{{ loop.index }}</span><span class="t">{{ titulo }}</span></button>
+    {% endfor %}
+  </div>
+  <div class="p-detalle">
+    <img src="{{ url_for('static', filename='portada/pro.webp') }}" alt="" loading="lazy" width="960" height="600">
+    <div>
+      {% for titulo, texto in funciones %}
+      <div role="tabpanel" id="panel-{{ loop.index }}" aria-labelledby="tab-{{ loop.index }}"{% if not loop.first %} hidden{% endif %}><h3>{{ titulo }}</h3><p>{{ texto }}</p></div>
+      {% endfor %}
     </div>
   </div>
-</main>
+</section>
+
+<section class="p-pasos"><div class="s-env p-seccion">
+  <div class="s-rotulo">02 — Cómo arranca</div>
+  <h2 style="margin-bottom:56px">Sin migrar nada de golpe.</h2>
+  <ol>
+    <li><div class="num" aria-hidden="true">1</div><h3>Una charla corta</h3><p>Nos contás cómo trabajás hoy: horarios, tipos de sesión, cómo cobrás.</p></li>
+    <li><div class="num" aria-hidden="true">2</div><h3>Armamos tu página</h3><p>Con tu foto, tu enfoque y tu agenda. La compartís en Instagram, Google o por mensaje.</p></li>
+    <li><div class="num" aria-hidden="true">3</div><h3>El asistente empieza a contestar</h3><p>Tus pacientes actuales siguen igual; los turnos nuevos ya entran solos.</p></li>
+  </ol>
+</div></section>
+
+<section class="s-env p-seccion p-cierre" id="sumate">
+  <div>
+    <h2>¿Cuántos mensajes contestás por semana para coordinar un horario?</h2>
+    <p class="bajada">Contanos cómo trabajás y te mostramos cómo quedaría tu página, con tu agenda real. Te escribimos en los próximos días.</p>
+  </div>
+  <div class="p-form{% if enviado %} p-listo{% endif %}">
+    {% if enviado %}
+    <div class="ok" aria-hidden="true">✓</div>
+    <h3>¡Listo, gracias!</h3>
+    <p>Recibimos tus datos. Te escribimos en los próximos días para contarte cómo seguir.</p>
+    <a class="s-boton borde" href="{{ url_for('inicio') }}">Volver al inicio</a>
+    {% else %}
+    {% if error %}<div class="error" role="alert">{{ error }}</div>{% endif %}
+    <form method="post" action="{{ url_for('sumate') }}#sumate" style="display:contents">
+      <label for="s-nombre">Nombre y apellido</label>
+      <input class="s-campo" id="s-nombre" type="text" name="nombre" value="{{ datos.nombre or '' }}" maxlength="80" autocomplete="name" required>
+      <label for="s-profesion">Profesión</label>
+      <select class="s-campo" id="s-profesion" name="profesion">
+        {% for p in profesiones %}<option {% if datos.profesion == p %}selected{% endif %}>{{ p }}</option>{% endfor %}
+      </select>
+      <div class="dos">
+        <div style="display:flex;flex-direction:column;gap:10px"><label for="s-whatsapp">WhatsApp</label>
+          <input class="s-campo" id="s-whatsapp" type="tel" name="whatsapp" value="{{ datos.whatsapp or '' }}" placeholder="11 2345 6789" autocomplete="tel"></div>
+        <div style="display:flex;flex-direction:column;gap:10px"><label for="s-email">Mail</label>
+          <input class="s-campo" id="s-email" type="email" name="email" value="{{ datos.email or '' }}" maxlength="120" autocomplete="email"></div>
+      </div>
+      <label for="s-zona">¿Dónde atendés?</label>
+      <input class="s-campo" id="s-zona" type="text" name="zona" value="{{ datos.zona or '' }}" maxlength="80" placeholder="Ej. Palermo, CABA · online">
+      <label for="s-mensaje">¿Algo que quieras contarnos? <span style="font-weight:400;color:var(--muted)">(opcional)</span></label>
+      <textarea class="s-campo" id="s-mensaje" name="mensaje" rows="3" maxlength="600">{{ datos.mensaje or '' }}</textarea>
+      <div class="trampa" aria-hidden="true"><label>Web <input type="text" name="web" tabindex="-1" autocomplete="off"></label></div>
+      <p class="tenue">Con un WhatsApp o un mail alcanza. Sólo los usamos para contactarte por esto.</p>
+      <button class="s-boton" type="submit">Quiero sumarme</button>
+      <a href="{{ url_for('login') }}" style="text-align:center;font-size:15px;color:var(--ink);text-decoration:underline;text-underline-offset:4px">Ya tengo cuenta</a>
+    </form>
+    {% endif %}
+  </div>
+</section>
+{{ sitio.pie() }}
+
+<script>
+(function () {
+  // Pestañas de «Qué incluye» (con flechas del teclado).
+  var tabs = Array.prototype.slice.call(document.querySelectorAll('.p-tabs [role="tab"]'));
+  function elegir(tab) {
+    tabs.forEach(function (t) {
+      var on = t === tab;
+      t.setAttribute('aria-selected', on); t.tabIndex = on ? 0 : -1;
+      document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+    });
+  }
+  tabs.forEach(function (t, i) {
+    t.addEventListener('click', function () { elegir(t); });
+    t.addEventListener('keydown', function (e) {
+      var d = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : e.key === 'ArrowLeft' || e.key === 'ArrowUp' ? -1 : 0;
+      if (d) { e.preventDefault(); var n = tabs[(i + d + tabs.length) % tabs.length]; elegir(n); n.focus(); }
+    });
+  });
+
+  // Demo: el chat avanza y, cuando la paciente acepta, la agenda cambia.
+  if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+  var msjs = Array.prototype.slice.call(document.querySelectorAll('#p-chat .m'));
+  var filas = Array.prototype.slice.call(document.querySelectorAll('.p-agenda li[data-antes]'));
+  var n = 0;
+  function poner(li, datos) {
+    var p = datos.split('|');
+    li.querySelector('b').textContent = p[0];
+    var s = li.querySelector('small'); s.textContent = p[1]; s.className = p[2];
+    li.classList.toggle('cambio', li.dataset.despues === datos);
+  }
+  function tick() {
+    msjs.forEach(function (m, i) { m.style.display = i <= Math.min(n, 4) ? '' : 'none'; });
+    filas.forEach(function (li) { poner(li, n >= 4 ? li.dataset.despues : li.dataset.antes); });
+    n = (n + 1) % 7;
+  }
+  tick(); setInterval(tick, 1800);
+})();
+</script>
 {% endblock %}

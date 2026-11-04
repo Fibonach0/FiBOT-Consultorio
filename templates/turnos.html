@@ -1,74 +1,168 @@
 {% extends "base.html" %}
-{% block titulo %}{% if tema %}{{ temas[tema][0] }} — {% endif %}Sacar turno — FiBOT Consultorio{% endblock %}
+{% import "_sitio_macros.html" as sitio %}
+{% block titulo %}{% if tema %}{{ temas[tema][0] }} — {% endif %}Profesionales y turnos online — FiBOT Consultorio{% endblock %}
 {% block head %}
-<meta name="description" content="Profesionales de la salud mental con turnos online{% if tema %} que trabajan {{ temas[tema][0] | lower }}{% endif %}. Mirá su agenda y reservá presencial o por videollamada.">
+<meta name="description" content="Psicólogos y psicopedagogos con turnos online{% if tema %} que trabajan {{ temas[tema][0] | lower }}{% endif %}. Mirá sus horarios libres y reservá presencial o por videollamada.">
 <link rel="canonical" href="{{ url_for('turnos_directorio', tema=tema or None, _external=True) }}">
-{% if modalidad or obra %}<meta name="robots" content="noindex, follow">{% endif %}
+{% if modalidad or obra or especialidad or semana or orden == 'nombre' %}<meta name="robots" content="noindex, follow">{% endif %}
+{% include "_sitio.html" %}
+<style>
+  .d-cabeza { padding-top:40px; padding-bottom:32px; }
+  .d-cuerpo { display:flex; flex-wrap:wrap; gap:40px; align-items:flex-start; padding-bottom:96px; }
+  .d-filtros { display:flex; flex-direction:column; gap:28px; position:sticky; top:20px; flex:0 1 260px; }
+  @media (max-width:860px) { .d-filtros { position:static; flex:1 1 100%; } }
+  .d-filtros h2 { font-size:14px; font-weight:600; margin:0 0 10px; font-family:var(--sans); }
+  .d-esp { display:flex; flex-direction:column; gap:6px; }
+  .d-esp a { display:flex; justify-content:space-between; align-items:center; padding:11px 14px; border-radius:10px; border:1.5px solid var(--rule); color:var(--ink); font-size:15px; text-decoration:none; transition:all .2s; }
+  .d-esp a span { font-size:13px; color:var(--muted); }
+  .d-esp a[aria-current="true"] { border-color:var(--green-solid); background:var(--card); }
+  .d-temas { display:flex; flex-wrap:wrap; gap:6px; }
+  .d-temas a { font-size:14px; padding:7px 12px; border-radius:999px; border:1px solid var(--s-linea-2); color:var(--ink); text-decoration:none; }
+  .d-temas a:hover { border-color:var(--green); }
+  .d-temas a[aria-current="true"] { background:var(--green-solid); border-color:var(--green-solid); color:var(--on-green); }
+  .d-obra { display:flex; gap:6px; }
+  .d-obra .s-campo { padding:10px 12px; }
+  .d-obra button { all:unset; cursor:pointer; padding:0 14px; border-radius:10px; background:var(--s-arena); font-size:14px; }
+  .d-semana { display:flex; align-items:center; justify-content:space-between; gap:12px; font-size:15px; padding:14px 16px; border:1px solid var(--rule); border-radius:10px; background:var(--card); color:var(--ink); text-decoration:none; }
+  .d-semana .llave { width:36px; height:20px; border-radius:999px; background:var(--s-linea-2); position:relative; flex:none; transition:background .2s; }
+  .d-semana .llave::after { content:""; position:absolute; top:2px; left:2px; width:16px; height:16px; border-radius:50%; background:#fff; transition:left .2s; }
+  .d-semana[aria-checked="true"] .llave { background:var(--green); }
+  .d-semana[aria-checked="true"] .llave::after { left:18px; }
+  .d-lista { flex:1 1 600px; min-width:0; }
+  .d-barra { display:flex; justify-content:space-between; align-items:center; gap:12px; flex-wrap:wrap; padding-bottom:16px; border-bottom:1px solid var(--rule); margin-bottom:16px; font-size:15px; color:var(--s-texto); }
+  .d-orden { display:flex; gap:16px; font-size:14px; }
+  .d-orden a { color:var(--muted); text-decoration:none; }
+  .d-orden a[aria-current="true"] { color:var(--ink); text-decoration:underline; text-underline-offset:4px; }
+  .d-pros { display:flex; flex-direction:column; gap:14px; list-style:none; margin:0; padding:0; }
+  .d-pro { display:grid; grid-template-columns:140px minmax(0, 1fr) minmax(0, 260px); gap:24px; background:var(--card); border:1px solid var(--rule); border-radius:10px; padding:16px; animation:s-rise .3s ease both; }
+  .d-foto { text-decoration:none; position:relative; border-radius:8px; background:repeating-linear-gradient(135deg, var(--s-arena) 0 6px, var(--s-arena-2) 6px 12px); min-height:150px; display:grid; place-items:center; font-family:var(--serif); font-size:56px; color:var(--muted); overflow:hidden; }
+  .d-foto img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; }
+  .d-datos { display:flex; flex-direction:column; gap:8px; padding:4px 0; min-width:0; }
+  .d-datos .nombre { font-family:var(--serif); font-size:28px; line-height:1.05; color:var(--ink); text-decoration:none; }
+  .d-datos .nombre:hover { color:var(--s-acento); }
+  .d-datos .linea { display:flex; gap:8px; align-items:center; flex-wrap:wrap; font-size:14px; color:var(--muted); }
+  .d-datos p { margin:2px 0; font-size:16px; line-height:1.45; color:var(--ink); }
+  .d-datos .chips { display:flex; flex-wrap:wrap; gap:6px; margin-top:auto; }
+  .d-turnos { border-left:1px solid var(--rule); padding-left:20px; display:flex; flex-direction:column; gap:8px; }
+  .d-turnos .rot { font-family:var(--mono); font-size:11px; color:var(--muted); letter-spacing:.04em; text-transform:uppercase; }
+  .d-libres { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .d-libres a { font-size:14px; text-align:center; padding:8px 4px; border-radius:6px; background:var(--s-salvia); color:var(--s-salvia-texto); text-decoration:none; transition:background .2s; }
+  .d-libres a:hover { background:var(--green-solid); color:var(--on-green); }
+  .d-turnos .extra { font-size:13px; color:var(--muted); margin-top:auto; }
+  .d-turnos .ver { font-size:15px; font-weight:600; text-decoration:none; }
+  .d-turnos .pausa { font-size:14px; color:var(--s-texto); margin:0; }
+  @media (max-width:860px) {
+    .d-pro { grid-template-columns:96px minmax(0, 1fr); gap:16px; }
+    .d-foto { min-height:0; aspect-ratio:1; font-size:40px; }
+    .d-turnos { grid-column:1 / -1; border-left:0; padding-left:0; border-top:1px solid var(--rule); padding-top:14px; }
+    .d-libres { grid-template-columns:repeat(4, 1fr); }
+    .d-datos .nombre { font-size:24px; }
+  }
+  @media (max-width:480px) { .d-libres { grid-template-columns:1fr 1fr; } }
+  .d-vacio { border:1px dashed var(--s-linea-2); border-radius:10px; padding:40px; text-align:center; }
+  .d-vacio h2 { font-family:var(--serif); font-weight:400; font-size:28px; margin:0 0 8px; }
+  .d-vacio p { margin:0 0 18px; color:var(--s-texto); }
+</style>
 {% endblock %}
 {% block cuerpo %}
-<style>
-  .profesionales { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; }
-  .profesional { display:flex; flex-direction:column; gap:6px; text-decoration:none; color:inherit; }
-  .profesional:hover { border-color:var(--green); }
-  .profesional .rubro { color:var(--muted); font-size:.9rem; }
-  .profesional .temas { display:flex; flex-wrap:wrap; gap:4px; }
-  .filtros { display:grid; grid-template-columns:1.2fr 1fr 1.2fr auto; gap:10px; align-items:end; }
-  .filtros select { width:100%; padding:8px 10px; border:1px solid var(--rule); border-radius:6px; font-size:1rem; background:var(--card); color:var(--ink); }
-  .filtros label { margin-top:0; }
-  @media (max-width:720px) { .filtros { grid-template-columns:1fr; } }
-</style>
-<header>
-  <a href="{{ url_for('inicio') }}">FiBOT Consultorio</a>
-  <span>Turnos</span>
-</header>
-<main>
-  <div class="card">
-    <h1 style="margin-bottom:4px">{% if tema %}{{ temas[tema][0] }}{% else %}Sacá tu turno{% endif %}</h1>
-    <p style="color:var(--muted);margin-top:0">Elegí con quién y después el día y la hora. No hace falta escribir por WhatsApp.</p>
-    {% if hay_profesionales %}
-    <form class="filtros" method="get" action="{{ url_for('turnos_directorio') }}" role="search">
-      <div><label for="f-tema">Tema</label>
-        <select id="f-tema" name="tema"><option value="">Cualquier tema</option>
-          {% for clave, t in temas.items() %}<option value="{{ clave }}" {% if clave == tema %}selected{% endif %}>{{ t[0] }}</option>{% endfor %}
-        </select></div>
-      <div><label for="f-modalidad">Modalidad</label>
-        <select id="f-modalidad" name="modalidad"><option value="">Cualquiera</option>
-          <option value="presencial" {% if modalidad == 'presencial' %}selected{% endif %}>Presencial</option>
-          <option value="virtual" {% if modalidad == 'virtual' %}selected{% endif %}>Por videollamada</option>
-        </select></div>
-      <div><label for="f-obra">Obra social o prepaga</label>
-        <input id="f-obra" type="text" name="obra" value="{{ obra }}" placeholder="Ej. OSDE" autocomplete="off"></div>
-      <div style="display:flex;gap:8px"><button class="btn" type="submit">Buscar</button>
-        {% if filtrando %}<a class="btn secundario" href="{{ url_for('turnos_directorio') }}" style="text-decoration:none">Ver todos</a>{% endif %}</div>
-    </form>
-    {% endif %}
-  </div>
-  {% if profesionales %}
-  {% if filtrando %}<p class="tenue">{{ profesionales|length }} {{ 'profesional' if profesionales|length == 1 else 'profesionales' }}</p>{% endif %}
-  <div class="profesionales">
-    {% for t in profesionales %}
-    <a class="card profesional" href="{{ url_for('publico', slug=t.slug) }}">
-      <div style="display:flex;gap:12px;align-items:center">
-        {% if t.foto %}<img src="{{ t.foto }}" alt="" width="64" height="64" style="width:64px;height:64px;border-radius:50%;object-fit:cover;flex:none">{% endif %}
-        <div>
-          <strong style="font-size:1.1rem">{{ t.nombre }}</strong>
-          {% if t.titulo %}<div class="rubro">{{ t.titulo }}</div>{% elif t.rubro %}<div class="rubro" style="text-transform:capitalize">{{ t.rubro }}</div>{% endif %}
+{% macro url_f(cambios) %}{{ url_for('turnos_directorio', **dict(f, **cambios)) }}{% endmacro %}
+{{ sitio.barra('turnos') }}
+<main class="s-main">
+  <section class="d-cabeza">
+    <div class="s-rotulo">Profesionales</div>
+    <h1 class="s-titular">{% if tema %}{{ temas[tema][0] }}.{% else %}Elegí con quién hablar.{% endif %}</h1>
+    <p class="s-bajada">{% if tema %}{{ temas[tema][1] }} Estos profesionales lo mencionan en su perfil.{% else %}Psicólogos y psicopedagogos. Filtrá por especialidad, por lo que te pasa y por cómo preferís atenderte. Los horarios que ves están libres ahora.{% endif %}</p>
+  </section>
+
+  {% if hay_profesionales %}
+  <div class="d-cuerpo">
+    <aside class="d-filtros" aria-label="Filtros">
+      <div>
+        <h2>Especialidad</h2>
+        <div class="d-esp">
+          <a href="{{ url_f({'especialidad': None, 'tema': None}) }}" aria-current="{{ 'true' if not especialidad else 'false' }}">Todas <span>{{ cuenta_esp[''] }}</span></a>
+          {% for k, nombre in especialidades.items() %}
+          <a href="{{ url_f({'especialidad': k, 'tema': None}) }}" aria-current="{{ 'true' if especialidad == k else 'false' }}">{{ nombre }} <span>{{ cuenta_esp[k] }}</span></a>
+          {% endfor %}
         </div>
       </div>
-      {% if t.descripcion %}<span>{{ t.descripcion }}</span>{% endif %}
-      {% if t.enfoques %}<div class="temas">{% for x in t.enfoques[:4] %}<span class="chip" style="margin-left:0">{{ x }}</span>{% endfor %}</div>{% endif %}
-      <span class="rubro">{% if t.ubicacion %}{{ t.ubicacion }} · {% endif %}{% if t.modalidades_publicas == 'virtual' %}Por videollamada{% elif t.modalidades_publicas == 'ambas' %}Presencial o videollamada{% else %}Presencial{% endif %}</span>
-      {% if t.obras_sociales %}<span class="rubro">Obras sociales: {{ t.obras_sociales }}</span>{% endif %}
-      {% if t.pausado %}<span class="rubro">Por ahora no toma turnos nuevos</span>
-      <span class="btn secundario" style="align-self:flex-start;margin-top:6px">Anotarme en la lista de espera</span>
-      {% else %}<span class="btn" style="align-self:flex-start;margin-top:6px">Ver calendario</span>{% endif %}
-    </a>
-    {% endfor %}
+      <div>
+        <h2>Qué te trae</h2>
+        <div class="d-temas">
+          {% for k in temas_esp %}
+          <a href="{{ url_f({'tema': None if tema == k else k}) }}" aria-current="{{ 'true' if tema == k else 'false' }}">{{ temas[k][0] }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      <div>
+        <h2>Modalidad</h2>
+        <div class="s-seg">
+          {% for k, nombre in [('', 'Todas'), ('presencial', 'Presencial'), ('virtual', 'Online')] %}
+          <a href="{{ url_f({'modalidad': k or None}) }}" aria-current="{{ 'true' if modalidad == k else 'false' }}">{{ nombre }}</a>
+          {% endfor %}
+        </div>
+      </div>
+      <form method="get" action="{{ url_for('turnos_directorio') }}" role="search">
+        {% for k, v in f.items() if v and k != 'obra' %}<input type="hidden" name="{{ k }}" value="{{ v }}">{% endfor %}
+        <h2><label for="f-obra" style="margin:0;font-size:inherit;color:inherit">Obra social o prepaga</label></h2>
+        <div class="d-obra"><input class="s-campo" id="f-obra" type="text" name="obra" value="{{ obra }}" placeholder="Ej. OSDE" autocomplete="off"><button type="submit">Buscar</button></div>
+      </form>
+      <a class="d-semana" role="switch" aria-checked="{{ 'true' if semana else 'false' }}" href="{{ url_f({'semana': None if semana else '1'}) }}">Con turno esta semana <span class="llave" aria-hidden="true"></span></a>
+    </aside>
+
+    <div class="d-lista">
+      <div class="d-barra">
+        <span>{{ profesionales|length }} {{ 'profesional' if profesionales|length == 1 else 'profesionales' }}{% if tema %} · {{ temas[tema][0] | lower }}{% endif %}</span>
+        <span class="d-orden"><span style="color:var(--muted)">Ordenar:</span>
+          <a href="{{ url_f({'orden': None}) }}" aria-current="{{ 'true' if orden == 'turno' else 'false' }}">Próximo turno</a>
+          <a href="{{ url_f({'orden': 'nombre'}) }}" aria-current="{{ 'true' if orden == 'nombre' else 'false' }}">Nombre</a>
+        </span>
+      </div>
+      {% if profesionales %}
+      <ul class="d-pros">
+        {% for t in profesionales %}
+        <li class="d-pro">
+          <a class="d-foto" href="{{ url_for('publico', slug=t.slug) }}" tabindex="-1" aria-hidden="true">{{ t.nombre | replace('Lic. ', '') | first | upper }}{% if t.foto %}<img src="{{ url_for('publico_foto', slug=t.slug) }}" alt="" loading="lazy">{% endif %}</a>
+          <div class="d-datos">
+            <a class="nombre" href="{{ url_for('publico', slug=t.slug) }}">{{ t.nombre }}</a>
+            <div class="linea">
+              {% if t.rubro %}<span class="s-etiqueta{% if t._especialidad == 'psicopedagogia' %} pp{% endif %}">{{ t.rubro }}</span>{% endif %}
+              <span>{{ [t.titulo, t.ubicacion or ('Online' if t.modalidades_publicas == 'virtual' else none)] | select | join(' · ') }}</span>
+            </div>
+            {% if t.descripcion %}<p>{{ t.descripcion }}</p>{% endif %}
+            {% if t.enfoques %}<div class="chips">{% for x in t.enfoques[:4] %}<span class="s-chip">{{ x }}</span>{% endfor %}</div>{% endif %}
+          </div>
+          <div class="d-turnos">
+            {% if t.pausado %}
+            <div class="rot">Por ahora no toma turnos nuevos</div>
+            <p class="pausa">Podés anotarte en la lista de espera y te avisa cuando vuelva a haber horarios.</p>
+            <a class="ver" href="{{ url_for('publico', slug=t.slug) }}#espera">Anotarme →</a>
+            {% elif t._proximos %}
+            <div class="rot">Próximos libres</div>
+            <div class="d-libres">{% for h in t._proximos %}<a href="{{ h.url }}" aria-label="Reservar {{ h.texto }} con {{ t.nombre }}">{{ h.texto }}</a>{% endfor %}</div>
+            <div class="extra">{% if t.modalidades_publicas == 'virtual' %}Por videollamada{% elif t.modalidades_publicas == 'ambas' %}Presencial u online{% else %}Presencial{% endif %}{% if t.obras_sociales %} · {{ t.obras_sociales }}{% endif %}</div>
+            <a class="ver" href="{{ url_for('publico', slug=t.slug) }}">Ver perfil →</a>
+            {% else %}
+            <div class="rot">Sin horarios libres por ahora</div>
+            <div class="extra">{% if t.obras_sociales %}{{ t.obras_sociales }}{% endif %}</div>
+            <a class="ver" href="{{ url_for('publico', slug=t.slug) }}">Ver perfil →</a>
+            {% endif %}
+          </div>
+        </li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <div class="d-vacio">
+        <h2>No encontramos profesionales con todos los filtros.</h2>
+        <p>Probá sacar alguno, o anotate en la lista de espera de un profesional y te avisa por WhatsApp.</p>
+        <a class="s-boton" href="{{ url_for('turnos_directorio') }}">Limpiar filtros</a>
+      </div>
+      {% endif %}
+    </div>
   </div>
-  {% elif filtrando %}
-  <div class="card"><p style="color:var(--muted);margin:0">No encontramos profesionales con esa búsqueda. Probá sacando algún filtro o <a href="{{ url_for('turnos_directorio') }}">mirá todos</a>.</p></div>
   {% else %}
-  <div class="card"><p style="color:var(--muted)">Todavía no hay profesionales con turnos online.</p></div>
+  <div class="d-vacio" style="margin-bottom:96px"><h2>Todavía no hay profesionales con turnos online.</h2><p>Volvé a pasar en unos días.</p></div>
   {% endif %}
 </main>
+{{ sitio.pie() }}
 {% endblock %}

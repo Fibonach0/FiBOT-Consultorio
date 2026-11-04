@@ -193,6 +193,17 @@ campo trampa (`web`) para robots y cuenta 5 envíos por IP cada 15 minutos en
 «Quieren sumarse» de /admin («Ya lo contacté»). El alta sigue siendo a mano.
 `sumate` está en `SLUGS_RESERVADOS`.
 
+Estilo del sitio para pacientes (Claude Design: `Profesionales`, `Perfil`, `Para profesionales`):
+`templates/_sitio.html` (letras, paleta clara y oscura con `:root:root` porque base define sus
+colores después; el verde no se pisa si hay `color_pagina`) y `_sitio_macros.html` (`barra`, `pie`).
+Lo usan `/turnos`, `/sumate`, `/<slug>` y `publico_reservar/revisar/confirmado`; siguen extendiendo
+base (menú «Aa», oscuro). `/turnos` filtra además por `especialidad` (rubro psicología /
+psicopedagogía), `semana=1` (primer libre en 7 días) y `orden` (próximo turno por defecto, o nombre);
+cada tarjeta muestra hasta 4 próximos libres (`app._proximos_libres`, 60 s en memoria) que llevan
+directo a reservar, o a la semana si hay varios tipos de turno. En `/<slug>` el calendario va a la
+derecha: se elige el día y se ven sus horarios (sin JS, todos los días). Las fotos van por
+`/<slug>/foto`, nunca como data URL en listados.
+
 SEO: `/robots.txt` (cierra panel, admin, login y los links con token) y
 `/sitemap.xml` (portada, /turnos, /sumate, /privacidad y cada `/<slug>` del
 directorio). La portada lleva JSON-LD `WebSite`; `/<slug>` lleva descripción,

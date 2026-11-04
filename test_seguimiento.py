@@ -3679,7 +3679,7 @@ _maniana = next((t for t in _nuevos if _loc(t).hour < 13), None)
 web6 = app.app.test_client()
 if _tarde:
     html = web6.get(f"/marcos?semana={_loc(_tarde).date().isoformat()}").data.decode()
-    chequear("modalidad por franja: el calendario lo marca", "· video" in html)
+    chequear("modalidad por franja: el calendario lo marca", "<small>video</small>" in html)
     chequear("modalidad por franja: el formulario no deja elegir", "Este horario es por videollamada" in
              web6.get(f"/marcos/reservar/{_tarde['id']}").data.decode())
     web6.post(f"/marcos/reservar/{_tarde['id']}", data={"nombre": "Ana", "telefono": "5491100003333", "modalidad": "presencial",

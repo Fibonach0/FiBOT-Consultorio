@@ -38,6 +38,7 @@ TENANTS = [
      "rubro": "psicopedagogía", "modalidades_publicas": "virtual"},
 ]
 db.tenants_activos = lambda: TENANTS
+db.turnos_libres = lambda *a, **k: []
 
 # ---- portada
 html = client.get("/").data.decode()
@@ -73,8 +74,41 @@ assert "Lic. Beto Pausa" in html and "Lic. Ana Pérez" not in html and "Infancia
 html = client.get("/turnos?obra=ioma").data.decode()
 assert "No encontramos profesionales" in html and "noindex" in html
 html = client.get("/turnos?tema=<script>").data.decode()
-assert "<h1 style=\"margin-bottom:4px\">Sacá tu turno</h1>" in html and "Lic. Ana Pérez" in html
+assert "Elegí con quién hablar." in html and "Lic. Ana Pérez" in html
 print("/turnos filtra por tema (sin tildes, también por rubro), modalidad y obra social OK")
+
+# ---- /turnos con el diseño nuevo: especialidad, próximos libres, esta semana y orden
+from datetime import datetime as _dt, timedelta as _td
+from zoneinfo import ZoneInfo as _Z
+_ahora = _dt.now(_Z("UTC"))
+LIBRES = {"t1": [{"id": "a1", "inicio": (_ahora + _td(days=10)).isoformat()}],
+          "t4": []}
+db.turnos_libres = lambda tid, desde, limite=8: LIBRES.get(tid, [])[:limite]
+app._proximos_cache.clear()
+html = client.get("/turnos").data.decode()
+assert "/anaperez/reservar/a1" in html and "Próximos libres" in html          # el horario lleva directo a reservar
+assert "Por ahora no toma turnos nuevos" in html                              # Beto está pausado
+assert html.index("Lic. Ana Pérez") < html.index("Lic. Beto Pausa")           # con turno, primero
+html = client.get("/turnos?especialidad=psicopedagogia").data.decode()
+assert "Lic. Beto Pausa" in html and "Lic. Ana Pérez" not in html and "Lectoescritura" in html
+assert "Psicología <span>1</span>" in html and "Psicopedagogía <span>1</span>" in html
+html = client.get("/turnos?semana=1").data.decode()                           # Ana tiene el primero a 10 días
+assert "No encontramos profesionales" in html and "noindex" in html
+LIBRES["t1"] = [{"id": "a2", "inicio": (_ahora + _td(days=2)).isoformat()}]
+app._proximos_cache.clear()
+html = client.get("/turnos?semana=1").data.decode()
+assert "Lic. Ana Pérez" in html and "Lic. Beto Pausa" not in html
+html = client.get("/turnos?orden=nombre&tema=ansiedad").data.decode()
+assert 'href="/turnos?tema=ansiedad"' in html                                 # «Próximo turno» saca el orden, deja el tema
+assert 'href="/turnos?tema=ansiedad&amp;orden=nombre" aria-current="true"' in html
+# con varios tipos de turno, el horario lleva a la semana (primero se elige el tipo)
+ANA["tipos_turno"] = [{"nombre": "Sesión", "minutos": 45}, {"nombre": "Entrevista", "minutos": 90}]
+app._proximos_cache.clear()
+html = client.get("/turnos").data.decode()
+assert "/anaperez/reservar/a2" not in html and "/anaperez?semana=" in html
+ANA.pop("tipos_turno")
+app._proximos_cache.clear()
+print("/turnos: especialidad, próximos libres con link, esta semana y orden OK")
 
 # ---- sumate
 guardados, avisos = [], []

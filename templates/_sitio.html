@@ -1,0 +1,75 @@
+{#- Estilo del sitio para pacientes (diseño «Home» de Claude Design): letras,
+    paleta y piezas comunes. Va en {% block head %} de las páginas que ve el
+    paciente o quien llega desde la portada. base.html define sus colores
+    DESPUÉS de este bloque, por eso acá van con :root:root (pesa más).
+    El verde no se pisa si el profesional eligió color para su página
+    (_color_pagina.html). -#}
+{% set pal_sitio = colores_pagina.get(tenant.color_pagina) if tenant is defined and tenant and tenant.color_pagina else none %}
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;1,6..72,400&family=Hanken+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root:root {
+    --ink:#2a2620; --muted:#6e6559; --rule:#e2d9ca; --cream:#f4efe6; --card:#fbf8f2; --chip-bg:#ebe4d8; --hover:#efe8dc;
+    {% if not (pal_sitio and pal_sitio.claro) %}--green:#4a6347; --green-solid:#2f3a2c; --green-bg:#e3e8dc; --green-mid:#5f7a5c;{% endif %}
+    --s-texto:#4d463c; --s-arena:#e8e0d2; --s-arena-2:#e0d5c2; --s-acento:#9a5c3e; --s-rosa:#f1e2d6; --s-rosa-texto:#7a4329;
+    --s-salvia:#e3e8dc; --s-salvia-texto:#33502f; --s-linea-2:#d6cdbd; --s-sombra:rgba(60,45,20,.4);
+    --serif:'Newsreader', Georgia, serif; --sans:'Hanken Grotesk', system-ui, -apple-system, sans-serif; --mono:'IBM Plex Mono', ui-monospace, monospace;
+  }
+  :root:root[data-modo="oscuro"] {
+    --ink:#ece6da; --muted:#b0a898; --rule:#3a362f; --cream:#1a1916; --card:#23211d; --chip-bg:#2e2b26; --hover:#2a2823;
+    {% if not (pal_sitio and pal_sitio.claro) %}--green:#a9c79f; --green-solid:#3e5a3b; --green-bg:#26302a; --green-mid:#5f7a5c;{% endif %}
+    --s-texto:#cfc7b8; --s-arena:#2e2b26; --s-arena-2:#38342d; --s-acento:#e0a084; --s-rosa:#3a2a22; --s-rosa-texto:#e8b9a0;
+    --s-salvia:#26302a; --s-salvia-texto:#b9cdb0; --s-linea-2:#4a453c; --s-sombra:rgba(0,0,0,.6);
+  }
+  @media (prefers-color-scheme: dark) { :root:root[data-modo="auto"] {
+    --ink:#ece6da; --muted:#b0a898; --rule:#3a362f; --cream:#1a1916; --card:#23211d; --chip-bg:#2e2b26; --hover:#2a2823;
+    {% if not (pal_sitio and pal_sitio.claro) %}--green:#a9c79f; --green-solid:#3e5a3b; --green-bg:#26302a; --green-mid:#5f7a5c;{% endif %}
+    --s-texto:#cfc7b8; --s-arena:#2e2b26; --s-arena-2:#38342d; --s-acento:#e0a084; --s-rosa:#3a2a22; --s-rosa-texto:#e8b9a0;
+    --s-salvia:#26302a; --s-salvia-texto:#b9cdb0; --s-linea-2:#4a453c; --s-sombra:rgba(0,0,0,.6);
+  } }
+  body { font-family:var(--sans); -webkit-font-smoothing:antialiased; line-height:1.5; }
+  a { color:var(--green); }
+  .s-env { max-width:1240px; margin:0 auto; padding-left:32px; padding-right:32px; }
+  @media (max-width:600px) { .s-env { padding-left:16px; padding-right:16px; } }
+  main.s-main { max-width:1240px; padding:0 32px; }
+  @media (max-width:600px) { main.s-main { padding:0 16px; } }
+
+  header.s-barra { background:none; color:var(--ink); max-width:1240px; margin:0 auto; padding:22px 32px; display:flex; align-items:center; justify-content:space-between; gap:24px; flex-wrap:wrap; }
+  @media (max-width:600px) { header.s-barra { padding:18px 16px; } }
+  header.s-barra a { color:var(--ink); font-weight:400; text-decoration:none; }
+  header.s-barra a:hover { color:var(--s-acento); }
+  .s-marca { display:flex; align-items:center; gap:10px; font-size:17px; }
+  .s-marca .logo { width:30px; height:30px; background:var(--green-solid); color:var(--on-green); display:grid; place-items:center; font-weight:700; font-size:14px; border-radius:4px; }
+  .s-marca .sub { color:var(--muted); }
+  .s-nav { display:flex; align-items:center; gap:28px; font-size:15px; flex-wrap:wrap; }
+  header.s-barra .s-nav a.activo { color:var(--s-acento); font-weight:600; }
+  header.s-barra .s-nav a.ingresar { border:1px solid var(--ink); padding:8px 16px; border-radius:999px; }
+  @media (max-width:720px) { .s-nav .opcional { display:none; } }
+
+  .s-rotulo { font-family:var(--mono); font-size:13px; color:var(--muted); letter-spacing:.02em; }
+  .s-titular { font-family:var(--serif); font-weight:400; font-size:clamp(42px, 5vw, 68px); letter-spacing:-.025em; line-height:1; margin:12px 0 14px; }
+  .s-titular i { color:var(--s-acento); }
+  .s-bajada { font-size:18px; color:var(--s-texto); margin:0; max-width:34em; }
+  .s-boton { display:inline-block; background:var(--green-solid); color:var(--on-green); padding:14px 24px; border-radius:999px; font-weight:600; font-size:16px; border:0; cursor:pointer; font-family:inherit; text-decoration:none; text-align:center; transition:transform .25s, background .25s; }
+  .s-boton:hover { transform:translateY(-2px); color:var(--on-green); background:var(--green); }
+  .s-boton.borde { background:transparent; color:var(--ink); border:1px solid var(--ink); }
+  .s-boton.borde:hover { background:var(--s-arena); color:var(--ink); }
+  main .btn { border-radius:999px; padding:11px 20px; font-family:inherit; font-weight:600; }
+  main .btn.secundario { border-color:var(--ink); color:var(--ink); background:transparent; }
+  .s-chip { display:inline-block; font-size:13px; padding:4px 10px; border-radius:999px; background:var(--chip-bg); color:var(--ink); }
+  .s-etiqueta { display:inline-block; font-size:12px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; padding:4px 9px; border-radius:999px; background:var(--s-salvia); color:var(--s-salvia-texto); }
+  .s-etiqueta.pp { background:var(--s-rosa); color:var(--s-rosa-texto); }
+  .s-seg { display:flex; background:var(--s-arena); border-radius:999px; padding:3px; }
+  .s-seg a, .s-seg button { all:unset; cursor:pointer; flex:1; text-align:center; font-size:14px; padding:8px 6px; border-radius:999px; color:var(--muted); transition:background .2s; }
+  .s-seg a[aria-current="true"], .s-seg button[aria-pressed="true"] { background:var(--card); color:var(--ink); box-shadow:0 1px 2px rgba(0,0,0,.08); }
+  .s-seg a:focus-visible, .s-seg button:focus-visible { outline:3px solid var(--green); }
+  .s-campo { width:100%; padding:13px 14px; border:1px solid var(--s-linea-2); border-radius:10px; background:var(--card); color:var(--ink); font:inherit; font-size:15px; }
+  .s-campo:focus { outline:2px solid var(--green); outline-offset:1px; }
+
+  footer.s-pie { max-width:1240px; margin:0 auto; padding:32px; border-top:1px solid var(--rule); display:flex; justify-content:space-between; gap:16px; flex-wrap:wrap; font-size:14px; color:var(--muted); }
+  footer.s-pie nav { display:flex; gap:20px; flex-wrap:wrap; }
+  footer.s-pie a { color:var(--muted); }
+  @keyframes s-rise { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:none } }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
+</style>
