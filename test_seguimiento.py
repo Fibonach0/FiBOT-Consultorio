@@ -3888,6 +3888,31 @@ chequear("token de prueba: lo valida, lo guarda cifrado y sin refresh",
 _pg.requests.get, _pg.config.MP_PRUEBA = _get_prev, _prueba_prev
 _t1.update(_guardado)
 
+# vuelta de Mercado Pago con error: mensaje claro y nada guardado
+def _vuelta(qs, state="st-ok"):
+    with client.session_transaction() as s_:
+        s_["mp_state"] = state
+    return client.get("/mercadopago/vuelta?" + qs, follow_redirects=True).data.decode()
+TABLAS["actividad"] = []
+_html = _vuelta("error=access_denied&state=st-ok")
+chequear("vuelta MP: cancelar se explica", "Cancelaste la conexión" in _html and _t1["mp_token_cifrado"] == _guardado["mp_token_cifrado"])
+_html = _vuelta("error=invalid_client%3Cb%3E&state=st-ok")
+chequear("vuelta MP: otro error dice qué probar y el código limpio", "no dejó conectar tu cuenta" in _html
+         and "ventana privada" in _html and "invalid_clientb" in _html and "<b>" not in _html.split("Mercado Pago dijo")[1][:40])
+chequear("vuelta MP: el intento queda en la actividad", any("no pudo conectar Mercado Pago" in (a.get("accion") or a.get("detalle") or str(a))
+                                                            for a in TABLAS["actividad"]), TABLAS["actividad"])
+_html = _vuelta("code=abc&state=otro")
+chequear("vuelta MP: state que no coincide explica que vuelva a tocar", "venció o se abrió en otro navegador" in _html)
+_html = _vuelta("state=st-ok")
+chequear("vuelta MP: sin código dice qué probar", "no dejó conectar tu cuenta" in _html)
+_post_prev = _pg.requests.post
+_pg.requests.post = lambda url, json=None, headers=None, timeout=None: _RMP(400, {"error": "invalid_grant"})
+_html = _vuelta("code=abc&state=st-ok")
+chequear("vuelta MP: el canje rechazado muestra el motivo y qué probar", "no aceptó la conexión (invalid_grant)" in _html
+         and "ventana privada" in _html)
+_pg.requests.post = _post_prev
+_t1.update(_guardado)
+
 # seña
 chequear("seña: cobra la seña por sesión", _pg.monto_de({"cobro_modo": "sena", "sena_monto": 10000}, 25000, 3) == 30000
          and _pg.monto_de({"cobro_modo": "total"}, 25000, 2) == 50000 and _pg.monto_de({"cobro_modo": "total"}, None) is None)

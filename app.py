@@ -4942,14 +4942,39 @@ def mp_vuelta():
     """Vuelta del login de Mercado Pago. El `state` tiene que ser el que se
     guardó en la sesión de ESTE profesional."""
     state = session.pop("mp_state", None)
-    if not state or not hmac.compare_digest(state, request.args.get("state") or "") or not request.args.get("code"):
-        flash("No se pudo conectar Mercado Pago. Probá de nuevo.")
-        return redirect(url_for("agenda"))
+    volver = redirect(url_for("agenda") + "#cobros")
+    motivo = _codigo_mp(request.args.get("error"))
+    if motivo:
+        # Mercado Pago vuelve con ?error=… cuando la persona cancela o cuando
+        # no deja autorizar la cuenta. Nunca se guarda nada de la cuenta.
+        db.registrar_actividad("profesional", f"no pudo conectar Mercado Pago ({motivo})", session["tenant_id"])
+        flash(MP_CANCELADO if motivo == "access_denied" else MP_NO_DEJO + f" (Mercado Pago dijo: {motivo}.)")
+        return volver
+    if not state or not hmac.compare_digest(state, request.args.get("state") or ""):
+        flash("El link para conectar Mercado Pago venció o se abrió en otro navegador. "
+              "Tocá «Conectar Mercado Pago» de nuevo desde este mismo navegador.")
+        return volver
+    if not request.args.get("code"):
+        flash(MP_NO_DEJO)
+        return volver
     error = pagos.conectar(session["tenant_id"], request.args["code"], url_for("mp_vuelta", _external=True, _scheme="https"))
-    flash(error or _tras_conectar_mp(session["tenant_id"]))
+    flash(f"{error} {MP_QUE_PROBAR}" if error else _tras_conectar_mp(session["tenant_id"]))
     db.registrar_actividad("profesional", "conectó Mercado Pago" if not error else "intentó conectar Mercado Pago",
                            session["tenant_id"])
-    return redirect(url_for("agenda") + "#cobros")
+    return volver
+
+
+MP_QUE_PROBAR = ("Probá así: cerrá cualquier otra sesión de Mercado Pago (o usá una ventana privada), entrá con "
+                 "TU cuenta de Argentina, con la identidad validada, y tocá «Conectar Mercado Pago» de nuevo. "
+                 "Si vuelve a pasar, avisanos y mientras tanto podés cobrar por transferencia.")
+MP_NO_DEJO = "Mercado Pago no dejó conectar tu cuenta. " + MP_QUE_PROBAR
+MP_CANCELADO = "Cancelaste la conexión en Mercado Pago: no se cambió nada. Podés volver a intentarlo cuando quieras."
+
+
+def _codigo_mp(valor: str | None) -> str:
+    """El código de error que manda Mercado Pago en la vuelta, limpio para
+    mostrarlo y anotarlo (viene en la URL: no se confía en él)."""
+    return "".join(c for c in (valor or "") if c.isalnum() or c in "_-.")[:40]
 
 
 @app.post("/agenda/mercadopago/token-prueba")

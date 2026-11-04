@@ -367,6 +367,7 @@ Token de la cuenta vendedor de prueba» (`pagos.conectar_con_token`): lo valida 
 `/users/me` y lo guarda cifrado igual que el OAuth (sin refresh). Sin `MP_PRUEBA`
 la ruta lo rechaza. Las devoluciones por API tampoco andan con tokens de cuentas
 de prueba (401 «Unauthorized use of live credentials»): `devolver` lo explica.
+La vuelta del OAuth explica cada falla (`?error=` de Mercado Pago, `access_denied` = canceló; `state` vencido u otro navegador; canje rechazado con su motivo) con `app.MP_QUE_PROBAR` y anota el código limpio (`_codigo_mp`) en la actividad, nunca datos de la cuenta.
 Conectar (OAuth o token) activa el cobro (`app._tras_conectar_mp`: no → mercadopago,
 transferencia → ambos) y avisa si falta el precio.
 `revisar_pago_mp` también sincroniza devoluciones y contracargos hechos desde
