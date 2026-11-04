@@ -50,7 +50,18 @@ def permitido(to: str) -> bool:
     return bool(destino) and any(_ultimos10(n) == destino for n in config.WHATSAPP_SOLO_A)
 
 
+def _sin_numero(to: str) -> bool:
+    """Paciente agendado sin WhatsApp (ver db.SIN_WHATSAPP): no hay a quién
+    mandarle. Cuenta como resuelto, así el scheduler no reintenta."""
+    if to and to.isdigit():
+        return False
+    logger.info("Envío salteado: el paciente no tiene WhatsApp cargado")
+    return True
+
+
 def enviar_texto(phone_number_id: str, to: str, texto: str) -> bool:
+    if _sin_numero(to):
+        return True
     if not permitido(to):
         # True a propósito: el envío quedó «resuelto» (frenado) y el scheduler
         # no lo reintenta cada 10 minutos.
@@ -127,6 +138,8 @@ def enviar_plantilla_detalle(phone_number_id: str, to: str, plantilla: str,
                              lang: str, params: list[str]) -> tuple[bool, str]:
     """Igual que enviar_plantilla, pero devuelve también qué dijo Meta (para
     la prueba de envío de administración)."""
+    if _sin_numero(to):
+        return True, "sin WhatsApp"
     if not permitido(to):
         logger.info("Plantilla '%s' frenada por WHATSAPP_SOLO_A (destino ...%s)", plantilla, _ultimos10(to)[-4:])
         return True, "frenado"
