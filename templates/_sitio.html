@@ -78,6 +78,11 @@
   .rv-ok { width:44px; height:44px; border-radius:50%; background:var(--green-solid); color:var(--on-green); display:grid; place-items:center; font-size:20px; margin-bottom:16px; }
   .rv-burbuja { background:var(--s-salvia); border-radius:14px 14px 14px 4px; padding:12px 14px; font-size:15px; line-height:1.45; margin:4px 0 8px; }
   .rv-acciones { display:flex; gap:16px; align-items:center; flex-wrap:wrap; margin:16px 0 10px; }
+  .recordar { display:flex; justify-content:space-between; align-items:center; gap:10px; flex-wrap:wrap; font-size:14px; color:var(--s-texto); margin-top:6px; }
+  .recordar[hidden] { display:none; }
+  .recordar label { display:flex; align-items:center; gap:8px; margin:0; font-size:14px; font-weight:400; color:var(--s-texto); cursor:pointer; }
+  .recordar input { width:16px; height:16px; accent-color:var(--green); margin:0; }
+  .recordar a { font-size:14px; color:var(--muted); }
   @keyframes s-rise { from { opacity:0; transform:translateY(6px) } to { opacity:1; transform:none } }
   @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
 </style>

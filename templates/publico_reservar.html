@@ -14,10 +14,10 @@
     <form method="post" action="{{ url_for('publico_reservar', slug=tenant.slug, turno_id=turno.id) }}">
       {% if i_tipo is not none %}<input type="hidden" name="tipo" value="{{ i_tipo }}">{% endif %}
       <label for="nombre">Nombre y apellido</label>
-      <input type="text" id="nombre" name="nombre" required>
+      <input type="text" id="nombre" name="nombre" required autocomplete="name" data-recordar="nombre">
 
       <label for="telefono">WhatsApp (con código de país, ej. 5491123456789)</label>
-      <input type="tel" id="telefono" name="telefono" required placeholder="5491123456789">
+      <input type="tel" id="telefono" name="telefono" required placeholder="5491123456789" autocomplete="tel" data-recordar="telefono">
 
       {% if serie_posible %}
       <label for="sesiones">¿Cuántas sesiones?</label>
@@ -39,6 +39,7 @@
       <p style="color:var(--muted);margin-bottom:0">La sesión es por videollamada.</p>
       {% endif %}
 
+      <div class="recordar" hidden><label><input type="checkbox" data-recordar-ok checked> Recordar mis datos en este dispositivo</label> <a href="#" data-recordar-olvidar hidden>No soy yo</a></div>
       <div style="margin-top:14px;">
         <button class="btn" type="submit">Seguir</button>
         <a class="btn secundario" href="{{ url_for('publico', slug=tenant.slug) }}" style="text-decoration:none; display:inline-block; margin-left:8px;">Elegir otro horario</a>
@@ -47,4 +48,5 @@
   </div>
 </main>
 {{ sitio.pie() }}
+{% include "_recordar_datos.html" %}
 {% endblock %}

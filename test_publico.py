@@ -176,6 +176,13 @@ assert TURNO_LIBRE["estado"] == "reservado"
 r = client.post("/anaperez/reservar/turno-a", data={"nombre": "Otra", "telefono": "5491100000000", "confirmado": "1"}, headers=P)
 assert r.status_code == 409 and "ya no está disponible" in r.data.decode() and "data-otro" in r.data.decode()
 print("reservar en la misma página: revisar, error y listo como pedazos de la tarjeta OK")
+_antes = dict(TURNO_LIBRE)
+TURNO_LIBRE.update({"estado": "libre", "paciente_telefono": None, "paciente_nombre": None})
+html = client.get("/anaperez").data.decode()
+assert html.count('data-recordar="nombre"') == 2 and html.count("data-recordar-ok checked") == 2 and "fibot_paciente" in html
+assert 'data-recordar="telefono"' in client.get("/anaperez/reservar/turno-a").data.decode()
+TURNO_LIBRE.clear(); TURNO_LIBRE.update(_antes)
+print("nombre y WhatsApp se recuerdan en el navegador (reserva y lista de espera) OK")
 
 TENANT.update({"modalidades_publicas": "presencial"})
 assert TURNO_LIBRE["estado"] == "reservado"

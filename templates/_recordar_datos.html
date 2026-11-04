@@ -1,0 +1,45 @@
+{#- Recordar nombre y WhatsApp del paciente en ESTE navegador (localStorage),
+    para no volver a escribirlos al reservar o anotarse en la lista de espera.
+    Sólo nombre y teléfono, nunca con quién ni cuándo: la clave es genérica y
+    no nombra al profesional. Cada form lleva sus campos con data-recordar y una
+    casilla data-recordar-ok («Recordar mis datos en este dispositivo»): si la
+    destildan, se borra lo guardado. Si el navegador no deja guardar, no pasa nada.
+
+    Uso: en el form, los campos con data-recordar="nombre"/"telefono", la casilla
+    (div.recordar con data-recordar-ok y el link data-recordar-olvidar «No soy
+    yo») y al final de la página {% include "_recordar_datos.html" %}. -#}
+<script>
+(function () {
+  var CLAVE = 'fibot_paciente';
+  function leer() { try { return JSON.parse(localStorage.getItem(CLAVE) || 'null'); } catch (e) { return null; } }
+  function guardar(d) { try { localStorage.setItem(CLAVE, JSON.stringify(d)); } catch (e) {} }
+  function borrar() { try { localStorage.removeItem(CLAVE); } catch (e) {} }
+
+  var datos = leer();
+  document.querySelectorAll('form').forEach(function (f) {
+    var campos = f.querySelectorAll('[data-recordar]');
+    if (!campos.length) return;
+    var ok = f.querySelector('[data-recordar-ok]');
+    if (ok) ok.closest('.recordar').hidden = false;   // sin JS la casilla no se ve
+    if (datos) {
+      campos.forEach(function (c) { if (!c.value && datos[c.dataset.recordar]) c.value = datos[c.dataset.recordar]; });
+      var olvidar = f.querySelector('[data-recordar-olvidar]');
+      if (olvidar) {
+        olvidar.hidden = false;
+        olvidar.addEventListener('click', function (e) {
+          e.preventDefault(); borrar(); datos = null;
+          document.querySelectorAll('[data-recordar]').forEach(function (c) { c.value = ''; });
+          document.querySelectorAll('[data-recordar-olvidar]').forEach(function (b) { b.hidden = true; });
+          var primero = f.querySelector('[data-recordar]'); if (primero) primero.focus();
+        });
+      }
+    }
+    f.addEventListener('submit', function () {
+      if (ok && !ok.checked) { borrar(); return; }
+      var nuevo = {};
+      campos.forEach(function (c) { nuevo[c.dataset.recordar] = c.value.trim().slice(0, 120); });
+      if (nuevo.nombre && nuevo.telefono) guardar(nuevo);
+    });
+  });
+})();
+</script>
