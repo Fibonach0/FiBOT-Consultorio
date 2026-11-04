@@ -1,19 +1,13 @@
 {% extends "base.html" %}
 {% block titulo %}Turnos — {{ tenant.nombre }}{% endblock %}
 {% block head %}
-{% set _desc = tenant.descripcion or ((tenant.titulo or tenant.rubro or 'Profesional') ~ (' en ' ~ tenant.ubicacion if tenant.ubicacion else '') ~ '. Mirá sus horarios libres y reservá tu turno online.') %}
-<meta name="description" content="{{ _desc }}">
 <link rel="canonical" href="{{ url_for('publico', slug=tenant.slug, _external=True) }}">
-<meta property="og:type" content="profile">
-<meta property="og:title" content="{{ tenant.nombre }} — Turnos online">
-<meta property="og:description" content="{{ _desc }}">
-<meta property="og:url" content="{{ url_for('publico', slug=tenant.slug, _external=True) }}">
-{% if tenant.portada_version %}<meta property="og:image" content="{{ url_for('publico_portada', slug=tenant.slug, v=tenant.portada_version, _external=True) }}">{% endif %}
 {% if cambiar or tenant.en_directorio is sameas false %}<meta name="robots" content="noindex">{% endif %}
 <script type="application/ld+json">{{ tenant | perfil_ld | tojson }}</script>
 {% endblock %}
 {% block meta %}
-  {% set desc = tenant.descripcion or ((tenant.titulo or (tenant.rubro or '')|capitalize) ~ (' · ' ~ tenant.ubicacion if tenant.ubicacion else '') ~ ' · Sacá tu turno online') %}
+  {# Vista previa al compartir y buscadores (canonical, robots y datos estructurados van en el bloque head). #}
+  {% set desc = tenant.descripcion or ((tenant.titulo or tenant.rubro or 'Profesional') ~ (' en ' ~ tenant.ubicacion if tenant.ubicacion else '') ~ '. Mirá sus horarios libres y reservá tu turno online.') %}
   {% set img = url_for('publico_foto', slug=tenant.slug, _external=True, _scheme='https') if tenant.foto else (url_for('publico_portada', slug=tenant.slug, v=tenant.portada_version, _external=True, _scheme='https') if tenant.portada_version else url_for('static', filename='icono-512.png', _external=True, _scheme='https')) %}
   <meta name="description" content="{{ desc }}">
   <meta property="og:type" content="profile">
