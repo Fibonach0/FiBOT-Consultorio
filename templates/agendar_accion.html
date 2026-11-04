@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block titulo %}{{ 'Cancelar' if accion == 'cancelar' else 'Tu' if accion == 'tarde' else 'Cambiar' }} turno — {{ tenant.nombre }}{% endblock %}
-{% block cuerpo %}
+{% block cuerpo %}{% include "_color_pagina.html" %}
 <header><span>FiBOT Consultorio · {{ tenant.nombre }}</span></header>
 <main>
   <div class="card" style="max-width:520px;margin:30px auto">

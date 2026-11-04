@@ -658,6 +658,14 @@
         <div class="ancho"><label>Formación (un renglón por título o curso, hasta 6)</label><textarea name="formacion" rows="3" maxlength="800" placeholder="Lic. en Psicología — UBA&#10;Posgrado en Terapia Cognitiva — Fundación Aiglé">{{ (tenant.formacion or [])|join('\n') }}</textarea></div>
         <div class="ancho"><label>Un poco más de mí <span class="tenue">(lo que te humaniza: qué te gusta, tus mascotas, qué estás leyendo)</span></label><textarea name="mas_de_mi" rows="2" maxlength="400" placeholder="Fuera del consultorio me vas a encontrar en bici o con mis dos gatos.">{{ tenant.mas_de_mi or '' }}</textarea></div>
         <div class="ancho"><label>Obras sociales y prepagas</label><input type="text" name="obras_sociales" maxlength="200" placeholder="Particular. Doy factura para reintegro de OSDE y Swiss Medical." value="{{ tenant.obras_sociales or '' }}"></div>
+        <div class="ancho"><label>Color de tu página</label>
+          <div class="colores">
+            {% set cp = tenant.color_pagina or 'verde' %}
+            {% for clave, c in colores_pagina.items() %}
+            <label class="color-opcion"><input type="radio" name="color_pagina" value="{{ clave }}"{% if cp == clave %} checked{% endif %}><span class="color-muestra" style="background:{{ c.muestra }}"></span>{{ c.nombre }}</label>
+            {% endfor %}
+          </div>
+        </div>
         <div class="al-pie"><button class="btn chico" type="submit">Guardar presentación</button></div>
       </form>
     </details>
@@ -1746,46 +1754,93 @@
     });
   })();
 </script>
+<dialog id="recorte" class="recorte" aria-label="Elegir el recorte">
+  <p style="margin:0 0 8px"><strong>Elegí qué parte se ve</strong> <span class="tenue">Arrastrá para mover y usá la barra para acercar.</span></p>
+  <div class="recorte-marco"><canvas width="560" height="560"></canvas><div class="recorte-mascara"></div></div>
+  <label style="display:flex;gap:8px;align-items:center;margin-top:10px">Acercar <input type="range" min="1" max="4" step="0.01" value="1" style="flex:1"></label>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+    <button type="button" class="btn chico secundario" data-cancelar>Cancelar</button>
+    <button type="button" class="btn chico" data-usar>Usar este recorte</button>
+  </div>
+</dialog>
 <script>
-// Achica en el navegador las fotos antes de subirlas (las del celular pesan
-// varios MB). data-achicar="ANCHOxALTO": máximo; la portada se recorta a esa proporción.
-document.querySelectorAll('form[data-achicar]').forEach(function (form) {
-  var input = form.querySelector('input[type=file]');
-  var estado = form.querySelector('[data-estado]');
-  function enviar() { if (estado) estado.hidden = false; form.submit(); }
-  input.addEventListener('change', function () {
-    var archivo = input.files[0];
-    if (!archivo) return;
-    if (!window.HTMLCanvasElement || !window.DataTransfer || !/^image\/(png|jpeg)$/.test(archivo.type)) { enviar(); return; }
-    var medidas = form.dataset.achicar.split('x').map(Number), W = medidas[0], H = medidas[1];
-    var portada = W / H > 2;
-    var img = new Image();
+// Antes de subir la foto o la portada se elige el recorte: arrastrar para
+// mover, la barra para acercar. Sale achicada (las del celular pesan varios MB).
+// data-achicar="ANCHOxALTO": tamaño final; la proporción es la del recorte.
+(function () {
+  var dlg = document.getElementById('recorte');
+  if (!dlg || !dlg.showModal) return;
+  var lienzo = dlg.querySelector('canvas'), ctx = lienzo.getContext('2d'), zoom = dlg.querySelector('input[type=range]');
+  var mascara = dlg.querySelector('.recorte-mascara');
+  var img = null, W = 0, H = 0, base = 1, s = 1, ox = 0, oy = 0, form = null, input = null, estado = null, arrastre = null;
+  function limitar() {
+    ox = Math.min(0, Math.max(lienzo.width - img.width * s, ox));
+    oy = Math.min(0, Math.max(lienzo.height - img.height * s, oy));
+  }
+  function pintar() {
+    limitar();
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, lienzo.width, lienzo.height);
+    ctx.drawImage(img, ox, oy, img.width * s, img.height * s);
+  }
+  function abrir(archivo) {
+    var url = URL.createObjectURL(archivo);
+    img = new Image();
     img.onload = function () {
-      var sx = 0, sy = 0, sw = img.width, sh = img.height;
-      if (portada) {  // recorte centrado a la proporción de la portada
-        var prop = W / H;
-        if (sw / sh > prop) { sw = sh * prop; sx = (img.width - sw) / 2; } else { sh = sw / prop; sy = (img.height - sh) / 2; }
-      }
-      var escala = Math.min(1, W / sw, H / sh);
-      var c = document.createElement('canvas');
-      c.width = Math.round(sw * escala); c.height = Math.round(sh * escala);
-      var ctx = c.getContext('2d');
-      ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
-      ctx.drawImage(img, sx, sy, sw, sh, 0, 0, c.width, c.height);
-      c.toBlob(function (blob) {
-        URL.revokeObjectURL(img.src);
-        if (blob) {
-          var dt = new DataTransfer();
-          dt.items.add(new File([blob], 'imagen.jpg', {type: 'image/jpeg'}));
-          input.files = dt.files;
-        }
-        enviar();
-      }, 'image/jpeg', 0.85);
+      var ancho = Math.min(560, window.innerWidth - 64, Math.max(200, (window.innerHeight - 230) * W / H));
+      lienzo.width = ancho; lienzo.height = Math.round(ancho * H / W);
+      base = Math.max(lienzo.width / img.width, lienzo.height / img.height);
+      s = base; zoom.value = 1;
+      ox = (lienzo.width - img.width * s) / 2; oy = (lienzo.height - img.height * s) / 2;
+      mascara.classList.toggle('redonda', W === H);
+      pintar(); dlg.showModal();
     };
-    img.onerror = enviar;
-    img.src = URL.createObjectURL(archivo);
+    img.onerror = function () { enviar(); };
+    img.src = url;
+  }
+  function enviar() { if (estado) estado.hidden = false; form.submit(); }
+  zoom.addEventListener('input', function () {
+    var cx = lienzo.width / 2, cy = lienzo.height / 2, nuevo = base * Number(zoom.value);
+    ox = cx - (cx - ox) * nuevo / s; oy = cy - (cy - oy) * nuevo / s; s = nuevo; pintar();
   });
-});
+  lienzo.addEventListener('pointerdown', function (e) { arrastre = {x: e.clientX, y: e.clientY}; lienzo.setPointerCapture(e.pointerId); });
+  lienzo.addEventListener('pointermove', function (e) {
+    if (!arrastre) return;
+    ox += e.clientX - arrastre.x; oy += e.clientY - arrastre.y; arrastre = {x: e.clientX, y: e.clientY}; pintar();
+  });
+  lienzo.addEventListener('pointerup', function () { arrastre = null; });
+  lienzo.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    zoom.value = Math.min(Number(zoom.max), Math.max(1, Number(zoom.value) - e.deltaY * 0.002));
+    zoom.dispatchEvent(new Event('input'));
+  }, {passive: false});
+  dlg.querySelector('[data-cancelar]').addEventListener('click', function () { input.value = ''; dlg.close(); });
+  dlg.querySelector('[data-usar]').addEventListener('click', function () {
+    var sw = lienzo.width / s, sh = lienzo.height / s;
+    var outW = Math.min(W, Math.round(sw)), outH = Math.round(outW * H / W);
+    var c = document.createElement('canvas'); c.width = outW; c.height = outH;
+    var cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, outW, outH);
+    cx.drawImage(img, -ox / s, -oy / s, sw, sh, 0, 0, outW, outH);
+    c.toBlob(function (blob) {
+      if (blob && window.DataTransfer) {
+        var dt = new DataTransfer();
+        dt.items.add(new File([blob], 'imagen.jpg', {type: 'image/jpeg'}));
+        input.files = dt.files;
+      }
+      dlg.close(); enviar();
+    }, 'image/jpeg', 0.86);
+  });
+  document.querySelectorAll('form[data-achicar]').forEach(function (f) {
+    var i = f.querySelector('input[type=file]');
+    i.addEventListener('change', function () {
+      var archivo = i.files[0];
+      if (!archivo) return;
+      form = f; input = i; estado = f.querySelector('[data-estado]');
+      var m = f.dataset.achicar.split('x').map(Number); W = m[0]; H = m[1];
+      if (!/^image\/(png|jpeg)$/.test(archivo.type)) { enviar(); return; }
+      abrir(archivo);
+    });
+  });
+})();
 </script>
 <div id="novedades" class="novedades" hidden role="status">
   Hubo novedades (un pago, una devolución o una reserva).

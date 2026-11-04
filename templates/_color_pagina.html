@@ -1,0 +1,7 @@
+{# Color elegido por el profesional para su página (las que ve el paciente). #}
+{% set pal = colores_pagina.get(tenant.color_pagina) if tenant and tenant.color_pagina else none %}
+{% if pal and pal.claro %}<style>
+  :root { --green:{{ pal.claro[0] }}; --green-solid:{{ pal.claro[1] }}; --green-bg:{{ pal.claro[2] }}; --green-mid:{{ pal.claro[3] }}; }
+  :root[data-modo="oscuro"] { --green:{{ pal.oscuro[0] }}; --green-solid:{{ pal.oscuro[1] }}; --green-bg:{{ pal.oscuro[2] }}; --green-mid:{{ pal.oscuro[3] }}; }
+  @media (prefers-color-scheme: dark) { :root[data-modo="auto"] { --green:{{ pal.oscuro[0] }}; --green-solid:{{ pal.oscuro[1] }}; --green-bg:{{ pal.oscuro[2] }}; --green-mid:{{ pal.oscuro[3] }}; } }
+</style>{% endif %}
