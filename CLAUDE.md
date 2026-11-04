@@ -304,6 +304,7 @@ la lista de espera). `horario_semanal` (lista de {dia 0-6, desde, hasta}, hasta
 `MAX_FRANJAS` por día) + `horario_semanas`: `scheduler.generar_desde_horario` crea
 los libres con `crear_turnos_libres` (idempotente) al guardar y una vez por día.
 Un bloqueo (feriado, vacaciones) cierra el horario a pacientes, bot y página; el panel agenda y reprograma igual (`ignorar_bloqueo=True` en `reservar_turno`/`reprogramar_turno`) y muestra «cerrado a pacientes». La serie sigue salteando los días bloqueados.
+`turnos.abierto` (`migrations/062`) es la excepción de un horario: se ofrece aunque el día esté bloqueado (la vista `turnos_disponibles` y `reservar_turno` lo respetan; el feriado no se borra, así se vuelve a cargar solo). «Abrir este día» marca todos sus libres. Agendar o pasar una sesión a un día bloqueado avisa con `app._avisar_si_bloqueado`. El resumen diario avisa 3 días antes y el día anterior si un bloqueo cae sobre sesiones (`scheduler._bloqueos_con_sesiones`). En el mes, los feriados (motivo `Feriado: `) usan `--feriado`.
 «Sacar» en un libre (`db.sacar_libre`) lo borra y lo anota en `horarios_sacados`
 (`migrations/061`): `generar_desde_horario` saltea esos inicios, así no reaparece.
 Generarlo a mano (`/agenda/generar`, marca `turnos.a_mano`) lo vuelve a habilitar.

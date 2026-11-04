@@ -133,16 +133,20 @@ def _se_pisa(tenant_id: str, inicio: str, fin: str, excluir_id: str) -> bool:
 
 
 def _esta_bloqueado(tenant_id: str, inicio: str, fin: str) -> bool:
+    return bloqueo_en(tenant_id, inicio, fin) is not None
+
+
+def bloqueo_en(tenant_id: str, inicio: str, fin: str) -> dict | None:
     res = (
         _client.table("bloqueos")
-        .select("id")
+        .select("*")
         .eq("tenant_id", tenant_id)
         .lt("desde", fin)
         .gt("hasta", inicio)
         .limit(1)
         .execute()
     )
-    return bool(res.data)
+    return res.data[0] if res.data else None
 
 
 def clave_de(fila: dict) -> str:
@@ -357,7 +361,7 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
         return False
     # Un bloqueo (feriado, vacaciones) cierra el horario a los pacientes. El
     # profesional, desde el panel, puede agendar igual: es su decisión.
-    if not ignorar_bloqueo and _esta_bloqueado(tenant_id, turno["inicio"], turno["fin"]):
+    if not ignorar_bloqueo and not turno.get("abierto") and _esta_bloqueado(tenant_id, turno["inicio"], turno["fin"]):
         return False
     # Sin ficha explícita nadie pudo aclarar de quién es (página pública): se
     # reserva igual y lo revisa el profesional. Preguntarle a quien reserva
@@ -676,6 +680,16 @@ def borrar_libres(tenant_id: str, ids: list[str]) -> int:
         return 0
     res = (_client.table("turnos").delete().eq("tenant_id", tenant_id).eq("estado", "libre")
            .in_("id", ids).execute())
+    return len(res.data)
+
+
+def abrir_libres(tenant_id: str, ids: list[str], abierto: bool) -> int:
+    """Ofrece (o deja de ofrecer) a los pacientes horarios libres de un día
+    bloqueado. El bloqueo no se toca: es la excepción de cada horario."""
+    if not ids:
+        return 0
+    res = (_client.table("turnos").update({"abierto": abierto}).eq("tenant_id", tenant_id)
+           .eq("estado", "libre").in_("id", ids).execute())
     return len(res.data)
 
 

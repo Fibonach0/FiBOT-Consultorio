@@ -65,6 +65,7 @@ def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
     renovar = sum(sesiones_que_quedan(s, ahora) is not None for clave, s in por_paciente.items() if not cerrado(clave))
     if renovar:
         partes.append(f"{renovar} paciente{'s' if renovar > 1 else ''} por renovar")
+    partes += _bloqueos_con_sesiones(tenant, hoy, sesiones)
     if tenant.get("ultimo_bloqueo") and \
             datetime.fromisoformat(tenant["ultimo_bloqueo"]).timestamp() > datetime.now(timezone.utc).timestamp() - 24 * 3600:
         partes.append("tu cuenta se bloqueó por claves equivocadas en las últimas 24 horas: si no fuiste vos, cambiá la clave")
@@ -86,6 +87,31 @@ def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
                          for a in tests_sugeridos.para_repetir(xs, hoy, tenant.get("plazos_tests")))
         if hoy_vencen:
             partes.append(f"{hoy_vencen} test{'s' if hoy_vencen > 1 else ''} que hoy se {'pueden' if hoy_vencen > 1 else 'puede'} repetir")
+    return partes
+
+
+AVISO_BLOQUEO_DIAS = (3, 1)
+
+
+def _bloqueos_con_sesiones(tenant: dict, hoy, sesiones: list[dict]) -> list[str]:
+    """Un feriado o un bloqueo que cae sobre sesiones agendadas: se avisa 3
+    días antes y el día anterior, para decidir si se atiende o se pasan. Sin
+    nombres (sale por WhatsApp)."""
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    partes = []
+    for b in db.bloqueos_vigentes(tenant["id"], datetime.now(timezone.utc)):
+        desde, hasta = datetime.fromisoformat(b["desde"]), datetime.fromisoformat(b["hasta"])
+        dia = desde.astimezone(tz).date()
+        if (dia - hoy).days not in AVISO_BLOQUEO_DIAS:
+            continue
+        cuantas = sum(datetime.fromisoformat(t["inicio"]) < hasta and datetime.fromisoformat(t["fin"]) > desde
+                      for t in sesiones)
+        if not cuantas:
+            continue
+        motivo = b.get("motivo") or ""
+        que = "es feriado" if motivo.startswith(PREFIJO_FERIADO) else "lo tenés bloqueado"
+        partes.append(f"el {DIAS[dia.weekday()]} {dia.day}/{dia.month:02d} {que} y tenés {cuantas} "
+                      f"sesi{'ones' if cuantas > 1 else 'ón'}: decidí si atendés o las pasás")
     return partes
 
 
