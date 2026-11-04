@@ -1754,6 +1754,15 @@
     });
   })();
 </script>
+<dialog id="recorte" class="recorte" aria-label="Elegir el recorte">
+  <p style="margin:0 0 8px"><strong>Elegí qué parte se ve</strong> <span class="tenue">Arrastrá para mover y usá la barra para acercar.</span></p>
+  <div class="recorte-marco"><canvas width="560" height="560"></canvas><div class="recorte-mascara"></div></div>
+  <label style="display:flex;gap:8px;align-items:center;margin-top:10px">Acercar <input type="range" min="1" max="4" step="0.01" value="1" style="flex:1"></label>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+    <button type="button" class="btn chico secundario" data-cancelar>Cancelar</button>
+    <button type="button" class="btn chico" data-usar>Usar este recorte</button>
+  </div>
+</dialog>
 <script>
 // Antes de subir la foto o la portada se elige el recorte: arrastrar para
 // mover, la barra para acercar. Sale achicada (las del celular pesan varios MB).
@@ -1777,7 +1786,7 @@
     var url = URL.createObjectURL(archivo);
     img = new Image();
     img.onload = function () {
-      var ancho = Math.min(560, window.innerWidth - 64);
+      var ancho = Math.min(560, window.innerWidth - 64, Math.max(200, (window.innerHeight - 230) * W / H));
       lienzo.width = ancho; lienzo.height = Math.round(ancho * H / W);
       base = Math.max(lienzo.width / img.width, lienzo.height / img.height);
       s = base; zoom.value = 1;
@@ -1833,15 +1842,6 @@
   });
 })();
 </script>
-<dialog id="recorte" class="recorte" aria-label="Elegir el recorte">
-  <p style="margin:0 0 8px"><strong>Elegí qué parte se ve</strong> <span class="tenue">Arrastrá para mover y usá la barra para acercar.</span></p>
-  <div class="recorte-marco"><canvas width="560" height="560"></canvas><div class="recorte-mascara"></div></div>
-  <label style="display:flex;gap:8px;align-items:center;margin-top:10px">Acercar <input type="range" min="1" max="4" step="0.01" value="1" style="flex:1"></label>
-  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
-    <button type="button" class="btn chico secundario" data-cancelar>Cancelar</button>
-    <button type="button" class="btn chico" data-usar>Usar este recorte</button>
-  </div>
-</dialog>
 <div id="novedades" class="novedades" hidden role="status">
   Hubo novedades (un pago, una devolución o una reserva).
   <button type="button" class="btn chico" onclick="location.reload()">Actualizar</button>
