@@ -203,6 +203,25 @@ def iniciar(tenant: dict, turnos: list[dict], monto: int) -> dict:
     return pago
 
 
+def descriptor_resumen(tenant: dict) -> str:
+    """Lo que el paciente ve en el resumen de la tarjeta: el nombre del
+    profesional, sin tildes ni símbolos y hasta 22 caracteres (lo que admite
+    Mercado Pago). Que reconozca el cobro evita desconocimientos."""
+    import unicodedata
+    plano = unicodedata.normalize("NFKD", tenant.get("nombre") or "").encode("ascii", "ignore").decode()
+    limpio = " ".join("".join(c if c.isalnum() or c == " " else " " for c in plano).split())
+    return (limpio or "Consultorio")[:22].strip()
+
+
+def _comprador(nombre: str | None) -> dict | None:
+    """Nombre y apellido del paciente para Mercado Pago (mejora la aprobación
+    del pago). Sólo el nombre que dejó al reservar: nada de la ficha."""
+    partes = (nombre or "").split()
+    if not partes:
+        return None
+    return {"name": partes[0][:60], **({"surname": " ".join(partes[1:])[:60]} if len(partes) > 1 else {})}
+
+
 def preferencia(tenant: dict, pago: dict, descripcion: str, base: str) -> str | None:
     """Crea el cobro en Mercado Pago con la cuenta del profesional y devuelve
     el link de pago (o None)."""
@@ -211,9 +230,12 @@ def preferencia(tenant: dict, pago: dict, descripcion: str, base: str) -> str | 
         return None
     vuelta = f"{base}/pago/{pago['token']}"
     cuerpo = {
-        "items": [{"id": pago["id"], "title": descripcion[:250], "quantity": 1, "currency_id": "ARS",
+        "items": [{"id": pago["id"], "title": descripcion[:250], "description": descripcion[:250],
+                   "category_id": "services", "quantity": 1, "currency_id": "ARS",
                    "unit_price": float(pago["monto"])}],
         "external_reference": pago["token"],
+        "statement_descriptor": descriptor_resumen(tenant),
+        **({"payer": comprador} if (comprador := _comprador(pago.get("paciente_nombre"))) else {}),
         "back_urls": {"success": vuelta, "pending": vuelta, "failure": vuelta},
         "auto_return": "approved",
         "notification_url": f"{base}/webhook/mercadopago?t={tenant['id']}",
@@ -222,7 +244,8 @@ def preferencia(tenant: dict, pago: dict, descripcion: str, base: str) -> str | 
     }
     try:
         r = requests.post(f"{API}/checkout/preferences", json=cuerpo,
-                          headers={"Authorization": f"Bearer {token}"}, timeout=15)
+                          headers={"Authorization": f"Bearer {token}", "X-Idempotency-Key": f"pref-{pago['token']}"},
+                          timeout=15)
     except requests.RequestException:
         return None
     if r.status_code >= 300:
