@@ -108,6 +108,13 @@ html = client.get("/turnos").data.decode()
 assert "/anaperez/reservar/a2" not in html and "/anaperez?semana=" in html
 ANA.pop("tipos_turno")
 app._proximos_cache.clear()
+# las demos van después de los profesionales reales, aunque estos estén pausados
+TENANTS.append({"id": "t9", "nombre": "Lic. Aaa Demo", "slug": "demo", "activo": True, "foto": "x"})
+html = client.get("/").data.decode()
+assert html.index("Lic. Beto Pausa") < html.index("Lic. Aaa Demo")
+html = client.get("/turnos").data.decode()
+assert html.index("Lic. Beto Pausa") < html.index("Lic. Aaa Demo")
+TENANTS.pop()
 print("/turnos: especialidad, próximos libres con link, esta semana y orden OK")
 
 # ---- sumate

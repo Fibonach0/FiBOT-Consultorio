@@ -101,8 +101,9 @@ def inicio():
     profesionales del directorio (los mismos que /turnos) y cómo funciona.
     Con «Para mi hijo/a» cambian los temas y los profesionales que se ven."""
     visibles = _directorio()
-    # Primero los que pueden tomar turnos y tienen foto: es lo que más invita a entrar.
-    visibles.sort(key=lambda t: (bool(t.get("pausado")), not t.get("foto"), t["nombre"].casefold()))
+    # Primero los reales (las demos al final), después los que pueden tomar
+    # turnos y los que tienen foto: es lo que más invita a entrar.
+    visibles.sort(key=lambda t: (directorio.es_demo(t), bool(t.get("pausado")), not t.get("foto"), t["nombre"].casefold()))
     de_chicos = [t for t in visibles
                  if any(directorio.trabaja_tema(t, k) for k in directorio.TEMAS_CHICOS + ("infancia",))]
     para_mi = visibles[:INICIO_PROFESIONALES]
@@ -4233,7 +4234,7 @@ def turnos_directorio():
     esp = request.args.get("especialidad", "") if request.args.get("especialidad") in ESPECIALIDADES else ""
     semana = request.args.get("semana") == "1"
     orden = "nombre" if request.args.get("orden") == "nombre" else "turno"
-    todos = sorted(_directorio(), key=lambda t: t["nombre"].casefold())
+    todos = sorted(_directorio(), key=lambda t: (directorio.es_demo(t), t["nombre"].casefold()))
     cuenta_esp = {"": len(todos), **{k: sum(1 for t in todos if _especialidad(t) == k) for k in ESPECIALIDADES}}
     profesionales = directorio.filtrar([t for t in todos if not esp or _especialidad(t) == esp], tema, modalidad, obra)
     profesionales = [dict(t, _proximos=_proximos_libres(t), _especialidad=_especialidad(t)) for t in profesionales]
@@ -4243,7 +4244,7 @@ def turnos_directorio():
         # Primero el que tiene el horario libre más cercano; los pausados y los
         # que no tienen horarios, al final (por nombre, el orden de `todos`).
         lejos = datetime.max.replace(tzinfo=ZoneInfo("UTC"))
-        profesionales.sort(key=lambda t: t["_proximos"][0]["inicio"] if t["_proximos"] else lejos)
+        profesionales.sort(key=lambda t: (directorio.es_demo(t), t["_proximos"][0]["inicio"] if t["_proximos"] else lejos))
     filtros = {"especialidad": esp or None, "tema": tema or None, "modalidad": modalidad or None,
                "obra": obra or None, "semana": "1" if semana else None, "orden": "nombre" if orden == "nombre" else None}
     temas_esp = (directorio.TEMAS_ADULTOS if esp == "psicologia" else directorio.TEMAS_CHICOS if esp == "psicopedagogia"
