@@ -4239,6 +4239,21 @@ def agenda_cobros():
     return _volver_a_agenda()
 
 
+def _tras_conectar_mp(tenant_id: str) -> str:
+    """Conectar es un solo clic: si todavía no cobraba con Mercado Pago, se
+    activa (sin sacar la transferencia si ya la usaba). Lo único que puede
+    faltar es el precio, y se lo dice."""
+    tenant = db.get_tenant_by_id(tenant_id)
+    modo = tenant.get("cobro_web") or "no"
+    nuevo = {"no": "mercadopago", "transferencia": "ambos"}.get(modo, modo)
+    if nuevo != modo:
+        db.guardar_ajustes(tenant_id, {"cobro_web": nuevo})
+    if not (tenant.get("precio_sesion") or any(t.get("precio") for t in tipos_de(tenant))):
+        return ("Conectaste Mercado Pago. Falta un paso: cargá el precio de la sesión acá abajo "
+                "(o en tus tipos de turno) y las reservas web se empiezan a cobrar.")
+    return "Listo, conectaste Mercado Pago: las reservas de tu página se cobran y la plata va a tu cuenta."
+
+
 @app.get("/agenda/mercadopago/conectar")
 @login_required
 def agenda_mp_conectar():
@@ -4259,7 +4274,7 @@ def mp_vuelta():
         flash("No se pudo conectar Mercado Pago. Probá de nuevo.")
         return redirect(url_for("agenda"))
     error = pagos.conectar(session["tenant_id"], request.args["code"], url_for("mp_vuelta", _external=True, _scheme="https"))
-    flash(error or "Listo, conectaste tu cuenta de Mercado Pago: los pagos van a tu cuenta.")
+    flash(error or _tras_conectar_mp(session["tenant_id"]))
     db.registrar_actividad("profesional", "conectó Mercado Pago" if not error else "intentó conectar Mercado Pago",
                            session["tenant_id"])
     return redirect(url_for("agenda") + "#cobros")
@@ -4269,7 +4284,7 @@ def mp_vuelta():
 @login_required
 def agenda_mp_token_prueba():
     error = pagos.conectar_con_token(session["tenant_id"], request.form.get("token", ""))
-    flash(error or "Listo, quedó conectada la cuenta de prueba de Mercado Pago.")
+    flash(error or _tras_conectar_mp(session["tenant_id"]))
     if not error:
         db.registrar_actividad("profesional", "conectó Mercado Pago (cuenta de prueba)", session["tenant_id"])
     return redirect(url_for("agenda") + "#cobros")

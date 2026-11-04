@@ -3538,8 +3538,32 @@ _pg.revisar_pago_mp(dict(_t1), "113")
 chequear("MP: pago tardío se marca y se avisa", pago5["estado"] == "aprobado_tarde" and "ya se había liberado" in _avp[-1])
 chequear("MP: un pago de otro profesional no se toca", _pg.revisar_pago_mp(dict(_t1, id="otro"), "113") is None)
 
+# devoluciones hechas desde Mercado Pago (por fuera del panel)
+_p4 = {k: pago4.get(k) for k in ("estado", "devuelto", "a_devolver", "devuelto_at")}
+_mp["pagos"]["112"] = {"status": "approved", "external_reference": pago4["token"], "transaction_amount": 25000,
+                       "transaction_amount_refunded": 10000}
+app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "112"}})
+chequear("MP afuera: devolución parcial se anota", pago4["devuelto"] == 10000 and pago4["estado"] == "aprobado")
+app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "112"}})
+chequear("MP afuera: el aviso repetido no suma de nuevo", pago4["devuelto"] == 10000)
+_mp["pagos"]["112"] = {"status": "refunded", "external_reference": pago4["token"], "transaction_amount": 25000,
+                       "transaction_amount_refunded": 25000}
+app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "112"}})
+chequear("MP afuera: devolución total deja el pago devuelto", pago4["devuelto"] == 25000 and pago4["estado"] == "devuelto")
+_mp["pagos"]["119"] = {"status": "refunded", "external_reference": pago4["token"], "transaction_amount": 25000}
+pago4.update(_p4)
+_pg.revisar_pago_mp(dict(_t1), "119")
+chequear("MP afuera: otro pago con la misma referencia no toca este", pago4["devuelto"] == _p4["devuelto"])
+_pp = _pg.requests.post
+_pg.requests.post = lambda *a, **k: _RMP(401, {"message": "Unauthorized use of live credentials"})
+_e = _pg.devolver(dict(_t1), pago4)
+chequear("MP: sin permiso para devolver lo dice claro y no anota", "no permite devolver" in (_e or "")
+         and "saldo" not in _e and pago4["devuelto"] == _p4["devuelto"])
+_pg.requests.post = _pp
+_mp["pagos"]["112"] = {"status": "approved", "external_reference": pago4["token"], "transaction_amount": 25000}
+
 # token de prueba pegado a mano (solo con MP_PRUEBA)
-_guardado = {k: _t1.get(k) for k in ("mp_user_id", "mp_token_cifrado", "mp_refresh_cifrado", "mp_vence")}
+_guardado = {k: _t1.get(k) for k in ("mp_user_id", "mp_token_cifrado", "mp_refresh_cifrado", "mp_vence", "cobro_web")}
 _get_prev, _prueba_prev = _pg.requests.get, _pg.config.MP_PRUEBA
 _pg.requests.get = lambda url, headers=None, timeout=None: (
     _RMP(200, {"id": 3815332524}) if headers and headers.get("Authorization") == "Bearer APP_USR-bueno" else _RMP(401, {}))
@@ -3551,7 +3575,12 @@ chequear("token de prueba: rechaza lo que no es un token", _pg.conectar_con_toke
 chequear("token de prueba: rechaza uno que Mercado Pago no reconoce", _pg.conectar_con_token("t1", "APP_USR-malo") is not None)
 with client.session_transaction() as s:
     s["tenant_id"], s["sesion_id"], s["csrf_token"] = "t1", _sesion_de("t1"), "tok"
+_t1["cobro_web"] = "transferencia"
 r = client.post("/agenda/mercadopago/token-prueba", data={"token": " APP_USR-bueno "})
+chequear("conectar MP activa el cobro sin sacar la transferencia", _t1["cobro_web"] == "ambos")
+_t1["cobro_web"] = "no"
+client.post("/agenda/mercadopago/token-prueba", data={"token": "APP_USR-bueno"})
+chequear("conectar MP con el cobro apagado lo prende con Mercado Pago", _t1["cobro_web"] == "mercadopago")
 chequear("token de prueba: lo valida, lo guarda cifrado y sin refresh",
          _pg.descifrar(_t1["mp_token_cifrado"]) == "APP_USR-bueno" and "APP_USR-bueno" not in _t1["mp_token_cifrado"]
          and _t1["mp_user_id"] == "3815332524" and not _t1.get("mp_refresh_cifrado"))

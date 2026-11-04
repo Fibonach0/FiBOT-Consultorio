@@ -246,12 +246,37 @@ def revisar_pago_mp(tenant: dict, mp_pago_id: str) -> str | None:
     pago = db.pago_por_token(datos.get("external_reference") or "")
     if not pago or pago["tenant_id"] != tenant["id"]:
         return None
+    if datos.get("status") in ("refunded", "charged_back") or float(datos.get("transaction_amount_refunded") or 0) > 0:
+        return _sincronizar_devolucion(tenant, pago, str(mp_pago_id), datos)
     if datos.get("status") != "approved":
         return pago["estado"]
     if float(datos.get("transaction_amount") or 0) + 0.01 < pago["monto"]:
         logger.warning("Pago %s de monto menor al esperado", mp_pago_id)
         return pago["estado"]
     return aprobar(tenant, pago, mp_pago_id=str(mp_pago_id))
+
+
+def _sincronizar_devolucion(tenant: dict, pago: dict, mp_pago_id: str, datos: dict) -> str:
+    """Una devolución (o un contracargo) hecha desde Mercado Pago, por fuera
+    del panel: se anota lo que falte para que el panel coincida con Mercado
+    Pago. Idempotente: si ya estaba anotado, no suma de nuevo."""
+    if pago.get("mp_pago_id") != mp_pago_id or pago["estado"] not in ("aprobado", "aprobado_tarde", "devuelto"):
+        return pago["estado"]
+    if datos.get("status") in ("refunded", "charged_back"):
+        total = int(pago["monto"])
+    else:
+        total = min(int(pago["monto"]), int(round(float(datos.get("transaction_amount_refunded") or 0))))
+    falta = total - int(pago.get("devuelto") or 0)
+    if falta <= 0:
+        return pago["estado"]
+    _anotar_devolucion(pago, falta)
+    if datos.get("status") == "charged_back":
+        import scheduler
+        scheduler.avisar_profesional(tenant, f"el paciente desconoció un pago de ${pago['monto']:,} en Mercado Pago "
+                                             "(contracargo); revisalo en el panel".replace(",", "."))
+    db.registrar_actividad("mercadopago", "contracargo" if datos.get("status") == "charged_back"
+                           else "devolución hecha desde Mercado Pago", tenant["id"])
+    return pago["estado"]
 
 
 def aprobar(tenant: dict, pago: dict, mp_pago_id: str | None = None) -> str:
@@ -421,6 +446,9 @@ def devolver(tenant: dict, pago: dict, monto: int | None = None) -> str | None:
         return "No se pudo conectar con Mercado Pago. Probá de nuevo."
     if r.status_code >= 300:
         logger.warning("Mercado Pago no hizo la devolución (%s): %s", r.status_code, r.text[:300])
+        if r.status_code in (401, 403):
+            return ("Mercado Pago no permite devolver con esta conexión. Devolvelo desde tu cuenta de Mercado Pago "
+                    "(se anota solo acá) o volvé a conectarla.")
         return "Mercado Pago no aceptó la devolución (puede que no tengas saldo disponible). Probá más tarde o devolvelo desde tu cuenta."
     _anotar_devolucion(pago, monto)
     return None
