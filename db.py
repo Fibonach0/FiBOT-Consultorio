@@ -1456,3 +1456,19 @@ def pagos_resueltos_entre(tenant_id: str, desde: datetime, hasta: datetime) -> l
            .eq("tenant_id", tenant_id).in_("estado", ["aprobado", "aprobado_tarde", "devuelto"])
            .gte("resuelto", desde.isoformat()).lt("resuelto", hasta.isoformat()).order("resuelto", desc=True).execute())
     return res.data
+
+
+# ---------- interesados (/sumate) ----------
+# De la plataforma, no de un tenant (como `admins`): sólo los lee administración.
+
+def crear_interesado(datos: dict) -> None:
+    _client.table("interesados").insert(datos).execute()
+
+
+def interesados(limite: int = 50) -> list[dict]:
+    res = _client.table("interesados").select("*").order("creado_at", desc=True).limit(limite).execute()
+    return res.data
+
+
+def marcar_interesado_visto(interesado_id: str, visto: bool = True) -> None:
+    _client.table("interesados").update({"visto": visto}).eq("id", interesado_id).execute()

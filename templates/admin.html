@@ -63,6 +63,29 @@
     </form>
   </div>
 
+  {% set sin_ver = (interesados or []) | rejectattr('visto') | list %}
+  <details class="card" id="interesados" {% if sin_ver %}open{% endif %}>
+    <summary><h3 style="display:inline">Quieren sumarse {% if sin_ver %}<span class="contador">{{ sin_ver|length }}</span>{% endif %}</h3></summary>
+    {% if interesados %}
+    <div class="envoltura"><table class="tabla">
+      <tr><th>Cuándo</th><th>Nombre</th><th>Profesión</th><th>WhatsApp</th><th>Mail</th><th>Dónde</th><th>Mensaje</th><th></th></tr>
+      {% for i in interesados %}
+      <tr {% if i.visto %}class="tenue"{% endif %}>
+        <td>{{ i.creado_at[:10] }}</td><td><strong>{{ i.nombre }}</strong></td><td>{{ i.profesion or '' }}</td>
+        <td>{% if i.whatsapp %}<a href="https://wa.me/{{ i.whatsapp if i.whatsapp|length > 10 else '549' ~ i.whatsapp }}" target="_blank" rel="noopener">{{ i.whatsapp }}</a>{% endif %}</td>
+        <td>{% if i.email %}<a href="mailto:{{ i.email }}">{{ i.email }}</a>{% endif %}</td>
+        <td>{{ i.zona or '' }}</td><td>{{ i.mensaje or '' }}</td>
+        <td><form method="post" action="{{ url_for('admin_interesado', interesado_id=i.id, accion='pendiente' if i.visto else 'visto') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <button class="btn chico secundario" type="submit">{{ 'Volver a pendiente' if i.visto else 'Ya lo contacté' }}</button>
+        </form></td>
+      </tr>
+      {% endfor %}
+    </table></div>
+    {% elif interesados is none %}<p class="tenue">No se pudo leer la tabla <code>interesados</code>: falta aplicar <code>migrations/060_interesados.sql</code>. Mientras tanto, los pedidos llegan por WhatsApp al teléfono de avisos.</p>
+    {% else %}<p class="tenue">Todavía nadie completó el formulario de <a href="{{ url_for('sumate') }}">/sumate</a>.</p>{% endif %}
+  </details>
+
   <div class="card">
     <h3>Profesionales <span class="contador">{{ tenants|length }}</span></h3>
     <div class="tenue" style="margin-bottom:8px">Uso de los últimos 30 días. Desde acá no se ve ningún dato de pacientes: sólo cuentas.</div>
