@@ -2180,7 +2180,8 @@ def agenda_generar():
                 paso += timedelta(minutes=duracion + descanso)
         cursor += timedelta(days=1)
 
-    creados = db.crear_turnos_libres(tenant["id"], inicios, duracion)
+    db.volver_a_ofrecer(tenant["id"], inicios)
+    creados = db.crear_turnos_libres(tenant["id"], inicios, duracion, a_mano=True)
     logger.info("Tenant %s generó %s turnos libres", tenant["id"], creados)
     return redirect(url_for("agenda"))
 
@@ -3243,6 +3244,20 @@ def _estadisticas_pagina(tenant: dict, tz: ZoneInfo) -> dict | None:
         return None
 
 
+@app.post("/agenda/libre/<turno_id>/sacar")
+@login_required
+def agenda_sacar_libre(turno_id):
+    """Saca un horario libre que el profesional no va a usar. No vuelve a
+    aparecer aunque esté dentro de su horario de atención."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    turno = db.sacar_libre(tenant["id"], turno_id)
+    if turno:
+        flash(f"Sacaste el horario del {scheduler._fmt(turno['inicio'], _tz_de(tenant))}.")
+    else:
+        flash("Ese horario ya no está libre.")
+    return _volver_a_agenda()
+
+
 @app.post("/agenda/hueco/<turno_id>/<accion>")
 @login_required
 def agenda_hueco(turno_id, accion):
@@ -3393,9 +3408,11 @@ def agenda_horario():
         scheduler.sincronizar_feriados(tenant, datetime.now(_tz_de(tenant)).date())
     except Exception:
         logger.exception("Fallo sincronizando feriados")
+    sacados = scheduler.limpiar_fuera_de_horario(tenant)
     creados = scheduler.generar_desde_horario(tenant)
     flash(f"Guardado. Se crearon {creados} horario{'s' if creados != 1 else ''} libre{'s' if creados != 1 else ''} "
-          f"para las próximas {semanas} semanas; desde ahora se van completando solos cada día.")
+          f"para las próximas {semanas} semanas; desde ahora se van completando solos cada día."
+          + (f" Se sacaron {sacados} libre{'s' if sacados != 1 else ''} que ya no entraban en tu horario." if sacados else ""))
     return _volver_a_agenda()
 
 

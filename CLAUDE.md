@@ -303,6 +303,11 @@ scheduler, `cancelaciones.reactivar_si_toca`, y se le ofrece el próximo horario
 la lista de espera). `horario_semanal` (lista de {dia 0-6, desde, hasta}, hasta
 `MAX_FRANJAS` por día) + `horario_semanas`: `scheduler.generar_desde_horario` crea
 los libres con `crear_turnos_libres` (idempotente) al guardar y una vez por día.
+«Sacar» en un libre (`db.sacar_libre`) lo borra y lo anota en `horarios_sacados`
+(`migrations/061`): `generar_desde_horario` saltea esos inicios, así no reaparece.
+Generarlo a mano (`/agenda/generar`, marca `turnos.a_mano`) lo vuelve a habilitar.
+Al guardar el horario, `scheduler.limpiar_fuera_de_horario` borra los libres
+futuros que ya no entran en él; nunca toca reservados, `hueco` ni `a_mano`.
 `tipos_turno` (lista de {nombre, minutos}): con más de uno el paciente elige en
 la página; el calendario sólo muestra horarios donde entra (`app._cabe`: si dura
 más que el horario, tiene que seguir en libres consecutivos), el servidor lo

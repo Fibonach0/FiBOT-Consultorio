@@ -339,12 +339,21 @@ def generar_desde_horario(tenant: dict, ahora: datetime | None = None) -> int:
     """Crea los horarios libres de las próximas `horario_semanas` según el
     horario de atención. Es idempotente (crear_turnos_libres no pisa nada que
     ya exista): lo que el profesional reservó, se tomó o bloqueó sigue igual."""
+    ahora = ahora or datetime.now(timezone.utc)
+    sacados = db.horarios_sacados(tenant["id"], ahora)
+    duracion = tenant.get("duracion_turno_minutos") or 50
+    return sum(db.crear_turnos_libres(tenant["id"], [i for i in inicios if i not in sacados], duracion, modalidad, sede)
+               for (modalidad, sede), inicios in inicios_del_horario(tenant, ahora).items())
+
+
+def inicios_del_horario(tenant: dict, ahora: datetime) -> dict:
+    """Los horarios que tocan según el horario de atención, de ahora a
+    `horario_semanas`, agrupados por (modalidad, sede)."""
     rangos = rangos_horario(tenant)
     if not rangos:
-        return 0
+        return {}
     from datetime import time as _t
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
-    ahora = ahora or datetime.now(timezone.utc)
     duracion = tenant.get("duracion_turno_minutos") or 50
     paso_min = duracion + (tenant.get("descanso_minutos") or 0)
     hoy = ahora.astimezone(tz).date()
@@ -360,8 +369,20 @@ def generar_desde_horario(tenant: dict, ahora: datetime | None = None) -> int:
                 if paso > ahora:
                     por_grupo.setdefault((modalidad, sede), []).append(paso.astimezone(timezone.utc))
                 paso += timedelta(minutes=paso_min)
-    return sum(db.crear_turnos_libres(tenant["id"], inicios, duracion, modalidad, sede)
-               for (modalidad, sede), inicios in por_grupo.items())
+    return por_grupo
+
+
+def limpiar_fuera_de_horario(tenant: dict, ahora: datetime | None = None) -> int:
+    """Al cambiar el horario de atención, los libres que ya no entran se borran
+    (si no, quedan los del horario viejo mezclados con los nuevos). Nunca toca
+    una sesión, un horario retenido por una cancelación ni uno hecho a mano."""
+    if not rangos_horario(tenant):
+        return 0
+    ahora = ahora or datetime.now(timezone.utc)
+    validos = {i for inicios in inicios_del_horario(tenant, ahora).values() for i in inicios}
+    sobran = [t["id"] for t in db.libres_desde_horario(tenant["id"], ahora)
+              if datetime.fromisoformat(t["inicio"]) not in validos]
+    return db.borrar_libres(tenant["id"], sobran)
 
 
 PREFIJO_FERIADO = "Feriado: "

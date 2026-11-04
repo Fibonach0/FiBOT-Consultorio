@@ -602,7 +602,8 @@ def pendientes_de_pago(tenant_id: str, hasta: datetime, limite: int = 50) -> lis
 
 
 def crear_turnos_libres(tenant_id: str, inicios: list[datetime], duracion_minutos: int,
-                        solo_modalidad: str | None = None, sede: str | None = None) -> int:
+                        solo_modalidad: str | None = None, sede: str | None = None,
+                        a_mano: bool = False) -> int:
     """Alta en lote de horarios disponibles. `inicios` ya viene con timezone.
     Usa upsert por (tenant_id, inicio) para que correr esto dos veces con el
     mismo rango no duplique turnos.
@@ -618,6 +619,7 @@ def crear_turnos_libres(tenant_id: str, inicios: list[datetime], duracion_minuto
             "estado": "libre",
             **({"solo_modalidad": solo_modalidad} if solo_modalidad else {}),
             **({"sede": sede} if sede else {}),
+            **({"a_mano": True} if a_mano else {}),
         }
         for ini in inicios
     ]
@@ -628,6 +630,48 @@ def crear_turnos_libres(tenant_id: str, inicios: list[datetime], duracion_minuto
         .upsert(filas, on_conflict="tenant_id,inicio", ignore_duplicates=True)
         .execute()
     )
+    return len(res.data)
+
+
+def sacar_libre(tenant_id: str, turno_id: str) -> dict | None:
+    """Borra un horario libre y lo anota como sacado, para que el scheduler no
+    lo vuelva a crear desde el horario de atención. Uno reservado no se toca."""
+    res = (_client.table("turnos").delete().eq("tenant_id", tenant_id).eq("id", turno_id)
+           .eq("estado", "libre").execute())
+    if not res.data:
+        return None
+    turno = res.data[0]
+    _client.table("horarios_sacados").upsert({"tenant_id": tenant_id, "inicio": turno["inicio"]},
+                                             on_conflict="tenant_id,inicio", ignore_duplicates=True).execute()
+    return turno
+
+
+def horarios_sacados(tenant_id: str, desde: datetime) -> set[datetime]:
+    res = (_client.table("horarios_sacados").select("inicio").eq("tenant_id", tenant_id)
+           .gte("inicio", desde.isoformat()).execute())
+    return {datetime.fromisoformat(f["inicio"]) for f in res.data}
+
+
+def volver_a_ofrecer(tenant_id: str, inicios: list[datetime]) -> None:
+    """Generarlo a mano es pedirlo de nuevo: deja de estar sacado."""
+    if inicios:
+        (_client.table("horarios_sacados").delete().eq("tenant_id", tenant_id)
+         .in_("inicio", [i.isoformat() for i in inicios]).execute())
+
+
+def libres_desde_horario(tenant_id: str, desde: datetime) -> list[dict]:
+    """Horarios libres futuros que salieron del horario de atención: sin
+    paciente, sin decisión pendiente por una cancelación y no generados a mano."""
+    res = (_client.table("turnos").select("id,inicio,hueco,a_mano").eq("tenant_id", tenant_id)
+           .eq("estado", "libre").gt("inicio", desde.isoformat()).execute())
+    return [t for t in res.data if not t.get("hueco") and not t.get("a_mano")]
+
+
+def borrar_libres(tenant_id: str, ids: list[str]) -> int:
+    if not ids:
+        return 0
+    res = (_client.table("turnos").delete().eq("tenant_id", tenant_id).eq("estado", "libre")
+           .in_("id", ids).execute())
     return len(res.data)
 
 
