@@ -289,7 +289,13 @@ transferencia → ambos) y avisa si falta el precio.
 `revisar_pago_mp` también sincroniza devoluciones y contracargos hechos desde
 Mercado Pago (`_sincronizar_devolucion`: `refunded`, `charged_back` o
 `transaction_amount_refunded`), sólo si el id coincide con `pagos.mp_pago_id`;
-es idempotente y el contracargo se avisa al profesional.
+es idempotente y el contracargo se avisa al profesional. Con el pago devuelto
+entero, las sesiones que siguen reservadas con ese `pago_id` pasan a
+`pago = 'pendiente'` y `pago_web = 'devuelto'` (`migrations/057`): siguen
+reservadas, el profesional decide.
+`/agenda/novedades` devuelve `db.version_panel` (firma de pagos y reservas
+nuevas, sin datos); el panel pregunta cada 30 s con la pestaña visible y, si
+cambió, muestra «Hubo novedades · Actualizar» (no recarga solo).
 Varias sesiones desde la web (mismo día y hora, 4 u 8 semanas): sólo con cobro
 activo (se paga todo junto). `app._serie` busca los libres exactos; se reservan
 los que haya (con `frecuencia = 'semanal'` y la ficha del primero) y un solo

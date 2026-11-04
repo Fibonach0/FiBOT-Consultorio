@@ -171,7 +171,7 @@
             {% if t.frecuencia %}<span class="chip">{{ t.frecuencia }}</span>{% endif %}
             {% if t.modalidad == 'virtual' %}<span class="chip">videollamada</span>{% endif %}
             {% if t.tipo %}<span class="chip">{{ t.tipo }}</span>{% endif %}
-            {% if t.pago_web == 'esperando' %}<span class="chip" title="Reservó en la web y todavía no pagó: si no paga, se libera sola">esperando pago</span>{% elif t.pago_web == 'comprobante' %}<span class="chip">comprobante para revisar</span>{% elif t.pago_web == 'aprobado' %}<span class="chip">pagó en la web</span>{% endif %}
+            {% if t.pago_web == 'esperando' %}<span class="chip" title="Reservó en la web y todavía no pagó: si no paga, se libera sola">esperando pago</span>{% elif t.pago_web == 'comprobante' %}<span class="chip">comprobante para revisar</span>{% elif t.pago_web == 'aprobado' %}<span class="chip">pagó en la web</span>{% elif t.pago_web == 'devuelto' %}<span class="chip" title="Pagó en la web y se le devolvió todo: la sesión sigue reservada, cancelala si no viene">pago devuelto</span>{% endif %}
             {% if t.confirmado_at %}<span class="chip" title="Confirmó por WhatsApp: el número es correcto">✓ confirmó</span>{% elif t.confirmacion_enviada_at %}<span class="chip" title="Se le mandó un WhatsApp para confirmar y todavía no contestó">sin confirmar</span>{% endif %}
             {% if t.valor is not none and t.valor is defined %}<span class="chip">{{ t.valor|pesos }}</span>{% endif %}
             {% if t.asistencia == 'vino' %}<span class="chip chip-ok">asistió</span>
@@ -1713,5 +1713,28 @@
       });
     });
   })();
+</script>
+<div id="novedades" class="novedades" hidden role="status">
+  Hubo novedades (un pago, una devolución o una reserva).
+  <button type="button" class="btn chico" onclick="location.reload()">Actualizar</button>
+</div>
+<script>
+(function () {
+  // Pregunta cada 30 s (sólo con la pestaña a la vista) si cambió algo que
+  // llega solo, y ofrece actualizar: no recarga sola para no perder lo que
+  // se esté escribiendo.
+  var actual = {{ version_panel|tojson }};
+  if (!actual) return;
+  var aviso = document.getElementById('novedades');
+  function mirar() {
+    if (document.visibilityState !== 'visible' || !aviso.hidden) return;
+    fetch({{ url_for('agenda_novedades')|tojson }}, {credentials: 'same-origin', cache: 'no-store'})
+      .then(function (r) { return r.ok ? r.json() : null; })
+      .then(function (d) { if (d && d.v && d.v !== actual) aviso.hidden = false; })
+      .catch(function () {});
+  }
+  setInterval(mirar, 30000);
+  document.addEventListener('visibilitychange', mirar);
+})();
 </script>
 {% endblock %}

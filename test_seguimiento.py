@@ -3550,6 +3550,10 @@ _mp["pagos"]["112"] = {"status": "refunded", "external_reference": pago4["token"
                        "transaction_amount_refunded": 25000}
 app.app.test_client().post("/webhook/mercadopago?t=t1", json={"type": "payment", "data": {"id": "112"}})
 chequear("MP afuera: devolución total deja el pago devuelto", pago4["devuelto"] == 25000 and pago4["estado"] == "devuelto")
+chequear("MP afuera: la sesión sigue reservada pero deja de figurar paga",
+         TABLAS["turnos"][0]["estado"] == "reservado" and TABLAS["turnos"][0]["pago"] == "pendiente"
+         and TABLAS["turnos"][0]["pago_web"] == "devuelto")
+TABLAS["turnos"][0].update({"pago": "pagado", "pago_web": "aprobado"})
 _mp["pagos"]["119"] = {"status": "refunded", "external_reference": pago4["token"], "transaction_amount": 25000}
 pago4.update(_p4)
 _pg.revisar_pago_mp(dict(_t1), "119")
@@ -3561,6 +3565,19 @@ chequear("MP: sin permiso para devolver lo dice claro y no anota", "no permite d
          and "saldo" not in _e and pago4["devuelto"] == _p4["devuelto"])
 _pg.requests.post = _pp
 _mp["pagos"]["112"] = {"status": "approved", "external_reference": pago4["token"], "transaction_amount": 25000}
+
+# el panel abierto se entera de las novedades
+with client.session_transaction() as s:
+    s["tenant_id"], s["sesion_id"], s["csrf_token"] = "t1", _sesion_de("t1"), "tok"
+_v1 = client.get("/agenda/novedades").get_json()["v"]
+_v2 = client.get("/agenda/novedades").get_json()["v"]
+pago4["devuelto"] = (pago4.get("devuelto") or 0) + 1
+_v3 = client.get("/agenda/novedades").get_json()["v"]
+pago4["devuelto"] -= 1
+chequear("novedades: misma firma si no cambió nada y otra si cambió un pago", _v1 and _v1 == _v2 and _v3 != _v1)
+_html = client.get("/agenda").data.decode()
+chequear("novedades: el panel trae el aviso y su versión", 'id="novedades"' in _html and _v1 in _html)
+chequear("novedades: sin sesión no responde", app.app.test_client().get("/agenda/novedades").status_code in (302, 401, 403))
 
 # token de prueba pegado a mano (solo con MP_PRUEBA)
 _guardado = {k: _t1.get(k) for k in ("mp_user_id", "mp_token_cifrado", "mp_refresh_cifrado", "mp_vence", "cobro_web")}

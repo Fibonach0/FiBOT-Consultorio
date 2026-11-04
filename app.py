@@ -1875,6 +1875,7 @@ def agenda():
         "devolucion_horas": DEVOLUCION_HORAS,
         "mp_disponible": pagos.mp_disponible(),
         "mp_prueba": config.MP_PRUEBA,
+        "version_panel": _version_panel(tenant["id"]),
         "cobro_activo": pagos.activo(tenant),
         "bloqueos": bloqueos,
         "hoy_iso": ahora.date().isoformat(),
@@ -4252,6 +4253,24 @@ def _tras_conectar_mp(tenant_id: str) -> str:
         return ("Conectaste Mercado Pago. Falta un paso: cargá el precio de la sesión acá abajo "
                 "(o en tus tipos de turno) y las reservas web se empiezan a cobrar.")
     return "Listo, conectaste Mercado Pago: las reservas de tu página se cobran y la plata va a tu cuenta."
+
+
+def _version_panel(tenant_id: str) -> str:
+    try:
+        return db.version_panel(tenant_id)
+    except Exception:
+        logger.warning("No se pudo calcular la versión del panel", exc_info=True)
+        return ""
+
+
+@app.get("/agenda/novedades")
+@login_required
+def agenda_novedades():
+    """El panel abierto pregunta cada tanto si cambió algo (pago, devolución,
+    reserva nueva) para ofrecer actualizar. Sólo una firma, sin datos."""
+    r = jsonify({"v": _version_panel(session["tenant_id"])})
+    r.headers["Cache-Control"] = "no-store"
+    return r
 
 
 @app.get("/agenda/mercadopago/conectar")

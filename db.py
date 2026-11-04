@@ -2,6 +2,7 @@
 y TODO recibe tenant_id explícito — no hay una sola función que pueda tocar
 datos de un tenant sin que se lo pidan a propósito. Esa disciplina es la que
 evita que un bug cruce datos de un profesional a otro."""
+import hashlib
 import unicodedata
 from datetime import datetime, timedelta, timezone
 
@@ -1415,6 +1416,19 @@ def pagos_para_revisar(tenant_id: str) -> list[dict]:
     a_devolver = _client.table("pagos").select("*").eq("tenant_id", tenant_id).gt("a_devolver", 0).order("creado").execute()
     vistos = {p["id"] for p in res.data}
     return res.data + [p for p in a_devolver.data if p["id"] not in vistos]
+
+
+def version_panel(tenant_id: str) -> str:
+    """Una firma corta de lo que puede cambiar solo (pagos que llegan,
+    devoluciones, reservas nuevas), para que el panel abierto se entere sin
+    recargar. No lleva datos de pacientes."""
+    pagos = (_client.table("pagos").select("id,estado,devuelto,resuelto").eq("tenant_id", tenant_id)
+             .order("creado", desc=True).limit(30).execute().data)
+    nuevas = (_client.table("turnos").select("id").eq("tenant_id", tenant_id).eq("reserva_nueva", True)
+              .eq("estado", "reservado").execute().data)
+    base = "|".join(f"{p['id']}:{p['estado']}:{p.get('devuelto') or 0}:{p.get('resuelto') or ''}" for p in pagos)
+    base += "#" + ",".join(sorted(t["id"] for t in nuevas))
+    return hashlib.sha256(base.encode()).hexdigest()[:16]
 
 
 def pagos_resueltos_entre(tenant_id: str, desde: datetime, hasta: datetime) -> list[dict]:
