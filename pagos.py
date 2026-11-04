@@ -128,8 +128,12 @@ def conectar(tenant_id: str, code: str, redirect_uri: str) -> str | None:
     except requests.RequestException:
         return "No se pudo conectar con Mercado Pago."
     if r.status_code >= 300:
-        logger.warning("Mercado Pago rechazó el código (%s)", r.status_code)
-        return "Mercado Pago no aceptó la conexión. Probá de nuevo."
+        try:
+            motivo = str(r.json().get("error") or r.json().get("message") or "")[:60]
+        except ValueError:
+            motivo = ""
+        logger.warning("Mercado Pago rechazó el código (%s %s)", r.status_code, motivo)
+        return "Mercado Pago no aceptó la conexión" + (f" ({motivo})." if motivo else ".")
     datos = r.json()
     if not datos.get("access_token"):
         return "Mercado Pago no devolvió el permiso."
