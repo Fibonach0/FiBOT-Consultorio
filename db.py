@@ -1233,6 +1233,24 @@ def marcar_ofrecido(tenant_id: str, espera_id: str, dia: str) -> None:
     _client.table("lista_espera").update({"ofrecido_en": dia}).eq("tenant_id", tenant_id).eq("id", espera_id).execute()
 
 
+def portada(tenant_id: str) -> dict | None:
+    res = _client.table("portadas").select("tipo,datos").eq("tenant_id", tenant_id).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def guardar_portada(tenant_id: str, tipo: str, datos_b64: str, version: int) -> None:
+    from datetime import datetime, timezone
+    _client.table("portadas").upsert({"tenant_id": tenant_id, "tipo": tipo, "datos": datos_b64,
+                                      "actualizada": datetime.now(timezone.utc).isoformat()},
+                                     on_conflict="tenant_id").execute()
+    _client.table("tenants").update({"portada_version": version}).eq("id", tenant_id).execute()
+
+
+def borrar_portada(tenant_id: str) -> None:
+    _client.table("portadas").delete().eq("tenant_id", tenant_id).execute()
+    _client.table("tenants").update({"portada_version": 0}).eq("id", tenant_id).execute()
+
+
 def guardar_ajustes(tenant_id: str, campos: dict) -> None:
     _client.table("tenants").update(campos).eq("id", tenant_id).execute()
 

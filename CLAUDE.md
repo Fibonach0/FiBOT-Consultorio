@@ -183,6 +183,14 @@ criterio que la firma), `descripcion`, `modalidades_publicas` (presencial /
 virtual / ambas: con ambas elige el paciente) y `en_directorio` (si es false no
 aparece en /turnos, pero su link sigue andando). Se cargan en «Tu página de
 turnos» del panel.
+Perfil completo (`migrations/058`): `titulo`, `ubicacion`, `sobre_mi`,
+`enfoques` (lista, `MAX_ENFOQUES`), `formacion` (renglones, `MAX_FORMACION`),
+`mas_de_mi` (lo humano) y `obras_sociales`, se guardan con `/agenda/presentacion`
+(aparte de `/agenda/perfil`, que es la configuración de reservas). La portada vive
+en la tabla `portadas` (no en `tenants`, que se lee en cada pedido), hasta
+`PORTADA_MAX`, y se sirve en `/<slug>/portada?v=<portada_version>` con caché larga.
+El panel achica foto (512) y portada (1600×400, recorte centrado) en el navegador
+antes de subirlas. Sin foto, la página muestra la inicial.
 
 Confirmación por WhatsApp de la reserva web: con `CONFIRMACION_TEMPLATE`
 (plantilla con botones «Sí, confirmo» / «Cancelar», `{{1}}` profesional,
