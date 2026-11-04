@@ -1,0 +1,21 @@
+{#- Turno reservado: en su página (publico_confirmado.html) y dentro de la
+    tarjeta de /<slug> (X-Parcial). -#}
+{% set primer_nombre = (nombre or '').split(' ')[0] %}
+<div class="rv rv-lista" data-paso="lista">
+  <div class="rv-ok" aria-hidden="true">✓</div>
+  <h2>¡Listo{% if primer_nombre %}, {{ primer_nombre }}{% endif %}!</h2>
+  <p>Tu turno con <strong>{{ tenant.nombre }}</strong> quedó reservado.</p>
+  <div class="rv-burbuja">
+    <b>{{ turno._dia }} · {{ turno._hora }}</b>{% if turno.tipo %} · {{ turno.tipo }}{% endif %}<br>
+    {% if turno.modalidad == 'virtual' %}Por videollamada: el link te llega con la confirmación.{% elif turno.sede %}{% set sd = (tenant.sedes or [])|selectattr('nombre', 'equalto', turno.sede)|first %}En {{ turno.sede }}{% if sd and sd.direccion %} — {{ sd.direccion }}{% endif %}.{% else %}En el consultorio.{% endif %}
+  </div>
+  {% if enviada %}
+  <div class="aviso" style="margin:12px 0"><strong>Revisá tu WhatsApp:</strong> te mandamos un mensaje para que confirmes el turno. Al confirmar te llega el link para agendarlo en tu calendario.</div>
+  {% endif %}
+  <p style="color:var(--muted);">Te vamos a mandar un recordatorio por WhatsApp antes del turno. Si necesitás cancelarlo, escribí <strong>cancelar</strong> por WhatsApp.</p>
+  <div class="rv-acciones">
+    <a class="btn secundario" href="{{ url_for('agendar', token=token) }}" style="text-decoration:none">Agregar al calendario</a>
+    <a href="{{ url_for('publico', slug=tenant.slug) }}">Reservar otro</a>
+  </div>
+  <p style="color:var(--muted);font-size:.88rem;margin-bottom:0">Desde «Agregar al calendario» también podés cambiarlo o cancelarlo. Guardá ese link.</p>
+</div>

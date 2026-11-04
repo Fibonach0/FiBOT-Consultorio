@@ -4408,6 +4408,7 @@ def publico(slug):
                                hay_directorio=sum(1 for t in db.tenants_activos()
                                                   if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
     return render_template("publico.html", tenant=tenant, cambiar=None, tipos=tipos, tipo=tipo, i_tipo=i_tipo,
+                           serie_posible=pagos.activo(tenant),
                            **_semana_libre(tenant, request.args.get("semana"), tipo["minutos"] if tipo else None),
                            hay_directorio=sum(1 for t in db.tenants_activos()
                                               if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
@@ -4431,6 +4432,21 @@ def publico_reservar_form(slug, turno_id):
                            serie_posible=pagos.activo(tenant))
 
 
+def _parcial() -> bool:
+    """Reserva desde la misma página del profesional (/<slug>): el navegador
+    pide sólo el pedazo que cambia (revisar, listo o el error), no la página."""
+    return request.headers.get("X-Parcial") == "1"
+
+
+def _error_reserva(mensaje: str, destino: str, otro: bool = False):
+    """Un error al reservar: en la misma página vuelve como aviso dentro de la
+    tarjeta (`otro`: hay que elegir otro horario); si no, flash y redirect."""
+    if _parcial():
+        return render_template("_reserva_error.html", mensaje=mensaje, otro=otro), 409
+    flash(mensaje)
+    return redirect(destino)
+
+
 @app.post("/<slug>/reservar/<turno_id>")
 def publico_reservar(slug, turno_id):
     tenant = db.get_tenant_by_slug(slug)
@@ -4443,17 +4459,15 @@ def publico_reservar(slug, turno_id):
     # depender de que el paciente lo tipee bien.
     telefono = "".join(ch for ch in (request.form.get("telefono") or "") if ch.isdigit())
     if not nombre or not telefono:
-        flash("Completá nombre y teléfono.")
-        return redirect(url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
+        return _error_reserva("Completá nombre y teléfono.", url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     modalidad = _modalidad_publica(tenant, request.form.get("modalidad"), db.turno_por_id(tenant["id"], turno_id))
     i_tipo, tipo = _tipo_elegido(tenant, request.form.get("tipo"))
     if tipos_de(tenant) and tipo is None:
-        flash("Elegí qué tipo de turno querés.")
-        return redirect(url_for("publico", slug=slug))
+        return _error_reserva("Elegí qué tipo de turno querés.", url_for("publico", slug=slug))
     if tipo and not _entra(tenant, turno_id, tipo["minutos"]):
-        flash(f"En ese horario no entra un turno de {tipo['minutos']} minutos — elegí otro.")
-        return redirect(url_for("publico", slug=slug, tipo=i_tipo))
+        return _error_reserva(f"En ese horario no entra un turno de {tipo['minutos']} minutos — elegí otro.",
+                              url_for("publico", slug=slug, tipo=i_tipo))
     # Varias sesiones (mismo día y hora, semanas seguidas): sólo pagando por
     # adelantado. Se reservan las que estén libres; las que no, se avisan.
     sesiones = int(request.form.get("sesiones")) if request.form.get("sesiones") in ("4", "8") and pagos.activo(tenant) else 1
@@ -4464,20 +4478,18 @@ def publico_reservar(slug, turno_id):
         # horario en este paso: si otro lo reserva mientras tanto, se avisa.
         turno = db.turno_por_id(tenant["id"], turno_id)
         if tenant.get("pausado") or not turno or turno["estado"] != "libre" or turno.get("hueco"):
-            flash("Ese horario ya no está disponible — elegí otro.")
-            return redirect(url_for("publico", slug=slug))
+            return _error_reserva("Ese horario ya no está disponible — elegí otro.", url_for("publico", slug=slug), otro=True)
         if len(telefono) < 10:
-            flash("Revisá el WhatsApp: tiene que ir completo, con código de país (ej. 5491123456789).")
-            return redirect(url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
-        return render_template("publico_revisar.html", tenant=tenant, turno=_con_hora_local([turno], tz)[0],
+            return _error_reserva("Revisá el WhatsApp: tiene que ir completo, con código de país (ej. 5491123456789).",
+                                  url_for("publico_reservar_form", slug=slug, turno_id=turno_id))
+        return render_template("_reserva_revisar.html" if _parcial() else "publico_revisar.html", tenant=tenant, turno=_con_hora_local([turno], tz)[0],
                                nombre=nombre, telefono=telefono, modalidad=modalidad, tipo=tipo, i_tipo=i_tipo,
                                a_pagar=pagos.monto_de(tenant, (tipo or {}).get("precio"), 1 + len(serie)) if pagos.activo(tenant) else None,
                                sesiones=sesiones, serie=_con_hora_local(serie, tz), faltan=faltan,
                                confirma_por_whatsapp=bool(config.CONFIRMACION_TEMPLATE))
     previo = db.turno_por_id(tenant["id"], turno_id)
     if tenant.get("pausado") or (previo or {}).get("hueco") or not db.reservar_turno(tenant["id"], turno_id, telefono, nombre):
-        flash("Ese horario ya no está disponible — elegí otro.")
-        return redirect(url_for("publico", slug=slug))
+        return _error_reserva("Ese horario ya no está disponible — elegí otro.", url_for("publico", slug=slug), otro=True)
     _evento(tenant, "reserva")
     token = secrets.token_urlsafe(16)
     campos = {"token_calendario": token, "modalidad": None if modalidad == "presencial" else modalidad}
@@ -4505,13 +4517,16 @@ def publico_reservar(slug, turno_id):
                 db.actualizar_reserva(tenant["id"], t["id"], extra)
                 reservados.append({**t, **extra})
         pago = pagos.iniciar(tenant, reservados, monto * len(reservados))
+        if _parcial():  # reserva desde la misma página: el navegador va al pago
+            return "", 200, {"X-Ir-A": url_for("pago_paciente", token=pago["token"])}
         return redirect(url_for("pago_paciente", token=pago["token"]))
     enviada = scheduler.mandar_confirmacion(tenant, {**turno, **campos}, tz) if turno else False
     if enviada:
         campos["confirmacion_enviada_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
     db.actualizar_reserva(tenant["id"], turno_id, campos)
     turno = _con_hora_local([{**turno, **campos}], tz)[0]
-    return render_template("publico_confirmado.html", tenant=tenant, turno=turno, enviada=enviada, token=token)
+    return render_template("_reserva_lista.html" if _parcial() else "publico_confirmado.html",
+                           tenant=tenant, turno=turno, enviada=enviada, token=token, nombre=nombre)
 
 
 def _serie(tenant: dict, turno_id: str, sesiones: int, minutos: int | None) -> tuple[list[dict], list[str]]:

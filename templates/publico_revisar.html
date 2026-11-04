@@ -5,31 +5,7 @@
 {% import "_sitio_macros.html" as sitio %}{{ sitio.barra(volver=(url_for('publico', slug=tenant.slug), tenant.nombre)) }}
 <main>
   <div class="card">
-    <h2>Revisá antes de reservar</h2>
-    <div class="turno"><span>Profesional</span><strong>{{ tenant.nombre }}{% if tenant.rubro %} <span style="color:var(--muted);font-weight:400">· {{ tenant.rubro }}</span>{% endif %}</strong></div>
-    <div class="turno"><span>Día</span><strong>{{ turno._dia }}</strong></div>
-    <div class="turno"><span>Hora</span><strong>{{ turno._hora }}</strong></div>
-    {% if serie %}<div class="turno"><span>Y también</span><strong>{% for t in serie %}{{ t._dia }}{% if not loop.last %} · {% endif %}{% endfor %}</strong></div>{% endif %}
-    {% if faltan %}<p style="color:var(--muted);margin:4px 0">No están libres: {{ faltan|join(', ') }}. Se reservan {{ 1 + serie|length }} sesiones.</p>{% endif %}
-    {% if tipo %}<div class="turno"><span>Turno</span><strong>{{ tipo.nombre }} · {{ tipo.minutos }} min</strong></div>{% endif %}
-    <div class="turno"><span>Modalidad</span><strong>{{ 'Por videollamada' if modalidad == 'virtual' else 'En el consultorio' }}</strong></div>
-    <div class="turno"><span>A nombre de</span><strong>{{ nombre }}</strong></div>
-    <div class="turno"><span>WhatsApp</span><strong>+{{ telefono }}</strong></div>
-    {% if a_pagar %}<div class="aviso" style="margin:10px 0">Para confirmar el turno hay que pagar <strong>{{ a_pagar|pesos }}</strong>{% if tenant.cobro_modo == 'sena' %} de seña{% endif %}. El horario queda reservado mientras pagás.</div>{% endif %}
-    <p style="color:var(--muted);">{% if confirma_por_whatsapp and not a_pagar %}Al reservar te llega un WhatsApp para confirmar el turno: así sabemos que el número es el tuyo. {% endif %}A ese WhatsApp te llega también el recordatorio. Si algo no está bien, corregilo antes de confirmar.</p>
-
-    <form method="post" action="{{ url_for('publico_reservar', slug=tenant.slug, turno_id=turno.id) }}">
-      <input type="hidden" name="nombre" value="{{ nombre }}">
-      <input type="hidden" name="telefono" value="{{ telefono }}">
-      <input type="hidden" name="modalidad" value="{{ modalidad }}">
-      {% if sesiones and sesiones > 1 %}<input type="hidden" name="sesiones" value="{{ sesiones }}">{% endif %}
-      {% if i_tipo is not none %}<input type="hidden" name="tipo" value="{{ i_tipo }}">{% endif %}
-      <input type="hidden" name="confirmado" value="1">
-      <div style="margin-top:14px;">
-        <button class="btn" type="submit">{{ 'Seguir al pago' if a_pagar else 'Sí, reservar con ' ~ tenant.nombre }}</button>
-        <a class="btn secundario" href="{{ url_for('publico_reservar_form', slug=tenant.slug, turno_id=turno.id) }}" style="text-decoration:none; display:inline-block; margin-left:8px;">Corregir</a>
-      </div>
-    </form>
+    {% include "_reserva_revisar.html" %}
   </div>
 </main>
 {{ sitio.pie() }}
