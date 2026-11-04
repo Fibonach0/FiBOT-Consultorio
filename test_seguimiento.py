@@ -3538,6 +3538,26 @@ _pg.revisar_pago_mp(dict(_t1), "113")
 chequear("MP: pago tardío se marca y se avisa", pago5["estado"] == "aprobado_tarde" and "ya se había liberado" in _avp[-1])
 chequear("MP: un pago de otro profesional no se toca", _pg.revisar_pago_mp(dict(_t1, id="otro"), "113") is None)
 
+# token de prueba pegado a mano (solo con MP_PRUEBA)
+_guardado = {k: _t1.get(k) for k in ("mp_user_id", "mp_token_cifrado", "mp_refresh_cifrado", "mp_vence")}
+_get_prev, _prueba_prev = _pg.requests.get, _pg.config.MP_PRUEBA
+_pg.requests.get = lambda url, headers=None, timeout=None: (
+    _RMP(200, {"id": 3815332524}) if headers and headers.get("Authorization") == "Bearer APP_USR-bueno" else _RMP(401, {}))
+_pg.config.MP_PRUEBA = False
+chequear("token de prueba: sin MP_PRUEBA no se acepta", _pg.conectar_con_token("t1", "APP_USR-bueno") is not None
+         and _t1["mp_token_cifrado"] == _guardado["mp_token_cifrado"])
+_pg.config.MP_PRUEBA = True
+chequear("token de prueba: rechaza lo que no es un token", _pg.conectar_con_token("t1", "hola que tal") is not None)
+chequear("token de prueba: rechaza uno que Mercado Pago no reconoce", _pg.conectar_con_token("t1", "APP_USR-malo") is not None)
+with client.session_transaction() as s:
+    s["tenant_id"], s["sesion_id"], s["csrf_token"] = "t1", _sesion_de("t1"), "tok"
+r = client.post("/agenda/mercadopago/token-prueba", data={"token": " APP_USR-bueno "})
+chequear("token de prueba: lo valida, lo guarda cifrado y sin refresh",
+         _pg.descifrar(_t1["mp_token_cifrado"]) == "APP_USR-bueno" and "APP_USR-bueno" not in _t1["mp_token_cifrado"]
+         and _t1["mp_user_id"] == "3815332524" and not _t1.get("mp_refresh_cifrado"))
+_pg.requests.get, _pg.config.MP_PRUEBA = _get_prev, _prueba_prev
+_t1.update(_guardado)
+
 # seña
 chequear("seña: cobra la seña por sesión", _pg.monto_de({"cobro_modo": "sena", "sena_monto": 10000}, 25000, 3) == 30000
          and _pg.monto_de({"cobro_modo": "total"}, 25000, 2) == 50000 and _pg.monto_de({"cobro_modo": "total"}, None) is None)
