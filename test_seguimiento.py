@@ -3111,6 +3111,35 @@ chequear("color: la página usa el color elegido, en claro y en oscuro", t1["col
 panel_c.post("/agenda/presentacion", data={"csrf_token": "tok", "color_pagina": "</style><script>", "descripcion": "Adultos · Caballito"})
 chequear("color: un valor raro vuelve al verde de siempre", t1["color_pagina"] is None
          and "--green:#9a4a2c" not in app.app.test_client().get(f"/{t1['slug']}").data.decode())
+# horario de «oscuro de noche» a elección
+panel_c.post("/agenda/vista", data={"csrf_token": "tok", "noche": "19-7"})
+panel_c.post("/agenda/vista", data={"csrf_token": "tok", "noche": "8-8"})
+panel_c.post("/agenda/vista", data={"csrf_token": "tok", "noche": "25-3"})
+chequear("noche: guarda el horario elegido y descarta los inválidos", t1["preferencias_vista"].get("noche") == "19-7"
+         and 'data-noche="19-7"' in panel_c.get("/agenda").data.decode())
+_cn = app.app.test_client(); _cn.set_cookie("noche", "x-y")
+chequear("noche: sin elegir va de 20 a 8", 'data-noche="20-8"' in _cn.get(f"/{t1['slug']}").data.decode())
+# vista previa al compartir
+t1["foto"] = "data:image/png;base64," + __import__("base64").b64encode(b"\x89PNG\r\n\x1a\nxx").decode()
+_og = app.app.test_client().get(f"/{t1['slug']}").data.decode()
+chequear("compartir: la página trae título, descripción y la foto para la vista previa",
+         'property="og:title"' in _og and f"content=\"{t1['nombre']}" in _og and 'property="og:description"' in _og
+         and f"/{t1['slug']}/foto" in _og and 'property="og:image"' in _og)
+_ft = app.app.test_client().get(f"/{t1['slug']}/foto")
+chequear("compartir: la foto se sirve como imagen", _ft.status_code == 200 and _ft.mimetype == "image/png" and _ft.data.startswith(b"\x89PNG"))
+t1["foto"] = "data:text/html;base64,PHNjcmlwdD4="
+chequear("compartir: una foto que no es PNG/JPG no se sirve", app.app.test_client().get(f"/{t1['slug']}/foto").status_code == 404)
+t1["foto"] = None
+# instalar como app
+_mf = app.app.test_client().get("/manifest.webmanifest")
+chequear("app: manifest con nombre, inicio en el panel e íconos", _mf.status_code == 200 and _mf.mimetype == "application/manifest+json"
+         and _mf.get_json()["start_url"].startswith("/agenda") and len(_mf.get_json()["icons"]) == 3)
+_sw = app.app.test_client().get("/sw.js").data.decode()
+chequear("app: el service worker no guarda páginas, sólo la de sin conexión", "caches.match(OFFLINE)" in _sw and "cache.put" not in _sw
+         and "csrf" not in app.app.test_client().get("/sin-conexion").data.decode())
+chequear("app: íconos servidos", app.app.test_client().get("/static/icono-512.png").status_code == 200)
+chequear("app: el panel ofrece instalarlo y todas las páginas traen el manifest",
+         'id="instalar-boton"' in panel_c.get("/agenda").data.decode() and 'rel="manifest"' in _og)
 _hp = panel_c.get("/agenda").data.decode()
 chequear("panel: recorte de foto y colores para elegir", all(x in _hp for x in ('id="recorte"', 'name="color_pagina" value="azul"', "Usar este recorte"))
          and _hp.index('id="recorte"') < _hp.index("se elige el recorte"))
