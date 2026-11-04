@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block titulo %}Agendar turno{% endblock %}
-{% block cuerpo %}
+{% block cuerpo %}{% include "_color_pagina.html" %}
 <header><span>FiBOT Consultorio{% if tenant %} · {{ tenant.nombre }}{% endif %}</span></header>
 <main>
   <div class="card" style="max-width:520px;margin:30px auto">

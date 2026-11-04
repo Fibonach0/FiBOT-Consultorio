@@ -25,7 +25,7 @@ from zoneinfo import ZoneInfo
 import bcrypt
 from urllib.parse import urlencode
 
-from flask import Flask, flash, jsonify, redirect, render_template, request, send_file, session, url_for
+from flask import Flask, flash, g, jsonify, redirect, render_template, request, send_file, session, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
 from openpyxl import Workbook
 
@@ -239,6 +239,45 @@ def _csrf_token() -> str:
 
 
 app.jinja_env.globals["csrf_token"] = _csrf_token
+
+TEMAS = ("claro", "oscuro", "auto", "noche")
+LETRAS = ("normal", "grande", "enorme")
+
+
+def _vista() -> dict:
+    """Tema y tamaño de letra de esta página. Con la sesión de un profesional
+    manda lo guardado en su cuenta (lo sigue a cualquier dispositivo); si no,
+    las cookies del navegador."""
+    if "vista" in g:
+        return g.vista
+    v = {"tema": request.cookies.get("tema"), "letra": request.cookies.get("letra")}
+    if session.get("tenant_id"):
+        try:
+            pref = (db.get_tenant_by_id(session["tenant_id"]) or {}).get("preferencias_vista") or {}
+        except Exception:
+            pref = {}
+        v.update({k: pref[k] for k in ("tema", "letra") if pref.get(k)})
+    g.vista = {"tema": v["tema"] if v["tema"] in TEMAS else "auto",
+               "letra": v["letra"] if v["letra"] in LETRAS else "normal"}
+    return g.vista
+
+
+app.jinja_env.globals["vista_pagina"] = _vista
+
+# Color de la página pública: (claro, oscuro), cada uno con
+# (acento, fondo de botones/encabezado, fondo suave, intermedio). «verde» es el de siempre.
+COLORES_PAGINA = {
+    "verde": {"nombre": "Verde", "claro": None, "oscuro": None, "muestra": "#2f5233"},
+    "azul": {"nombre": "Azul", "claro": ("#2b4f7a", "#2b4f7a", "#eaf0f7", "#6b8db5"),
+             "oscuro": ("#8fb4e0", "#345a86", "#1f2a38", "#46648a"), "muestra": "#2b4f7a"},
+    "terracota": {"nombre": "Terracota", "claro": ("#9a4a2c", "#9a4a2c", "#f8ece6", "#c58767"),
+                  "oscuro": ("#e6a284", "#8a4a30", "#35241d", "#7a4a35"), "muestra": "#9a4a2c"},
+    "violeta": {"nombre": "Violeta", "claro": ("#5b3f86", "#5b3f86", "#f0ebf7", "#9580b8"),
+                "oscuro": ("#b8a2e0", "#5e4590", "#2a2336", "#5f4f80"), "muestra": "#5b3f86"},
+    "pizarra": {"nombre": "Pizarra", "claro": ("#37474f", "#37474f", "#eceff1", "#78909c"),
+                "oscuro": ("#a7bcc6", "#455a64", "#222a2e", "#4e6570"), "muestra": "#37474f"},
+}
+app.jinja_env.globals["colores_pagina"] = COLORES_PAGINA
 app.jinja_env.filters["pesos"] = lambda v: f"$ {v:,}".replace(",", ".")
 _pesos = app.jinja_env.filters["pesos"]
 
@@ -3263,6 +3302,20 @@ def _lista_corta(texto: str, separador: str, maximo: int, largo: int) -> list[st
     return salida[:maximo]
 
 
+@app.post("/agenda/vista")
+@login_required
+def agenda_vista():
+    """Tema o tamaño de letra elegidos desde el menú «Aa»: quedan en la cuenta."""
+    tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
+    pref = dict(tenant.get("preferencias_vista") or {})
+    if request.form.get("tema") in TEMAS:
+        pref["tema"] = request.form["tema"]
+    if request.form.get("letra") in LETRAS:
+        pref["letra"] = request.form["letra"]
+    db.guardar_ajustes(session["tenant_id"], {"preferencias_vista": pref})
+    return jsonify(ok=True)
+
+
 @app.post("/agenda/presentacion")
 @login_required
 def agenda_presentacion():
@@ -3285,6 +3338,7 @@ def agenda_presentacion():
         "formacion": _lista_corta(f.get("formacion", ""), "\n", MAX_FORMACION, 120),
         "mas_de_mi": largo("mas_de_mi", 400),
         "obras_sociales": corto("obras_sociales", 200),
+        "color_pagina": f.get("color_pagina") if f.get("color_pagina") in COLORES_PAGINA else None,
     })
     flash("Listo, guardado: así te presentás en tu página.")
     return redirect(url_for("agenda") + "#mi-pagina")

@@ -3062,7 +3062,8 @@ chequear("página: muestra la presentación", all(x in _pub for x in (
     "Lic. en Psicología (UBA)", "Caballito, CABA", "Sobre mí", "Temas que trabajo", "Adolescentes", "Formación",
     "Posgrado TCC", "Un poco más de mí", "dos gatos", "Obras sociales", 'href="#horarios"', "presencial o por videollamada")))
 chequear("página: sin foto muestra la inicial", "perfil-iniciales" in _pub)
-chequear("tema: sin elegir sigue al dispositivo y trae el botón", 'data-tema="auto"' in _pub and 'id="tema-boton"' in _pub)
+chequear("tema: sin elegir sigue al dispositivo y trae el menú de vista", 'data-tema="auto"' in _pub and 'id="vista-boton"' in _pub
+         and 'data-letra="normal"' in _pub and 'name="csrf"' not in _pub)
 _cli_osc = app.app.test_client()
 _cli_osc.set_cookie("tema", "oscuro")
 _cli_raro = app.app.test_client()
@@ -3087,6 +3088,31 @@ chequear("portada: se quita", t1.get("portada_version") == 0
          and app.app.test_client().get(f"/{t1['slug']}/portada").status_code == 404)
 chequear("perfil: avisa si ofrece videollamada sin link", "no cargaste el link" in panel_c.get("/agenda").data.decode())
 chequear("panel: elegir foto y portada sube sola, sin botón aparte", 'class="btn chico secundario elegir-archivo"' in panel_c.get("/agenda").data.decode())
+# vista guardada en la cuenta y color de la página
+_ck = app.app.test_client()
+_ck.set_cookie("tema", "claro"); _ck.set_cookie("letra", "enorme")
+_html_ck = _ck.get(f"/{t1['slug']}").data.decode()
+chequear("vista: sin sesión usa las cookies", 'data-tema="claro"' in _html_ck and 'data-modo="claro"' in _html_ck and 'data-letra="enorme"' in _html_ck)
+panel_c.post("/agenda/vista", data={"csrf_token": "tok", "tema": "noche"})
+panel_c.post("/agenda/vista", data={"csrf_token": "tok", "letra": "grande"})
+panel_c.post("/agenda/vista", data={"csrf_token": "tok", "tema": "rosa", "letra": "gigante"})
+chequear("vista: el panel la guarda en la cuenta y descarta valores raros", t1.get("preferencias_vista") == {"tema": "noche", "letra": "grande"})
+panel_c.set_cookie("tema", "claro")
+_html_p = panel_c.get("/agenda").data.decode()
+chequear("vista: con sesión manda la de la cuenta (te sigue a otro dispositivo)",
+         'data-tema="noche"' in _html_p and 'data-letra="grande"' in _html_p and 'name="csrf"' in _html_p)
+chequear("vista: sin CSRF no se guarda", panel_c.post("/agenda/vista", data={"tema": "oscuro"}).status_code in (400, 403)
+         and t1["preferencias_vista"]["tema"] == "noche")
+panel_c.post("/agenda/presentacion", data={"csrf_token": "tok", "color_pagina": "terracota", "descripcion": "Adultos · Caballito"})
+_pub_c = app.app.test_client().get(f"/{t1['slug']}").data.decode()
+chequear("color: la página usa el color elegido, en claro y en oscuro", t1["color_pagina"] == "terracota"
+         and "--green:#9a4a2c" in _pub_c and '[data-modo="oscuro"] { --green:#e6a284' in _pub_c)
+panel_c.post("/agenda/presentacion", data={"csrf_token": "tok", "color_pagina": "</style><script>", "descripcion": "Adultos · Caballito"})
+chequear("color: un valor raro vuelve al verde de siempre", t1["color_pagina"] is None
+         and "--green:#9a4a2c" not in app.app.test_client().get(f"/{t1['slug']}").data.decode())
+chequear("panel: recorte de foto y colores para elegir", all(x in panel_c.get("/agenda").data.decode()
+         for x in ('id="recorte"', 'name="color_pagina" value="azul"', "Usar este recorte")))
+
 panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "cualquiera", "en_directorio": "1"})
 chequear("perfil: modalidad inválida vuelve a presencial", t1["modalidades_publicas"] == "presencial" and t1["en_directorio"] is True)
 import io as _io  # noqa: E402
