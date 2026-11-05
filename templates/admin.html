@@ -104,6 +104,16 @@
       <div><label>Cobrado por la web en el mes</label><input type="month" name="cobros" value="{{ mes_cobros }}" required></div>
       <div class="al-pie"><button class="btn chico secundario" type="submit">Ver</button></div>
     </form>
+    {% if tablero %}
+    <div class="fila" style="margin-bottom:10px;gap:18px">
+      <div><span class="tenue">Cobrado en la plataforma</span><br><strong style="font-size:1.3em">{{ tablero.total|pesos }}</strong>
+        {% if tablero.variacion is not none %}<span class="tenue">({{ '+' if tablero.variacion >= 0 }}{{ tablero.variacion }}% vs. mes anterior)</span>
+        {% elif tablero.anterior == 0 and tablero.total %}<span class="tenue">(el mes anterior: $ 0)</span>{% endif %}</div>
+      <div><span class="tenue">Pagos</span><br><strong>{{ tablero.pagos }}</strong></div>
+      <div><span class="tenue">Profesionales que cobraron</span><br><strong>{{ tablero.profesionales }}</strong> <span class="tenue">de {{ tablero.cuentas }}</span></div>
+      <div><span class="tenue">Por medio</span><br>MP {{ tablero.mercadopago|pesos }} · transf. {{ tablero.transferencia|pesos }}{% if tablero.devuelto %} · devuelto {{ tablero.devuelto|pesos }}{% endif %}</div>
+    </div>
+    {% endif %}
     <div class="envoltura">
     <table class="tabla">
       <tr><th>Profesional</th><th>Usuario</th><th>Último ingreso</th><th>Mercado Pago</th><th>Cobrado {{ 'este mes' if mes_cobros_es_actual else mes_cobros }}</th><th>Sesiones</th><th>Pacientes</th><th>Cuestionarios</th><th>Entregas</th><th></th></tr>

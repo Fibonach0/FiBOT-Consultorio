@@ -760,6 +760,11 @@ client.post("/agenda/avisos", data={"resumen_cobros_form": "1"})
 chequear("resumen: se puede apagar desde el panel", TABLAS["tenants"][0].get("resumen_cobros_mail") is False)
 client.post("/agenda/avisos", data={"resumen_cobros_form": "1", "resumen_cobros_mail": "1"})
 chequear("resumen: y volver a prender", TABLAS["tenants"][0].get("resumen_cobros_mail") is True)
+chequear("aviso de cada pago: se apaga con la misma casilla del formulario", TABLAS["tenants"][0].get("aviso_cada_pago") is False)
+client.post("/agenda/avisos", data={"resumen_cobros_form": "1", "aviso_cada_pago": "1"})
+chequear("aviso de cada pago: y se prende", TABLAS["tenants"][0].get("aviso_cada_pago") is True
+         and TABLAS["tenants"][0].get("resumen_cobros_mail") is False)
+client.post("/agenda/avisos", data={"resumen_cobros_form": "1", "resumen_cobros_mail": "1", "aviso_cada_pago": "1"})
 client.post("/agenda/avisos", data={"telefono": "54 9 11 7777-0000"})
 chequear("resumen: otro formulario no lo toca", TABLAS["tenants"][0].get("resumen_cobros_mail") is True)
 chequear("CUIT y domicilio: se pueden borrar", not TABLAS["tenants"][0].get("recibo_cuit") and not TABLAS["tenants"][0].get("recibo_domicilio"))
@@ -2269,9 +2274,15 @@ html = client.get("/admin").data.decode()
 chequear("admin: cobrado este mes por profesional", "<th>Cobrado este mes</th>" in html and "$ 45.000" in html
          and "MP $ 30.000" in html and "transf. $ 15.000" in html and "devuelto $ 5.000" in html
          and "$ 99.000" not in html and "$ 77.000" not in html, html[html.find("Cobrado"):][:200])
+chequear("admin: tablero del mes de toda la plataforma", "Cobrado en la plataforma" in html
+         and "<strong style=\"font-size:1.3em\">$ 45.000</strong>" in html and "Profesionales que cobraron" in html
+         and "<strong>1</strong> <span class=\"tenue\">de " in html and "Paciente Secreto" not in html, html[html.find("Cobrado en"):][:600])
 html = client.get("/admin?cobros=2020-01").data.decode()
 chequear("admin: cobrado de otro mes", "<th>Cobrado 2020-01</th>" in html and "$ 77.000" in html and "$ 45.000" not in html
          and "Paciente Secreto" not in html)
+chequear("admin: tablero sin mes anterior para comparar", "(el mes anterior: $ 0)" in html)
+html = client.get("/admin?cobros=2020-02").data.decode()
+chequear("admin: tablero compara contra el mes anterior", "-100% vs. mes anterior" in html, html[html.find("Cobrado en"):][:400])
 chequear("admin: un mes raro cae en el actual", "<th>Cobrado este mes</th>" in client.get("/admin?cobros=nada").data.decode())
 _csv = client.get("/admin/uso.csv?mes=2020-01").data.decode("utf-8")
 chequear("CSV: trae lo cobrado del mes", "Cobrado web (neto)" in _csv
@@ -3952,6 +3963,13 @@ chequear("recibo: al aprobar le llega el link por mail", pago6["estado"] == "apr
 chequear("recibo: va el PDF adjunto", _mails and _mails[0][3] and _mails[0][3][0][0].startswith("recibo-")
          and _mails[0][3][0][1].startswith(b"%PDF") and "adjuntamos el recibo en PDF" in _mails[0][2])
 chequear("recibo: sin email no manda nada", _pg.mandar_recibo(_t1, {**pago6, "paciente_email": None}) is False)
+_n_mails = len(_mails)
+chequear("rechazo: al paciente le llega por mail con el link para reservar de nuevo",
+         _pg.avisar_rechazo({**_t1, "slug": "marcos"}, {**pago6, "paciente_email": "fede@ejemplo.com"})
+         and _mails[-1][0] == "fede@ejemplo.com" and "no se confirmó" in _mails[-1][1]
+         and "https://consultorio.fibot.ar/marcos" in _mails[-1][2] and "Fede" not in _mails[-1][2], _mails[-1:])
+chequear("rechazo: sin email no manda nada", _pg.avisar_rechazo(_t1, {**pago6, "paciente_email": None}) is False
+         and len(_mails) == _n_mails + 1)
 _mail.disponible, _mail.enviar, _pg.config.DOMINIO_PRINCIPAL = _md, _me, _dom
 _avs_mp = []
 _va_mp = scheduler.avisar_profesional
@@ -4188,6 +4206,9 @@ chequear("pago_id: la reserva sabe qué pago la cubre", _td1["pago_id"] == pd1["
          and pd1["sesiones"] == [_td1["inicio"]])
 chequear("aviso: entra un pago por Mercado Pago y le llega al profesional",
          any("entró un pago de $ 20.000 por Mercado Pago" in x for x in _avd) and not any("Ana Recibo" in x for x in _avd), _avd)
+_n_avd = len(_avd)
+_pg._avisar_pago_mp({**_t1, "aviso_cada_pago": False}, pd1, [_td1])
+chequear("aviso: si el profesional lo apagó, no le llega", len(_avd) == _n_avd)
 chequear("recibo: número correlativo", isinstance(pd1.get("recibo_numero"), int)
          and f"N.º {pd1['recibo_numero']:04d}" in wd.get(f"/pago/{pd1['token']}/recibo").data.decode())
 html = wd.get(f"/pago/{pd1['token']}/recibo").data.decode()

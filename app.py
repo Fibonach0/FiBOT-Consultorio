@@ -963,6 +963,21 @@ def admin_doble_factor():
                            obligatorio=True)
 
 
+def _tablero_cobros(cobros: dict, previos: dict | None, cuentas: int) -> dict:
+    """Lo de toda la plataforma en el mes: total neto, por medio, cuántos
+    profesionales cobraron y la variación contra el mes anterior."""
+    suma = lambda d, k: sum(int(c.get(k) or 0) for c in d.values())
+    tablero = {"total": suma(cobros, "total"), "pagos": suma(cobros, "cantidad"),
+               "mercadopago": suma(cobros, "mercadopago"), "transferencia": suma(cobros, "transferencia"),
+               "devuelto": suma(cobros, "devuelto"), "profesionales": sum(1 for c in cobros.values() if c.get("cantidad")),
+               "cuentas": cuentas, "anterior": None, "variacion": None}
+    if previos is not None:
+        tablero["anterior"] = suma(previos, "total")
+        if tablero["anterior"]:
+            tablero["variacion"] = round((tablero["total"] - tablero["anterior"]) * 100 / tablero["anterior"])
+    return tablero
+
+
 @app.get("/admin/uso.csv")
 @admin_requerido
 def admin_uso_csv():
@@ -1020,6 +1035,13 @@ def admin_panel():
     except Exception:
         logger.warning("admin: no se pudieron sumar los cobros del mes", exc_info=True)
         cobros = {}
+    try:
+        mes_previo = (inicio_mes - timedelta(days=1)).replace(day=1)
+        cobros_previos = db.cobros_por_tenant(mes_previo, inicio_mes)
+    except Exception:
+        logger.warning("admin: no se pudieron sumar los cobros del mes anterior", exc_info=True)
+        cobros_previos = None
+    tablero = _tablero_cobros(cobros, cobros_previos, len(tenants))
     for t in tenants:
         t["cobros"] = cobros.get(t["id"])
         t["uso"] = uso.get(t["id"], {"sesiones": 0, "pacientes": 0, "cuestionarios": 0, "entregas": 0})
@@ -1036,7 +1058,7 @@ def admin_panel():
                            actividad=actividad, filtro=filtro, estado=estado,
                            biblioteca=biblioteca, rubros=RUBROS_ALTA, interesados=_interesados_o_nada(),
                            mes_actual=datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%Y-%m"),
-                           mes_cobros=inicio_mes.strftime("%Y-%m"),
+                           mes_cobros=inicio_mes.strftime("%Y-%m"), tablero=tablero,
                            mes_cobros_es_actual=inicio_mes.strftime("%Y-%m") == datetime.now(tz).strftime("%Y-%m"))
 
 
@@ -2538,6 +2560,7 @@ def agenda_avisos():
         campos["email"] = email or None
     if "resumen_cobros_form" in request.form:
         campos["resumen_cobros_mail"] = request.form.get("resumen_cobros_mail") == "1"
+        campos["aviso_cada_pago"] = request.form.get("aviso_cada_pago") == "1"
     if "recibo_cuit" in request.form:
         cuit = "".join(ch for ch in request.form["recibo_cuit"] if ch.isdigit())
         if cuit and not cuit_valido(cuit):

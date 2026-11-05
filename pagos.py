@@ -439,7 +439,10 @@ def _numerar(tenant: dict, pago: dict) -> None:
 
 def _avisar_pago_mp(tenant: dict, pago: dict, turnos: list[dict]) -> None:
     """WhatsApp al profesional cuando entra un pago por Mercado Pago: monto y
-    cuándo es la sesión. Sin el nombre del paciente (está en el panel)."""
+    cuándo es la sesión. Sin el nombre del paciente (está en el panel). No
+    sale si el profesional lo apagó (`aviso_cada_pago`)."""
+    if tenant.get("aviso_cada_pago") is False:
+        return
     import scheduler
     from zoneinfo import ZoneInfo
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
@@ -533,6 +536,25 @@ def rechazar(tenant: dict, pago: dict) -> None:
             db.cancelar_turno(tenant["id"], tid)
     db.actualizar_pago(pago["id"], {"estado": "rechazado", "resuelto": datetime.now(timezone.utc).isoformat(),
                                     "comprobante": None})
+    try:
+        avisar_rechazo(tenant, pago)
+    except Exception:
+        logger.exception("No se pudo avisar el rechazo del comprobante")
+
+
+def avisar_rechazo(tenant: dict, pago: dict) -> bool:
+    """Si el paciente dejó su email, le avisamos que el comprobante no se
+    aceptó y que el horario se liberó, con el link para volver a reservar.
+    Sin datos de la sesión más allá del profesional."""
+    import mail
+    if not pago.get("paciente_email") or not config.DOMINIO_PRINCIPAL or not mail.disponible():
+        return False
+    link = f"https://{config.DOMINIO_PRINCIPAL}/{tenant['slug']}" if tenant.get("slug") else None
+    return mail.enviar(pago["paciente_email"], f"Tu reserva con {tenant['nombre']} no se confirmó",
+                       f"Hola. {tenant['nombre']} revisó el comprobante de transferencia que subiste y no lo pudo "
+                       "validar, así que el horario quedó libre.\n\n"
+                       + (f"Si querés, podés volver a reservar acá: {link}\n\n" if link else "")
+                       + f"Si ya transferiste, escribile directamente a {tenant['nombre']} para resolverlo.")
 
 
 def subir_comprobante(tenant: dict, pago: dict, crudo: bytes) -> str | None:

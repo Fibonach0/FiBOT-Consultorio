@@ -981,6 +981,7 @@
       <div><label>CUIT (opcional, sale en el recibo)</label><input type="text" name="recibo_cuit" inputmode="numeric" placeholder="20-12345678-3" value="{{ tenant.recibo_cuit or '' }}"></div>
       <div><label>Domicilio (opcional, sale en el recibo)</label><input type="text" name="recibo_domicilio" maxlength="150" value="{{ tenant.recibo_domicilio or '' }}"></div>
       <div><input type="hidden" name="resumen_cobros_form" value="1"><label><input type="checkbox" name="resumen_cobros_mail" value="1" {{ 'checked' if tenant.resumen_cobros_mail is not sameas false }}> Mandarme por mail el resumen de cobros web el día 1 de cada mes</label></div>
+      <div><label><input type="checkbox" name="aviso_cada_pago" value="1" {{ 'checked' if tenant.aviso_cada_pago is not sameas false }}> Avisarme por WhatsApp cada pago que entra por Mercado Pago</label></div>
       <div><label>Tu mail (para recuperar la clave)</label><input type="email" name="email" autocomplete="email" value="{{ tenant.email or '' }}"></div>
       <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
     </form>
