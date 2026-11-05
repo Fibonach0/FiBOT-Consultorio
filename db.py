@@ -1517,6 +1517,25 @@ def actualizar_pago(pago_id: str, campos: dict) -> None:
     _client.table("pagos").update(campos).eq("id", pago_id).execute()
 
 
+def asignar_numero_recibo(tenant_id: str, pago_id: str) -> int | None:
+    """Número correlativo del recibo dentro del profesional (1, 2, 3…). Se
+    asigna una vez, al aprobarse; el índice único evita repetir si dos pagos
+    se aprueban a la vez (se reintenta con el siguiente)."""
+    actual = _client.table("pagos").select("recibo_numero").eq("id", pago_id).limit(1).execute().data
+    if actual and actual[0].get("recibo_numero"):
+        return actual[0]["recibo_numero"]
+    for _ in range(3):
+        usados = [p["recibo_numero"] for p in _client.table("pagos").select("recibo_numero").eq("tenant_id", tenant_id)
+                  .execute().data if p.get("recibo_numero")]
+        numero = max(usados, default=0) + 1
+        try:
+            _client.table("pagos").update({"recibo_numero": numero}).eq("id", pago_id).execute()
+            return numero
+        except Exception:
+            continue
+    return None
+
+
 def pago_por_token(token: str) -> dict | None:
     """El token es la credencial de la página del paciente y la referencia en
     Mercado Pago."""

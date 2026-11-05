@@ -2536,6 +2536,8 @@ def agenda_avisos():
             flash("Ese mail no parece válido.")
             return _volver_a_agenda()
         campos["email"] = email or None
+    if "resumen_cobros_form" in request.form:
+        campos["resumen_cobros_mail"] = request.form.get("resumen_cobros_mail") == "1"
     if "recibo_cuit" in request.form:
         cuit = "".join(ch for ch in request.form["recibo_cuit"] if ch.isdigit())
         if cuit and not cuit_valido(cuit):
@@ -2717,6 +2719,41 @@ def agenda_exportar():
     libro.save(salida)
     salida.seek(0)
     return send_file(salida, as_attachment=True, download_name=f"sesiones-{primero:%Y-%m}.xlsx",
+                     mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+
+@app.get("/agenda/pagos-web.xlsx")
+@login_required
+def agenda_pagos_web_excel():
+    """Lo cobrado por la web en un mes, pago por pago, para el contador.
+    Sin nombres de pacientes salvo que se pidan; nunca teléfonos ni notas."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    primero = _mes_de(request.args.get("mes"), datetime.now(tz).date())
+    siguiente = (primero.replace(day=28) + timedelta(days=4)).replace(day=1)
+    con_nombres = request.args.get("nombres") == "1"
+    lista = db.pagos_resueltos_entre(tenant["id"], datetime.combine(primero, dtime(0), tz).astimezone(ZoneInfo("UTC")),
+                                     datetime.combine(siguiente, dtime(0), tz).astimezone(ZoneInfo("UTC")))
+    libro = Workbook()
+    hoja = libro.active
+    hoja.title = "Pagos web"
+    _fila_excel(hoja, ["Recibo", "Fecha", "Hora", *(["Paciente"] if con_nombres else []), "Medio", "Operación Mercado Pago",
+                       "Monto", "Devuelto", "Neto"])
+    for p in sorted(lista, key=lambda x: str(x.get("resuelto") or "")):
+        cuando = datetime.fromisoformat(str(p["resuelto"])).astimezone(tz)
+        _fila_excel(hoja, [recibos.datos(tenant, p)["numero"], cuando.date(), cuando.strftime("%H:%M"),
+                           *([p.get("paciente_nombre") or ""] if con_nombres else []),
+                           "Mercado Pago" if p.get("metodo") == "mercadopago" else "Transferencia",
+                           p.get("mp_pago_id") or "", p["monto"], p.get("devuelto") or 0, p["monto"] - (p.get("devuelto") or 0)])
+    t = recibos.totales(lista)
+    resumen = libro.create_sheet("Resumen")
+    for etiqueta, valor in (("Pagos", t["cantidad"]), ("Mercado Pago (neto)", t["mercadopago"]),
+                            ("Transferencia (neto)", t["transferencia"]), ("Devuelto", t["devuelto"]), ("Total neto", t["neto"])):
+        _fila_excel(resumen, [etiqueta, valor])
+    salida = io.BytesIO()
+    libro.save(salida)
+    salida.seek(0)
+    return send_file(salida, as_attachment=True, download_name=f"pagos-web-{primero:%Y-%m}.xlsx",
                      mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
 
 

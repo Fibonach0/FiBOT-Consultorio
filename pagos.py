@@ -410,6 +410,7 @@ def aprobar(tenant: dict, pago: dict, mp_pago_id: str | None = None) -> str:
     if len(vigentes) != len(pago["turnos"]):
         db.actualizar_pago(pago["id"], {"estado": "aprobado_tarde", "mp_pago_id": mp_pago_id, "resuelto": ahora,
                                         "comprobante": None})
+        _numerar(tenant, pago)
         import scheduler
         scheduler.avisar_profesional(tenant, f"llegó un pago de ${pago['monto']:,} de una reserva que ya se había liberado; "
                                              "revisalo en el panel para devolverlo o reprogramar".replace(",", "."))
@@ -418,12 +419,36 @@ def aprobar(tenant: dict, pago: dict, mp_pago_id: str | None = None) -> str:
         db.actualizar_reserva(tenant["id"], t["id"], {"pago_web": "aprobado", "pago_vence": None, "pago": "pagado",
                                                       "confirmado_at": ahora, "reserva_nueva": True, "reserva_avisada": False})
     db.actualizar_pago(pago["id"], {"estado": "aprobado", "mp_pago_id": mp_pago_id, "resuelto": ahora, "comprobante": None})
+    _numerar(tenant, pago)
     _confirmar_al_paciente(tenant, vigentes)
+    if mp_pago_id:
+        _avisar_pago_mp(tenant, pago, vigentes)
     try:
         mandar_recibo(tenant, pago)
     except Exception:
         logger.exception("No se pudo mandar el recibo por mail")
     return "aprobado"
+
+
+def _numerar(tenant: dict, pago: dict) -> None:
+    try:
+        db.asignar_numero_recibo(tenant["id"], pago["id"])
+    except Exception:
+        logger.exception("No se pudo numerar el recibo del pago %s", pago.get("id"))
+
+
+def _avisar_pago_mp(tenant: dict, pago: dict, turnos: list[dict]) -> None:
+    """WhatsApp al profesional cuando entra un pago por Mercado Pago: monto y
+    cuándo es la sesión. Sin el nombre del paciente (está en el panel)."""
+    import scheduler
+    from zoneinfo import ZoneInfo
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    cuando = ", ".join(scheduler._fmt(t["inicio"], tz) for t in sorted(turnos, key=lambda t: t["inicio"])[:3])
+    try:
+        scheduler.avisar_profesional(tenant, f"entró un pago de {('$ ' + format(int(pago['monto']), ',')).replace(',', '.')} "
+                                             f"por Mercado Pago de la reserva del {cuando}")
+    except Exception:
+        logger.exception("No se pudo avisar el pago de Mercado Pago")
 
 
 def mandar_recibo(tenant: dict, pago: dict) -> bool:
@@ -450,7 +475,7 @@ def mandar_resumen_mensual(tenant: dict, ahora) -> bool:
     (`tenants.resumen_cobros_mes`); si no cobró nada no se le escribe."""
     import mail
     import recibos
-    if ahora.hour < 9 or not tenant.get("email") or not mail.disponible():
+    if ahora.hour < 9 or not tenant.get("email") or not mail.disponible() or tenant.get("resumen_cobros_mail") is False:
         return False
     fin = ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     inicio = (fin - timedelta(days=1)).replace(day=1)
