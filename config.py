@@ -37,6 +37,11 @@ RECORDATORIO_INTERVALO_MIN = int(os.environ.get("RECORDATORIO_INTERVALO_MIN", "1
 # Vacío = la función está apagada y cada tenant necesita su propio número.
 PLATAFORMA_PHONE_NUMBER_ID = os.environ.get("PLATAFORMA_PHONE_NUMBER_ID", "")
 
+# Cómo se presenta el bot en el número de la plataforma. Ahí lo comparten
+# varios profesionales, así que no habla en nombre de uno solo: se presenta
+# como la plataforma y aclara con quién son los turnos del paciente.
+PLATAFORMA_NOMBRE = os.environ.get("PLATAFORMA_NOMBRE", "").strip() or "FiBOT Consultorio"
+
 # Identificador de la cuenta de WhatsApp (WABA) de ese número. Opcional: sólo
 # lo usa la página de WhatsApp de administración para revisar si la app está
 # suscripta y en qué estado están las plantillas.

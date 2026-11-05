@@ -118,3 +118,15 @@ print("cancelar por WhatsApp respeta el plazo del profesional OK")
 r = conversation.responder(dict(tenant, cancelar_hasta_horas=2), "549110000", "cancelar")
 assert "Cancelado" in r and _canceladas == ["cerca"] and TRAS_CANCELAR == [("cerca", "WhatsApp")], r
 print("dentro del plazo cancela y sigue el flujo de cancelaciones (aviso, retener o lista de espera) OK")
+
+
+# --- Saludo: número propio vs. número compartido de la plataforma ---
+import config  # noqa: E402
+
+r = conversation.responder(dict(tenant, whatsapp_phone_number_id="PN1"), TEL, "hola")
+assert "soy el asistente de *Lic. Ana Pérez*" in r and config.PLATAFORMA_NOMBRE not in r, r
+print("número propio: se presenta como el asistente del profesional OK")
+r = conversation.responder(dict(tenant, whatsapp_phone_number_id=None), TEL, "hola")
+assert f"asistente de turnos de *{config.PLATAFORMA_NOMBRE}*" in r, r
+assert "Tus turnos son con *Lic. Ana Pérez*" in r and "soy el asistente de *Lic. Ana Pérez*" not in r, r
+print("número compartido: se presenta como la plataforma y nombra al profesional OK")
