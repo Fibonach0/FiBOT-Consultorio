@@ -29,12 +29,18 @@ def _tz(tenant: dict) -> ZoneInfo:
 
 
 def _menu(tenant: dict) -> str:
-    return (
-        f"Hola, soy el asistente de *{tenant['nombre']}*. Puedo ayudarte con:\n\n"
-        "• *turno* — ver horarios disponibles\n"
-        "• *cancelar* — cancelar tu próximo turno\n\n"
-        "Para lo demás, escribile directo."
-    )
+    opciones = ("• *turno* — ver horarios disponibles\n"
+                "• *cancelar* — cancelar tu próximo turno\n\n")
+    if tenant.get("whatsapp_phone_number_id"):
+        # Número propio del profesional: el bot habla en su nombre.
+        return (f"Hola, soy el asistente de *{tenant['nombre']}*. Puedo ayudarte con:\n\n"
+                + opciones + "Para lo demás, escribile directo.")
+    # Número compartido de la plataforma: no es "de" un profesional. Se
+    # presenta como la plataforma y dice con quién son los turnos, porque
+    # *turno* y *cancelar* operan sobre ese profesional.
+    return (f"Hola, soy el asistente de turnos de *{config.PLATAFORMA_NOMBRE}*.\n"
+            f"Tus turnos son con *{tenant['nombre']}*. Puedo ayudarte con:\n\n"
+            + opciones + "Para otras consultas, escribile a tu profesional.")
 
 
 def _pausado(tenant: dict) -> str:
