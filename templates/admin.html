@@ -104,6 +104,32 @@
       <div><label>Cobrado por la web en el mes</label><input type="month" name="cobros" value="{{ mes_cobros }}" required></div>
       <div class="al-pie"><button class="btn chico secundario" type="submit">Ver</button></div>
     </form>
+    {% if tablero %}
+    <div class="fila" style="margin-bottom:10px;gap:18px">
+      <div><span class="tenue">Cobrado en la plataforma</span><br><strong style="font-size:1.3em">{{ tablero.total|pesos }}</strong>
+        {% if tablero.variacion is not none %}<span class="tenue">({{ '+' if tablero.variacion >= 0 }}{{ tablero.variacion }}% vs. mes anterior)</span>
+        {% elif tablero.anterior == 0 and tablero.total %}<span class="tenue">(el mes anterior: $ 0)</span>{% endif %}</div>
+      <div><span class="tenue">Pagos</span><br><strong>{{ tablero.pagos }}</strong></div>
+      <div><span class="tenue">Profesionales que cobraron</span><br><strong>{{ tablero.profesionales }}</strong> <span class="tenue">de {{ tablero.cuentas }}</span></div>
+      <div><span class="tenue">Por medio</span><br>MP {{ tablero.mercadopago|pesos }} · transf. {{ tablero.transferencia|pesos }}{% if tablero.devuelto %} · devuelto {{ tablero.devuelto|pesos }}{% endif %}</div>
+    </div>
+    {% if tablero.serie %}
+    <div style="display:flex;align-items:flex-end;gap:10px;height:110px;margin:4px 0 14px" role="img" aria-label="Cobrado por la plataforma en los últimos 6 meses">
+      {% for s in tablero.serie %}
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:flex-end;height:100%;min-width:0">
+        <span class="tenue" style="font-size:.75em;white-space:nowrap">{{ s.total|pesos if s.total is not none else '—' }}</span>
+        <div style="width:100%;max-width:46px;height:{{ [s.alto, 2]|max }}%;background:{{ 'var(--accent, #2f6f5e)' if loop.last else 'var(--rule, #ccc)' }};border-radius:3px 3px 0 0"></div>
+        <span class="tenue" style="font-size:.75em">{{ s.etiqueta }}</span>
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+    {% endif %}
+    {% if demorados %}
+    <div class="aviso" style="margin-bottom:10px;padding:8px 10px;border-left:3px solid #c0392b;background:rgba(192,57,43,.07)">
+      Comprobantes sin revisar hace más de 24 h: {% for nombre, n in demorados %}<strong>{{ nombre }}</strong> ({{ n }}){% if not loop.last %}, {% endif %}{% endfor %}.
+    </div>
+    {% endif %}
     <div class="envoltura">
     <table class="tabla">
       <tr><th>Profesional</th><th>Usuario</th><th>Último ingreso</th><th>Mercado Pago</th><th>Cobrado {{ 'este mes' if mes_cobros_es_actual else mes_cobros }}</th><th>Sesiones</th><th>Pacientes</th><th>Cuestionarios</th><th>Entregas</th><th></th></tr>

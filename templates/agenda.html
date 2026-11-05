@@ -456,7 +456,7 @@
         {% if p.estado == 'comprobante' %}
         <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ url_for('agenda_pago_comprobante', pago_id=p.id) }}">Ver comprobante</a>
         <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='aceptar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit">Aceptar</button></form>
-        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='rechazar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit" onclick="return confirm('¿Rechazar el comprobante? El horario queda libre.')">Rechazar</button></form>
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='rechazar') }}" style="display:flex;gap:6px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="motivo" aria-label="Motivo del rechazo" style="width:auto"><option value="">Motivo (opcional)</option>{% for m in motivos_rechazo %}<option value="{{ m }}">{{ m|capitalize }}</option>{% endfor %}</select><button class="btn chico secundario" type="submit" onclick="return confirm('¿Rechazar el comprobante? El horario queda libre.')">Rechazar</button></form>
         {% else %}
         {% if p._puede_mp %}
         <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='devolver') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit" onclick="return confirm('¿Devolverle {{ (p.a_devolver or p.monto)|pesos }} por Mercado Pago? No se puede deshacer.')">Devolver {{ (p.a_devolver or p.monto)|pesos }}</button></form>
@@ -981,6 +981,7 @@
       <div><label>CUIT (opcional, sale en el recibo)</label><input type="text" name="recibo_cuit" inputmode="numeric" placeholder="20-12345678-3" value="{{ tenant.recibo_cuit or '' }}"></div>
       <div><label>Domicilio (opcional, sale en el recibo)</label><input type="text" name="recibo_domicilio" maxlength="150" value="{{ tenant.recibo_domicilio or '' }}"></div>
       <div><input type="hidden" name="resumen_cobros_form" value="1"><label><input type="checkbox" name="resumen_cobros_mail" value="1" {{ 'checked' if tenant.resumen_cobros_mail is not sameas false }}> Mandarme por mail el resumen de cobros web el día 1 de cada mes</label></div>
+      <div><label><input type="checkbox" name="aviso_cada_pago" value="1" {{ 'checked' if tenant.aviso_cada_pago is not sameas false }}> Avisarme por WhatsApp cada pago que entra por Mercado Pago</label></div>
       <div><label>Tu mail (para recuperar la clave)</label><input type="email" name="email" autocomplete="email" value="{{ tenant.email or '' }}"></div>
       <div class="al-pie"><button class="btn chico" type="submit">Guardar</button></div>
     </form>
