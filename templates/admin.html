@@ -95,14 +95,18 @@
 
   <div class="card">
     <h3>Profesionales <span class="contador">{{ tenants|length }}</span></h3>
-    <div class="tenue" style="margin-bottom:8px">Uso de los últimos 30 días; lo cobrado por la web es del mes en curso, neto de devoluciones. Desde acá no se ve ningún dato de pacientes: sólo cuentas.</div>
+    <div class="tenue" style="margin-bottom:8px">Uso de los últimos 30 días; lo cobrado por la web es del mes elegido (el CSV también lo trae), neto de devoluciones. Desde acá no se ve ningún dato de pacientes: sólo cuentas.</div>
     <form method="get" action="{{ url_for('admin_uso_csv') }}" class="fila" style="margin-bottom:10px">
       <div><label>Uso de un mes, para facturar</label><input type="month" name="mes" value="{{ mes_actual }}" required></div>
       <div class="al-pie"><button class="btn chico secundario" type="submit">Bajar CSV</button></div>
     </form>
+    <form method="get" action="{{ url_for('admin_panel') }}" class="fila" style="margin-bottom:10px">
+      <div><label>Cobrado por la web en el mes</label><input type="month" name="cobros" value="{{ mes_cobros }}" required></div>
+      <div class="al-pie"><button class="btn chico secundario" type="submit">Ver</button></div>
+    </form>
     <div class="envoltura">
     <table class="tabla">
-      <tr><th>Profesional</th><th>Usuario</th><th>Último ingreso</th><th>Mercado Pago</th><th>Cobrado este mes</th><th>Sesiones</th><th>Pacientes</th><th>Cuestionarios</th><th>Entregas</th><th></th></tr>
+      <tr><th>Profesional</th><th>Usuario</th><th>Último ingreso</th><th>Mercado Pago</th><th>Cobrado {{ 'este mes' if mes_cobros_es_actual else mes_cobros }}</th><th>Sesiones</th><th>Pacientes</th><th>Cuestionarios</th><th>Entregas</th><th></th></tr>
       {% for t in tenants %}
       <tr>
         <td><strong>{{ t.nombre }}</strong><br><span class="tenue">{{ t.rubro or 'sin rubro' }}{% if t.slug %} · /{{ t.slug }}{% endif %}{% if t.moderador %} · modera{% endif %}</span>

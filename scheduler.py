@@ -224,6 +224,11 @@ def _tick() -> None:
         except Exception:
             logger.exception("Fallo venciendo pagos de tenant %s", tenant["id"])
         try:
+            import pagos
+            pagos.mandar_resumen_mensual(tenant, datetime.now(tz))
+        except Exception:
+            logger.exception("Fallo el resumen mensual de cobros de tenant %s", tenant["id"])
+        try:
             # Una reserva web sin pagar todavía no está aceptada: no se recuerda.
             pendientes = [t for t in db.turnos_para_recordar(tenant["id"], horas_antes)
                           if t.get("pago_web") not in ("esperando", "comprobante")]

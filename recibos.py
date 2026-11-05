@@ -88,6 +88,10 @@ def pdf(tenant: dict, pago: dict) -> bytes | None:
         profesional = tenant.get("nombre") or ""
         if tenant.get("matricula"):
             profesional += f"\nMatrícula {tenant['matricula']}"
+        if tenant.get("recibo_cuit"):
+            profesional += f"\nCUIT {tenant['recibo_cuit']}"
+        if tenant.get("recibo_domicilio"):
+            profesional += f"\n{tenant['recibo_domicilio']}"
         filas = [("Profesional", profesional)]
         if pago.get("paciente_nombre"):
             filas.append(("Paciente", pago["paciente_nombre"]))
@@ -120,3 +124,65 @@ def _fila(doc, nombre: str, valor: str, negrita: bool = False) -> None:
     doc.set_draw_color(200, 200, 200)
     doc.line(20, doc.get_y() + 2, 190, doc.get_y() + 2)
     doc.set_y(doc.get_y() + 2)
+
+
+MESES = ["enero", "febrero", "marzo", "abril", "mayo", "junio", "julio", "agosto", "septiembre", "octubre", "noviembre", "diciembre"]
+
+
+def totales(pagos: list[dict]) -> dict:
+    neto = lambda p: int(p.get("monto") or 0) - int(p.get("devuelto") or 0)
+    return {"cantidad": len(pagos), "neto": sum(neto(p) for p in pagos),
+            "mercadopago": sum(neto(p) for p in pagos if p.get("metodo") == "mercadopago"),
+            "transferencia": sum(neto(p) for p in pagos if p.get("metodo") != "mercadopago"),
+            "devuelto": sum(int(p.get("devuelto") or 0) for p in pagos)}
+
+
+def pdf_resumen(tenant: dict, anio: int, mes: int, pagos: list[dict]) -> bytes | None:
+    """Lo cobrado por la web en un mes, para el profesional: totales y el
+    detalle pago por pago (fecha, paciente, medio, monto, devuelto)."""
+    try:
+        from fpdf import FPDF
+    except ImportError:
+        logger.warning("Falta fpdf2: el resumen va sin PDF")
+        return None
+    try:
+        tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+        t = totales(pagos)
+        doc = FPDF(format="A4")
+        doc.set_margins(20, 20, 20)
+        doc.add_page()
+        doc.set_font("Helvetica", "B", 13)
+        doc.cell(0, 6, _l1(tenant.get("nombre")), new_x="LMARGIN", new_y="NEXT")
+        doc.set_font("Helvetica", "B", 18)
+        doc.ln(4)
+        doc.cell(0, 9, _l1(f"Cobros web de {MESES[mes - 1]} {anio}"), new_x="LMARGIN", new_y="NEXT")
+        doc.set_font("Helvetica", "", 11)
+        doc.ln(2)
+        linea = f"Total neto: {pesos(t['neto'])} en {t['cantidad']} pago{'s' if t['cantidad'] != 1 else ''}"
+        doc.cell(0, 6, _l1(linea), new_x="LMARGIN", new_y="NEXT")
+        doc.set_text_color(90, 88, 79)
+        doc.cell(0, 6, _l1(f"Mercado Pago {pesos(t['mercadopago'])} · Transferencia {pesos(t['transferencia'])}"
+                           + (f" · Devuelto {pesos(t['devuelto'])}" if t["devuelto"] else "")), new_x="LMARGIN", new_y="NEXT")
+        doc.ln(4)
+        anchos = (30, 62, 34, 22, 22)
+        doc.set_font("Helvetica", "B", 9)
+        for ancho, titulo in zip(anchos, ("Fecha", "Paciente", "Medio", "Monto", "Devuelto")):
+            doc.cell(ancho, 6, titulo, border="B")
+        doc.ln()
+        doc.set_text_color(28, 27, 25)
+        doc.set_font("Helvetica", "", 9)
+        for p in sorted(pagos, key=lambda x: str(x.get("resuelto") or "")):
+            cuando = datetime.fromisoformat(str(p["resuelto"])).astimezone(tz).strftime("%d/%m %H:%M") if p.get("resuelto") else ""
+            medio = "Mercado Pago" if p.get("metodo") == "mercadopago" else "Transferencia"
+            for ancho, valor in zip(anchos, (cuando, (p.get("paciente_nombre") or "")[:34], medio, pesos(p.get("monto")),
+                                             pesos(p["devuelto"]) if p.get("devuelto") else "")):
+                doc.cell(ancho, 6, _l1(valor))
+            doc.ln()
+        doc.ln(6)
+        doc.set_font("Helvetica", "", 8)
+        doc.set_text_color(90, 88, 79)
+        doc.multi_cell(0, 4, "Sólo lo cobrado por la página de reservas (no lo que cobrás por fuera). No es una factura.")
+        return bytes(doc.output())
+    except Exception:
+        logger.exception("No se pudo armar el PDF del resumen de cobros")
+        return None

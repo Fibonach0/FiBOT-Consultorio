@@ -444,6 +444,41 @@ def mandar_recibo(tenant: dict, pago: dict) -> bool:
                        adjuntos)
 
 
+def mandar_resumen_mensual(tenant: dict, ahora) -> bool:
+    """El día 1 (desde las 9), al mail del profesional: lo cobrado por la web
+    el mes anterior, con el detalle en PDF. Una sola vez por mes
+    (`tenants.resumen_cobros_mes`); si no cobró nada no se le escribe."""
+    import mail
+    import recibos
+    if ahora.hour < 9 or not tenant.get("email") or not mail.disponible():
+        return False
+    fin = ahora.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    inicio = (fin - timedelta(days=1)).replace(day=1)
+    clave = inicio.strftime("%Y-%m")
+    if tenant.get("resumen_cobros_mes") == clave:
+        return False
+    lista = db.pagos_resueltos_entre(tenant["id"], inicio.astimezone(timezone.utc), fin.astimezone(timezone.utc))
+    if not lista:
+        db.guardar_ajustes(tenant["id"], {"resumen_cobros_mes": clave})
+        tenant["resumen_cobros_mes"] = clave
+        return False
+    t = recibos.totales(lista)
+    nombre_mes = f"{recibos.MESES[inicio.month - 1]} {inicio.year}"
+    contenido = recibos.pdf_resumen(tenant, inicio.year, inicio.month, lista)
+    texto = (f"Hola. En {nombre_mes} cobraste por tu página de reservas {recibos.pesos(t['neto'])} "
+             f"en {t['cantidad']} pago{'s' if t['cantidad'] != 1 else ''}: Mercado Pago {recibos.pesos(t['mercadopago'])}, "
+             f"transferencia {recibos.pesos(t['transferencia'])}"
+             + (f", devuelto {recibos.pesos(t['devuelto'])}" if t["devuelto"] else "") + ".\n\n"
+             + ("Te adjuntamos el detalle en PDF. " if contenido else "")
+             + "También lo ves en el panel, en «Ver los pagos del mes».")
+    ok = mail.enviar(tenant["email"], f"Tus cobros de {nombre_mes}", texto,
+                     [(f"cobros-{clave}.pdf", contenido)] if contenido else None)
+    if ok:
+        db.guardar_ajustes(tenant["id"], {"resumen_cobros_mes": clave})
+        tenant["resumen_cobros_mes"] = clave
+    return ok
+
+
 def _confirmar_al_paciente(tenant: dict, turnos: list[dict]) -> None:
     """Ya pagó: le llega la confirmación con el link para agendar (dentro de
     la ventana de 24 h no hace falta: el paciente no escribió; va con la

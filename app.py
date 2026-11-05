@@ -977,13 +977,22 @@ def admin_uso_csv():
     desde = datetime.combine(primero, dtime(), tz).isoformat()
     hasta = datetime.combine(siguiente, dtime(), tz).isoformat()
     uso = db.uso_de_tenants(desde, hasta)
+    try:
+        cobros = db.cobros_por_tenant(datetime.combine(primero, dtime(), tz), datetime.combine(siguiente, dtime(), tz))
+    except Exception:
+        logger.warning("uso.csv: no se pudieron sumar los cobros", exc_info=True)
+        cobros = {}
     salida = io.StringIO()
     escritor = csv.writer(salida, delimiter=";")
-    escritor.writerow(["Profesional", "Usuario", "Rubro", "Activa", "Mes", "Sesiones", "Pacientes", "Cuestionarios", "Entregas"])
+    escritor.writerow(["Profesional", "Usuario", "Rubro", "Activa", "Mes", "Sesiones", "Pacientes", "Cuestionarios", "Entregas",
+                       "Pagos web", "Cobrado web (neto)", "Mercado Pago", "Transferencia", "Devuelto"])
+    vacio = {"cantidad": 0, "total": 0, "mercadopago": 0, "transferencia": 0, "devuelto": 0}
     for t in db.todos_los_tenants():
         u = uso.get(t["id"], {"sesiones": 0, "pacientes": 0, "cuestionarios": 0, "entregas": 0})
+        c = cobros.get(t["id"], vacio)
         escritor.writerow([t["nombre"], t["panel_user"], t.get("rubro") or "", "no" if t.get("activo") is False else "sí",
-                           primero.strftime("%Y-%m"), u["sesiones"], u["pacientes"], u["cuestionarios"], u["entregas"]])
+                           primero.strftime("%Y-%m"), u["sesiones"], u["pacientes"], u["cuestionarios"], u["entregas"],
+                           c["cantidad"], c["total"], c["mercadopago"], c["transferencia"], c["devuelto"]])
     # BOM: Excel en castellano abre bien acentos y el «;».
     return app.response_class("\ufeff" + salida.getvalue(), mimetype="text/csv",
                               headers={"Content-Disposition": f'attachment; filename="uso-{primero:%Y-%m}.csv"'})
@@ -1002,6 +1011,10 @@ def admin_panel():
     uso = db.uso_de_tenants((ahora - timedelta(days=30)).isoformat())
     tenants = db.todos_los_tenants()
     inicio_mes = datetime.now(tz).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    try:
+        inicio_mes = datetime.strptime(request.args.get("cobros") or "", "%Y-%m").replace(tzinfo=tz)
+    except ValueError:
+        pass
     try:
         cobros = db.cobros_por_tenant(inicio_mes, (inicio_mes + timedelta(days=32)).replace(day=1))
     except Exception:
@@ -1022,7 +1035,9 @@ def admin_panel():
                            admin_llaves=db.admin_llaves_de(session["admin_id"]),
                            actividad=actividad, filtro=filtro, estado=estado,
                            biblioteca=biblioteca, rubros=RUBROS_ALTA, interesados=_interesados_o_nada(),
-                           mes_actual=datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%Y-%m"))
+                           mes_actual=datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%Y-%m"),
+                           mes_cobros=inicio_mes.strftime("%Y-%m"),
+                           mes_cobros_es_actual=inicio_mes.strftime("%Y-%m") == datetime.now(tz).strftime("%Y-%m"))
 
 
 def _interesados_o_nada() -> list[dict] | None:
@@ -2497,6 +2512,16 @@ def agenda_espera_ofrecer(espera_id):
     return _volver_a_agenda()
 
 
+def cuit_valido(cuit: str) -> bool:
+    """11 dígitos con el dígito verificador de AFIP/ARCA."""
+    if not re.fullmatch(r"\d{11}", cuit):
+        return False
+    suma = sum(int(d) * f for d, f in zip(cuit[:10], (5, 4, 3, 2, 7, 6, 5, 4, 3, 2)))
+    verificador = 11 - suma % 11
+    verificador = 0 if verificador == 11 else 9 if verificador == 10 else verificador
+    return verificador == int(cuit[10])
+
+
 @app.post("/agenda/avisos")
 @login_required
 def agenda_avisos():
@@ -2511,6 +2536,14 @@ def agenda_avisos():
             flash("Ese mail no parece válido.")
             return _volver_a_agenda()
         campos["email"] = email or None
+    if "recibo_cuit" in request.form:
+        cuit = "".join(ch for ch in request.form["recibo_cuit"] if ch.isdigit())
+        if cuit and not cuit_valido(cuit):
+            flash("Revisá el CUIT: son 11 números (ej. 20-12345678-3).")
+            return _volver_a_agenda()
+        campos["recibo_cuit"] = f"{cuit[:2]}-{cuit[2:10]}-{cuit[10]}" if cuit else None
+    if "recibo_domicilio" in request.form:
+        campos["recibo_domicilio"] = request.form["recibo_domicilio"].strip()[:150] or None
     if "link_videollamada" in request.form:
         link = request.form["link_videollamada"].strip()
         if link and not link.startswith("https://"):
