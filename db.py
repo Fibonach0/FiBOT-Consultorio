@@ -1603,6 +1603,17 @@ def cobros_por_tenant(desde: datetime, hasta: datetime) -> dict[str, dict]:
     return salida
 
 
+def comprobantes_demorados(antes: str) -> dict[str, int]:
+    """Para /admin: cuántos comprobantes de transferencia lleva cada cuenta
+    sin revisar desde antes de `antes`. Sólo la cuenta, nada del pago."""
+    res = (_client.table("pagos").select("tenant_id").eq("estado", "comprobante")
+           .lt("comprobante_at", antes).execute())
+    salida: dict[str, int] = {}
+    for p in res.data or []:
+        salida[p["tenant_id"]] = salida.get(p["tenant_id"], 0) + 1
+    return salida
+
+
 # ---------- interesados (/sumate) ----------
 # De la plataforma, no de un tenant (como `admins`): sólo los lee administración.
 

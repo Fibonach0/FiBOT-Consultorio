@@ -528,36 +528,65 @@ def _confirmar_al_paciente(tenant: dict, turnos: list[dict]) -> None:
         logger.warning("No se pudo confirmar el pago al paciente", exc_info=True)
 
 
-def rechazar(tenant: dict, pago: dict) -> None:
-    """El profesional dice que el comprobante no es válido: se libera."""
+MOTIVOS_RECHAZO = ["no llegó la transferencia", "el monto no coincide", "el comprobante no se lee",
+                   "el comprobante es de otro pago"]
+
+
+def rechazar(tenant: dict, pago: dict, motivo: str | None = None) -> None:
+    """El profesional dice que el comprobante no es válido: se libera y se le
+    avisa al paciente (mail si dejó email; WhatsApp si hay plantilla)."""
+    telefono = None
     for tid in pago["turnos"]:
         t = db.turno_por_id(tenant["id"], tid)
+        telefono = telefono or (t or {}).get("paciente_telefono")
         if t and t["estado"] == "reservado" and t.get("pago_web") in ("esperando", "comprobante"):
             db.cancelar_turno(tenant["id"], tid)
     db.actualizar_pago(pago["id"], {"estado": "rechazado", "resuelto": datetime.now(timezone.utc).isoformat(),
                                     "comprobante": None})
+    motivo = motivo if motivo in MOTIVOS_RECHAZO else None
     try:
-        avisar_rechazo(tenant, pago)
+        avisar_rechazo(tenant, pago, motivo)
     except Exception:
         logger.exception("No se pudo avisar el rechazo del comprobante")
+    try:
+        avisar_rechazo_whatsapp(tenant, telefono)
+    except Exception:
+        logger.warning("No se pudo avisar el rechazo por WhatsApp", exc_info=True)
 
 
-def avisar_rechazo(tenant: dict, pago: dict) -> bool:
+def _link_reservas(tenant: dict) -> str | None:
+    return f"https://{config.DOMINIO_PRINCIPAL}/{tenant['slug']}" if tenant.get("slug") and config.DOMINIO_PRINCIPAL else None
+
+
+def avisar_rechazo_whatsapp(tenant: dict, telefono: str | None) -> bool:
+    """Con la plantilla PAGO_RECHAZADO_TEMPLATE (el paciente no escribió:
+    fuera de las 24 h hace falta plantilla). Sin plantilla, no se manda."""
+    import whatsapp
+    numero = whatsapp.numero_de(tenant)
+    link = _link_reservas(tenant)
+    if not config.PAGO_RECHAZADO_TEMPLATE or not numero or not telefono or not link:
+        return False
+    return bool(whatsapp.enviar_plantilla(numero, telefono, config.PAGO_RECHAZADO_TEMPLATE,
+                                          config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], link]))
+
+
+def avisar_rechazo(tenant: dict, pago: dict, motivo: str | None = None) -> bool:
     """Si el paciente dejó su email, le avisamos que el comprobante no se
-    aceptó y que el horario se liberó, con el link para volver a reservar.
-    Sin datos de la sesión más allá del profesional."""
+    aceptó (y por qué, si el profesional eligió un motivo) y que el horario
+    se liberó, con el link para volver a reservar."""
     import mail
     if not pago.get("paciente_email") or not config.DOMINIO_PRINCIPAL or not mail.disponible():
         return False
-    link = f"https://{config.DOMINIO_PRINCIPAL}/{tenant['slug']}" if tenant.get("slug") else None
+    link = _link_reservas(tenant)
     return mail.enviar(pago["paciente_email"], f"Tu reserva con {tenant['nombre']} no se confirmó",
                        f"Hola. {tenant['nombre']} revisó el comprobante de transferencia que subiste y no lo pudo "
-                       "validar, así que el horario quedó libre.\n\n"
+                       "validar, así que el horario quedó libre."
+                       + (f" Motivo: {motivo}." if motivo else "") + "\n\n"
                        + (f"Si querés, podés volver a reservar acá: {link}\n\n" if link else "")
                        + f"Si ya transferiste, escribile directamente a {tenant['nombre']} para resolverlo.")
 
 
-def subir_comprobante(tenant: dict, pago: dict, crudo: bytes) -> str | None:
+def subir_comprobante(tenant: dict, pago: dict, crudo: bytes, email: str | None = None) -> str | None:
     """Guarda el comprobante y deja la reserva apartada hasta que el
     profesional lo valide. Devuelve None o el motivo del rechazo."""
     tipo = next((t for firma, t in COMPROBANTE_TIPOS.items() if crudo.startswith(firma)), None)
@@ -568,7 +597,9 @@ def subir_comprobante(tenant: dict, pago: dict, crudo: bytes) -> str | None:
     if not tipo:
         return "El comprobante tiene que ser una foto (JPG o PNG) o un PDF."
     db.actualizar_pago(pago["id"], {"estado": "comprobante", "metodo": "transferencia",
-                                    "comprobante": f"data:{tipo};base64,{base64.b64encode(crudo).decode()}"})
+                                    "comprobante": f"data:{tipo};base64,{base64.b64encode(crudo).decode()}",
+                                    "comprobante_at": datetime.now(timezone.utc).isoformat(),
+                                    **({"paciente_email": email} if email else {})})
     for tid in pago["turnos"]:
         db.actualizar_reserva(tenant["id"], tid, {"pago_web": "comprobante", "pago_vence": None})
     import scheduler

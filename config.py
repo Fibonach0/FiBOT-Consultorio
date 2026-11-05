@@ -90,6 +90,12 @@ CONFIRMACION_TEMPLATE = os.environ.get("CONFIRMACION_TEMPLATE", "")
 # Vacía = no se avisa (el horario igual se libera al vencer).
 PAGO_PENDIENTE_TEMPLATE = os.environ.get("PAGO_PENDIENTE_TEMPLATE", "")
 
+# Aviso al paciente de que el profesional rechazó su comprobante de
+# transferencia y el horario se liberó:
+#   {{1}} nombre del profesional      {{2}} link para volver a reservar
+# Vacía = sólo se avisa por mail (si dejó email).
+PAGO_RECHAZADO_TEMPLATE = os.environ.get("PAGO_RECHAZADO_TEMPLATE", "")
+
 # Mercado Pago (cobro de las reservas web). Son de la APLICACIÓN de la
 # plataforma en Mercado Pago Developers; cada profesional conecta su propia
 # cuenta con «Conectar Mercado Pago» (OAuth) y cobra en ella. MP_PRUEBA=1 usa

@@ -2283,6 +2283,15 @@ chequear("admin: cobrado de otro mes", "<th>Cobrado 2020-01</th>" in html and "$
 chequear("admin: tablero sin mes anterior para comparar", "(el mes anterior: $ 0)" in html)
 html = client.get("/admin?cobros=2020-02").data.decode()
 chequear("admin: tablero compara contra el mes anterior", "-100% vs. mes anterior" in html, html[html.find("Cobrado en"):][:400])
+chequear("admin: gráfico de 6 meses", "últimos 6 meses" in html and "sep 19" in html and "feb 20" in html and "ene 20" in html, html[html.find("6 meses"):][:300])
+TABLAS["pagos"] += [{"id": "pd1", "tenant_id": "t1", "monto": 1000, "metodo": "transferencia", "estado": "comprobante",
+                     "comprobante_at": "2020-01-01T00:00:00+00:00", "paciente_nombre": "Paciente Secreto"},
+                    {"id": "pd2", "tenant_id": "t1", "monto": 1000, "metodo": "transferencia", "estado": "comprobante",
+                     "comprobante_at": datetime.now(timezone.utc).isoformat()}]
+html = client.get("/admin").data.decode()
+chequear("admin: avisa comprobantes sin revisar hace más de 24 h", "sin revisar hace más de 24 h: <strong>Lic. Marcos</strong> (1)" in html
+         and "Paciente Secreto" not in html, html[html.find("sin revisar"):][:200])
+TABLAS["pagos"] = [p for p in TABLAS["pagos"] if p["id"] not in ("pd1", "pd2")]
 chequear("admin: un mes raro cae en el actual", "<th>Cobrado este mes</th>" in client.get("/admin?cobros=nada").data.decode())
 _csv = client.get("/admin/uso.csv?mes=2020-01").data.decode("utf-8")
 chequear("CSV: trae lo cobrado del mes", "Cobrado web (neto)" in _csv
@@ -3795,7 +3804,13 @@ chequear("cobro: no se recuerda mientras no paga", "p1" not in [t["id"] for t in
 import io as _io2  # noqa: E402
 w.post(f"/pago/{pago['token']}/comprobante", data={"comprobante": (_io2.BytesIO(b"<html>x"), "x.html")}, content_type="multipart/form-data")
 chequear("cobro: rechaza archivos que no son foto o PDF", pago["estado"] == "esperando")
+chequear("cobro: sin email pide el email", 'name="email"' in w.get(f"/pago/{pago['token']}").data.decode())
 w.post(f"/pago/{pago['token']}/comprobante", data={"comprobante": (_io2.BytesIO(b"%PDF-1.4 ..."), "c.pdf")}, content_type="multipart/form-data")
+chequear("cobro: sin email no se recibe el comprobante", pago["estado"] == "esperando")
+w.post(f"/pago/{pago['token']}/comprobante", data={"comprobante": (_io2.BytesIO(b"%PDF-1.4 ..."), "c.pdf"), "email": "pepa@ejemplo.com"},
+       content_type="multipart/form-data")
+chequear("cobro: guarda el email y cuándo subió el comprobante", pago.get("paciente_email") == "pepa@ejemplo.com"
+         and pago.get("comprobante_at"))
 chequear("cobro: recibe el comprobante y avisa", pago["estado"] == "comprobante" and p1["pago_web"] == "comprobante"
          and "comprobante" in _avp[-1])
 html = panel_c.get("/agenda").data.decode()
@@ -3809,9 +3824,38 @@ chequear("cobro: aceptar confirma y marca pagado", pago["estado"] == "aprobado" 
 # rechazar
 w.post("/marcos/reservar/p2", data={"nombre": "Beto", "telefono": "5491100004444", "confirmado": "1"})
 pago2 = TABLAS["pagos"][-1]
-w.post(f"/pago/{pago2['token']}/comprobante", data={"comprobante": (_io2.BytesIO(b"\x89PNG\r\n\x1a\n00"), "c.png")},
+w.post(f"/pago/{pago2['token']}/comprobante", data={"comprobante": (_io2.BytesIO(b"\x89PNG\r\n\x1a\n00"), "c.png"), "email": "beto@ejemplo.com"},
        content_type="multipart/form-data")
-panel_c.post(f"/agenda/pago-web/{pago2['id']}/rechazar", data={"csrf_token": "tok"})
+chequear("cobro: el panel ofrece motivos de rechazo", "El monto no coincide" in panel_c.get("/agenda").data.decode())
+_rz_llamadas = []
+_rz_ar, _rz_aw = _pg.avisar_rechazo, _pg.avisar_rechazo_whatsapp
+_pg.avisar_rechazo = lambda tenant, pago, motivo=None: _rz_llamadas.append(("mail", pago.get("paciente_email"), motivo)) or True
+_pg.avisar_rechazo_whatsapp = lambda tenant, telefono: _rz_llamadas.append(("wa", telefono)) or True
+panel_c.post(f"/agenda/pago-web/{pago2['id']}/rechazar", data={"csrf_token": "tok", "motivo": "el monto no coincide"})
+_pg.avisar_rechazo, _pg.avisar_rechazo_whatsapp = _rz_ar, _rz_aw
+chequear("rechazo: avisa al paciente por mail con el motivo y por WhatsApp a su teléfono",
+         ("mail", "beto@ejemplo.com", "el monto no coincide") in _rz_llamadas and ("wa", "5491100004444") in _rz_llamadas, _rz_llamadas)
+import mail as _mail_rz  # noqa: E402
+import whatsapp as _wa_rz  # noqa: E402
+_rz_mails, _rz_wa = [], []
+_rz_prev = (_mail_rz.disponible, _mail_rz.enviar, _pg.config.DOMINIO_PRINCIPAL, _pg.config.PAGO_RECHAZADO_TEMPLATE)
+_rz_ep, _rz_nd = _wa_rz.enviar_plantilla, _wa_rz.numero_de
+_mail_rz.disponible = lambda: True
+_mail_rz.enviar = lambda para, asunto, texto, adjuntos=None: _rz_mails.append((para, asunto, texto)) or True
+_pg.config.DOMINIO_PRINCIPAL = "consultorio.fibot.ar"
+_pg.config.PAGO_RECHAZADO_TEMPLATE = "pago_rechazado"
+_wa_rz.enviar_plantilla = lambda numero, to, plantilla, lang, params: _rz_wa.append((to, plantilla, params)) or True
+_wa_rz.numero_de = lambda tenant: "PNID"
+_pg.rechazar(dict(_t1, slug="marcos"), {"id": "x", "turnos": [], "paciente_email": "beto@ejemplo.com"}, "el monto no coincide")
+chequear("rechazo: el mail lleva el motivo", _rz_mails and "Motivo: el monto no coincide." in _rz_mails[-1][2], _rz_mails)
+_pg.rechazar(dict(_t1, slug="marcos"), {"id": "x", "turnos": [], "paciente_email": "beto@ejemplo.com"}, "<b>inventado</b>")
+chequear("rechazo: un motivo inventado no viaja", "Motivo" not in _rz_mails[-1][2] and "inventado" not in _rz_mails[-1][2])
+chequear("rechazo: WhatsApp con la plantilla, profesional y link", _pg.avisar_rechazo_whatsapp(dict(_t1, slug="marcos"), "5491100004444")
+         and _rz_wa[-1] == ("5491100004444", "pago_rechazado", [_t1["nombre"], "https://consultorio.fibot.ar/marcos"]), _rz_wa)
+_pg.config.PAGO_RECHAZADO_TEMPLATE = ""
+chequear("rechazo: sin plantilla no hay WhatsApp", _pg.avisar_rechazo_whatsapp(dict(_t1, slug="marcos"), "5491100004444") is False)
+_mail_rz.disponible, _mail_rz.enviar, _pg.config.DOMINIO_PRINCIPAL, _pg.config.PAGO_RECHAZADO_TEMPLATE = _rz_prev
+_wa_rz.enviar_plantilla, _wa_rz.numero_de = _rz_ep, _rz_nd
 chequear("cobro: rechazar libera el horario", pago2["estado"] == "rechazado" and TABLAS["turnos"][1]["estado"] == "libre")
 
 # vencimiento

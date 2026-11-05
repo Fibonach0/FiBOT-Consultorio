@@ -978,6 +978,32 @@ def _tablero_cobros(cobros: dict, previos: dict | None, cuentas: int) -> dict:
     return tablero
 
 
+def _serie_cobros(inicio_mes: datetime, cobros: dict, previos: dict | None) -> list[dict]:
+    """Los últimos 6 meses hasta el elegido (total neto de la plataforma),
+    para el gráfico de barras de /admin. Reusa los dos meses ya sumados."""
+    meses = [inicio_mes]
+    for _ in range(5):
+        meses.insert(0, (meses[0] - timedelta(days=1)).replace(day=1))
+    serie = []
+    for i, m in enumerate(meses):
+        if i == 5:
+            datos = cobros
+        elif i == 4 and previos is not None:
+            datos = previos
+        else:
+            try:
+                datos = db.cobros_por_tenant(m, meses[i + 1])
+            except Exception:
+                logger.warning("admin: no se pudo sumar %s", m, exc_info=True)
+                datos = None
+        total = sum(int(c.get("total") or 0) for c in datos.values()) if datos is not None else None
+        serie.append({"etiqueta": f"{recibos.MESES[m.month - 1][:3]} {m:%y}", "total": total})
+    tope = max([s["total"] or 0 for s in serie] + [1])
+    for s in serie:
+        s["alto"] = round((s["total"] or 0) * 100 / tope)
+    return serie
+
+
 @app.get("/admin/uso.csv")
 @admin_requerido
 def admin_uso_csv():
@@ -1042,8 +1068,15 @@ def admin_panel():
         logger.warning("admin: no se pudieron sumar los cobros del mes anterior", exc_info=True)
         cobros_previos = None
     tablero = _tablero_cobros(cobros, cobros_previos, len(tenants))
+    tablero["serie"] = _serie_cobros(inicio_mes, cobros, cobros_previos)
+    try:
+        demorados = db.comprobantes_demorados((ahora - timedelta(hours=24)).isoformat())
+    except Exception:
+        logger.warning("admin: no se pudieron contar los comprobantes demorados", exc_info=True)
+        demorados = {}
     for t in tenants:
         t["cobros"] = cobros.get(t["id"])
+        t["demorados"] = demorados.get(t["id"], 0)
         t["uso"] = uso.get(t["id"], {"sesiones": 0, "pacientes": 0, "cuestionarios": 0, "entregas": 0})
         t["_ingreso"] = datetime.fromisoformat(t["ultimo_ingreso"]).astimezone(tz).strftime("%d/%m/%Y %H:%M") if t.get("ultimo_ingreso") else "nunca"
     biblioteca = [dict(e, titulo=e["contenido"]["nombre"] + (f" · {e['contenido']['version']}" if e["contenido"].get("version") else ""))
@@ -1059,6 +1092,7 @@ def admin_panel():
                            biblioteca=biblioteca, rubros=RUBROS_ALTA, interesados=_interesados_o_nada(),
                            mes_actual=datetime.now(ZoneInfo("America/Argentina/Buenos_Aires")).strftime("%Y-%m"),
                            mes_cobros=inicio_mes.strftime("%Y-%m"), tablero=tablero,
+                           demorados=[(t["nombre"], t["demorados"]) for t in tenants if t["demorados"]],
                            mes_cobros_es_actual=inicio_mes.strftime("%Y-%m") == datetime.now(tz).strftime("%Y-%m"))
 
 
@@ -2161,6 +2195,7 @@ def agenda():
         "max_sedes": MAX_SEDES, "max_tipos": MAX_TIPOS, "max_franjas": MAX_FRANJAS,
         "estadisticas": _estadisticas_pagina(tenant, tz),
         "pagos_revisar": (revisar := _pagos_para_revisar(tenant, tz)),
+        "motivos_rechazo": pagos.MOTIVOS_RECHAZO,
         "cobros_web": _cobros_web(tenant, _mes_de(request.args.get("mes") or request.args.get("semana", "")[:7], ahora.date()),
                                   tz, revisar),
         "devolucion_horas": DEVOLUCION_HORAS,
@@ -4943,8 +4978,14 @@ def pago_comprobante(token):
     pago, tenant = _pago_y_tenant(token)
     if not pago or pago["estado"] != "esperando" or "transferencia" not in pagos.metodos(tenant):
         return redirect(url_for("pago_paciente", token=token))
+    email = None
+    if not pago.get("paciente_email"):
+        email = (request.form.get("email") or "").strip()[:120]
+        if not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", email):
+            flash("Dejanos tu email: ahí te llega el recibo o el aviso si el comprobante no se puede validar.")
+            return redirect(url_for("pago_paciente", token=token))
     archivo = request.files.get("comprobante")
-    error = pagos.subir_comprobante(tenant, pago, archivo.read(pagos.COMPROBANTE_MAX + 1) if archivo else b"")
+    error = pagos.subir_comprobante(tenant, pago, archivo.read(pagos.COMPROBANTE_MAX + 1) if archivo else b"", email)
     if error:
         flash(error)
     return redirect(url_for("pago_paciente", token=token))
@@ -5145,8 +5186,9 @@ def agenda_pago_web(pago_id, accion):
         flash("Aceptada: el turno quedó confirmado y pagado." if resultado == "aprobado"
               else "El turno ya se había liberado: devolvé la transferencia o reprogramalo.")
     elif accion == "rechazar" and pago["estado"] == "comprobante":
-        pagos.rechazar(tenant, pago)
-        flash("Rechazaste el comprobante: el horario quedó libre.")
+        pagos.rechazar(tenant, pago, request.form.get("motivo") or None)
+        flash("Rechazaste el comprobante: el horario quedó libre y le avisamos al paciente."
+              if pago.get("paciente_email") or config.PAGO_RECHAZADO_TEMPLATE else "Rechazaste el comprobante: el horario quedó libre.")
     elif accion == "resuelto" and pago["estado"] == "aprobado_tarde":
         db.actualizar_pago(pago["id"], {"estado": "aprobado"})
         flash("Listo, lo sacamos de la lista.")
