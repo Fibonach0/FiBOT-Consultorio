@@ -33,7 +33,7 @@ def datos(tenant: dict, pago: dict) -> dict:
     return {
         "sesiones": [f"{DIAS[d.weekday()]} {d:%d/%m/%Y %H:%M}" for d in sesiones],
         "fecha": datetime.fromisoformat(str(pago.get("resuelto") or pago["creado"])).astimezone(tz).strftime("%d/%m/%Y"),
-        "numero": str(pago["id"]).replace("-", "")[:8].upper(),
+        "numero": f"{int(pago['recibo_numero']):04d}" if pago.get("recibo_numero") else str(pago["id"]).replace("-", "")[:8].upper(),
         "foto": foto_valida(tenant),
     }
 

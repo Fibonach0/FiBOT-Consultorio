@@ -756,6 +756,12 @@ chequear("CUIT y domicilio: se guardan prolijos", TABLAS["tenants"][0].get("reci
          and TABLAS["tenants"][0].get("recibo_domicilio") == "Av. Ficticia 123, CABA")
 chequear("CUIT: el panel lo muestra", 'value="20-12345678-6"' in client.get("/agenda").data.decode())
 client.post("/agenda/avisos", data={"recibo_cuit": "", "recibo_domicilio": ""})
+client.post("/agenda/avisos", data={"resumen_cobros_form": "1"})
+chequear("resumen: se puede apagar desde el panel", TABLAS["tenants"][0].get("resumen_cobros_mail") is False)
+client.post("/agenda/avisos", data={"resumen_cobros_form": "1", "resumen_cobros_mail": "1"})
+chequear("resumen: y volver a prender", TABLAS["tenants"][0].get("resumen_cobros_mail") is True)
+client.post("/agenda/avisos", data={"telefono": "54 9 11 7777-0000"})
+chequear("resumen: otro formulario no lo toca", TABLAS["tenants"][0].get("resumen_cobros_mail") is True)
 chequear("CUIT y domicilio: se pueden borrar", not TABLAS["tenants"][0].get("recibo_cuit") and not TABLAS["tenants"][0].get("recibo_domicilio"))
 client.post("/agenda/agendar/libre-manana", data={"nombre": "Vera", "telefono": "5491100000030", "modalidad": "virtual",
                                                   "frecuencia": "semanal", "cantidad": "3"})
@@ -1047,7 +1053,7 @@ chequear("el mes pinta distinto los feriados", " bloqueado feriado" in html)
 TABLAS["bloqueos"] = [x for x in TABLAS["bloqueos"] if x["id"] != "fer"]
 # Abrir con horario reducido y avisando a la lista de espera
 _hl = _norm(fila("libre-manana")["inicio"]).astimezone(zona)
-_tarde = (_hl + timedelta(hours=1)).strftime("%H:%M")
+_tarde = (_hl + timedelta(minutes=1)).strftime("%H:%M")  # sin pasar de medianoche
 r = client.post(f"/agenda/dia/{dia_libre.isoformat()}/abrir", data={"abrir": "1", "hora_desde": _tarde}, follow_redirects=True)
 chequear("abrir sólo unas horas deja afuera las de antes", fila("libre-manana")["abierto"] is not True
          and "en esas horas" in r.data.decode(), r.data.decode()[-400:])
@@ -1065,8 +1071,10 @@ enviados.clear()
 r = client.post(f"/agenda/dia/{dia_libre.isoformat()}/abrir",
                 data={"abrir": "1", "hora_desde": _hl.strftime("%H:%M"), "hora_hasta": (_hl + timedelta(minutes=50)).strftime("%H:%M"),
                       "avisar_espera": "1"}, follow_redirects=True)
+# (si la sesión de prueba cruza la medianoche no entra en ninguna franja del día: el caso no aplica a esta hora)
 chequear("abrir en ese rango y avisar a la lista", fila("libre-manana")["abierto"] is True and "Le avisamos a 2" in r.data.decode()
-         and sorted(e[1] for e in enviados) == ["5491100000070", "5491100000071"], (r.data.decode()[-300:], enviados))
+         and sorted(e[1] for e in enviados) == ["5491100000070", "5491100000071"], (r.data.decode()[-300:], enviados)) \
+    if (_hl + timedelta(minutes=50)).date() == _hl.date() else None
 client.post(f"/agenda/dia/{dia_libre.isoformat()}/abrir", data={"abrir": "0"})
 TABLAS["lista_espera"] = []
 TABLAS["tenants"][0].pop("slug", None)
@@ -4178,6 +4186,10 @@ pd1 = _pagar("d1", "Ana Recibo", "201")
 _td1 = TABLAS["turnos"][0]
 chequear("pago_id: la reserva sabe qué pago la cubre", _td1["pago_id"] == pd1["id"] and pd1["paciente_nombre"] == "Ana Recibo"
          and pd1["sesiones"] == [_td1["inicio"]])
+chequear("aviso: entra un pago por Mercado Pago y le llega al profesional",
+         any("entró un pago de $ 20.000 por Mercado Pago" in x for x in _avd) and not any("Ana Recibo" in x for x in _avd), _avd)
+chequear("recibo: número correlativo", isinstance(pd1.get("recibo_numero"), int)
+         and f"N.º {pd1['recibo_numero']:04d}" in wd.get(f"/pago/{pd1['token']}/recibo").data.decode())
 html = wd.get(f"/pago/{pd1['token']}/recibo").data.decode()
 chequear("recibo: muestra profesional, paciente, monto y que no es factura",
          "Ana Recibo" in html and "$ 20.000" in html and "No es una factura" in html and "5491100003333" not in html)
@@ -4230,6 +4242,9 @@ chequear("resumen: una sola vez por mes", _pg.mandar_resumen_mensual(_tr, _dia1 
 _dia_sig = (_dia1.replace(day=28) + timedelta(days=4)).replace(day=1, hour=10)
 chequear("resumen: un mes sin cobros no escribe", _pg.mandar_resumen_mensual(_tr, _dia_sig) is False and len(_res_mails) == 1
          and _tr["resumen_cobros_mes"] == _dia1.strftime("%Y-%m"))
+_tr.update({"resumen_cobros_mes": None, "resumen_cobros_mail": False})
+chequear("resumen: si lo apagó no sale", _pg.mandar_resumen_mensual(_tr, _dia1) is False and len(_res_mails) == 1)
+_tr["resumen_cobros_mail"] = True
 _tr.update({"email": None, "resumen_cobros_mes": None})
 chequear("resumen: sin mail no hace nada", _pg.mandar_resumen_mensual(_tr, _dia1) is False and len(_res_mails) == 1)
 _mail_r.disponible, _mail_r.enviar = _rmd, _rme
@@ -4237,6 +4252,19 @@ _mail_r.disponible, _mail_r.enviar = _rmd, _rme
 # tarde para la política: no devuelve
 _t1["cancelar_hasta_horas"] = 0
 pd3 = _pagar("d3", "Beto Tarde", "203")
+chequear("recibo: el siguiente lleva el número que sigue", pd3.get("recibo_numero") == pd1["recibo_numero"] + 1)
+_pg.aprobar(dict(_t1), pd3)
+chequear("recibo: aprobar de nuevo no cambia el número", pd3["recibo_numero"] == pd1["recibo_numero"] + 1)
+_xl = panel_c.get("/agenda/pagos-web.xlsx")
+from openpyxl import load_workbook as _lw  # noqa: E402
+_hoja = _lw(io.BytesIO(_xl.data))["Pagos web"]
+_filas = [[c.value for c in f] for f in _hoja.iter_rows()]
+chequear("excel: baja los pagos web del mes sin nombres", _xl.status_code == 200 and _filas[0][0] == "Recibo"
+         and "Paciente" not in _filas[0] and any(f[0] == f"{pd1['recibo_numero']:04d}" for f in _filas[1:])
+         and "Ana Recibo" not in str(_filas), _filas[:3])
+_filas_n = [[c.value for c in f] for f in _lw(io.BytesIO(panel_c.get("/agenda/pagos-web.xlsx?nombres=1").data))["Pagos web"].iter_rows()]
+chequear("excel: con nombres si se piden", "Paciente" in _filas_n[0] and "Ana Recibo" in str(_filas_n))
+chequear("excel: el panel ofrece bajarlo", "pagos-web.xlsx" in panel_c.get("/agenda").data.decode())
 _n = len(_reint)
 _tk = TABLAS["turnos"][2]["token_calendario"]
 chequear("cancelar tarde: avisa que no se devuelve", "no se devuelve" in wd.get(f"/agendar/{_tk}/cancelar").data.decode())
