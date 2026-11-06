@@ -336,4 +336,66 @@ postear("5491122220000", boton={"id": "prof:si", "title": "Sí, hacelo"})
 postear("5491122220000", "aceptar comprobante")
 assert len(HECHO) == 1 and not PEND and len(AL_PACIENTE) == 2, (HECHO, PEND, AL_PACIENTE)
 print("webhook: el botón «Sí, hacelo» del profesional ejecuta; un paciente no puede pedir ni confirmar acciones OK")
+
+# --- reprogramar, cancelar, marcar pagada, recordar deuda, contestar ---
+TURNOS["t1"] += [turno(40, 3, 10, paciente_nombre="Juana Pérez", paciente_telefono="549110000004"),
+                 turno(41, 0, 8, paciente_nombre="Tomás Ruiz", paciente_telefono="5491100000041", valor=20000)]
+HECHO.clear()
+db.reprogramar_turno = lambda tid, x, nuevo, dur, ignorar_bloqueo=False: HECHO.append(("reprogramar", tid, x, nuevo)) or None
+db.cancelar_turno = lambda tid, x, origen=None: HECHO.append(("cancelar", tid, x, origen))
+db.marcar_pago = lambda tid, x, pago: HECHO.append(("pago", tid, x, pago))
+app._avisar_cambio = lambda t, turno, nuevo, tz: HECHO.append(("aviso_cambio", turno["paciente_telefono"])) or True
+_pagos.al_cancelar = lambda t, turno, quien="paciente": (0, False)
+DATOS = {}
+db.datos_de_pacientes = lambda tid: DATOS
+db.guardar_paciente = lambda tid, clave, campos: DATOS.setdefault(clave, {}).update(campos)
+app._recordar_pago = lambda t, tel, monto: HECHO.append(("recordar", tel, monto)) or True
+MSJ = {m["id"]: m for m in db.mensajes_pacientes("t1")}
+db.mensaje_paciente = lambda tid, x: MSJ.get(x) if tid == "t1" else None
+db.actualizar_mensaje_paciente = lambda tid, x, campos: HECHO.append(("contestado", tid, x, campos["respuesta"]))
+AL_TEL.clear()
+dia_de = lambda d: ap._DIAS_SIN_TILDE[(hoy + timedelta(days=d)).weekday()]
+
+r = ap.responder_a([A], f"Pasá a Juana del {dia_de(3)} al {dia_de(4)} 11:30", TEL)
+assert "¿Paso la sesión de Juana Pérez del" in r and "11:30" in r and "Le aviso" in r and not HECHO, r
+ap.responder_a([A], "sí", TEL)
+assert HECHO[0][:3] == ("reprogramar", "t1", "s40") and HECHO[0][3].astimezone(TZ) == (hoy + timedelta(days=4)).replace(hour=11, minute=30) \
+    and HECHO[1] == ("aviso_cambio", "549110000004"), HECHO
+assert "No encontré una sesión próxima de Juana Pérez ese día" in ap.responder_a([A], f"pasa a juana del {dia_de(5)} al {dia_de(6)} 10", TEL)
+assert "más de un paciente" in ap.responder_a([A], "pasa a paciente al lunes 10", TEL)
+print("reprogramar: «pasá a Juana del jueves al viernes 11:30», con aviso al paciente OK")
+HECHO.clear()
+r = ap.responder_a([A], "cancelá la sesión de juana", TEL)
+assert "¿Cancelo la sesión de Juana Pérez del" in r, r
+r = ap.responder_a([A], "si", TEL)
+assert HECHO == [("cancelar", "t1", "s40", "profesional")] and "avisale a Juana" in r, (HECHO, r)
+print("cancelar: «cancelá la sesión de Juana», como desde el panel OK")
+HECHO.clear()
+r = ap.responder_a([A], "marcá pagada la de hoy de tomás", TEL)
+assert "¿Marco pagada la sesión de Tomás Ruiz del" in r and "$ 20.000" in r, r
+ap.responder_a([A], "si", TEL)
+assert HECHO == [("pago", "t1", "s41", "pagado")], HECHO
+r = ap.responder_a([A], "cobré a juana", TEL)
+assert "¿Marco pagada la sesión de Juana Pérez" in r, r
+ap.responder_a([A], "no", TEL)
+print("marcar pagada: «marcá pagada la de hoy de Tomás» / «cobré a Juana» OK")
+HECHO.clear()
+r = ap.responder_a([A], "recordale a juana lo que debe", TEL)
+assert "¿Le recuerdo a Juana Pérez que tiene $ 50.000 pendientes (2 sesiones)?" in r, r
+ap.responder_a([A], "si", TEL)
+assert HECHO == [("recordar", "549110000004", "$ 50.000")], HECHO
+assert "ya se le recordó hoy" in ap.responder_a([A], "recordale el pago a juana", TEL)
+assert "no tiene deuda" in ap.responder_a([A], "recordale a tomas lo que debe", TEL)
+print("recordar deuda: calcula el monto, una vez por día OK")
+HECHO.clear()
+r = ap.responder_a([A], "Contestale: Hola, no hay problema, te espero", TEL)
+assert "¿Le contesto a Paciente t1 1" in r and "llego 10 minutos tarde" in r and "«Lic. Ana: Hola, no hay problema, te espero»" in r, r
+ap.responder_a([A], "si", TEL)
+assert AL_TEL[-1] == ("549110000001", "*Lic. Ana*: Hola, no hay problema, te espero") \
+    and HECHO == [("contestado", "t1", "m1", "Hola, no hay problema, te espero")], (AL_TEL, HECHO)
+assert "No hay mensajes para contestar" in ap.responder_a([A], "contestale a juana: hola", TEL)
+print("contestar la bandeja: «contestale: …» al último mensaje y queda contestado OK")
+assert "varias cuentas" in ap.responder_a([A, vinculada(BETO)], "recordale a juana lo que debe", TEL)
+assert ap.responder_a([ANA], "cancelá la sesión de juana", TEL) == ap.sin_vincular()
+print("las acciones nuevas tienen el mismo candado OK")
 print("\nTODOS LOS TESTS DEL ASISTENTE DEL PROFESIONAL PASARON")
