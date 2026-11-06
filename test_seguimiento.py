@@ -4579,6 +4579,50 @@ panel_c.post("/agenda/primeros-pasos/ocultar", data={"csrf_token": "tok"})
 chequear("primeros pasos: se puede ocultar y queda en la cuenta", 'id="primeros-pasos"' not in panel_c.get("/agenda").data.decode()
          and _t1["preferencias_vista"].get("sin_primeros_pasos") is True)
 
+# --- buscador: pedirle al asistente, recientes, barra del celular y paciente nuevo ---
+TABLAS.setdefault("acciones_profesional", [])
+_ix = _indice(panel_c.get("/agenda").data.decode())
+chequear("recientes: cada ficha tiene una referencia opaca (sin teléfono ni nombre)",
+         all(f["r"] and len(f["r"]) == 14 and f["r"] not in f["c"] and not any(ch in f["r"] for ch in "~ ") for f in _ix["fichas"])
+         and _ix["cuenta"] and _ix["salir"] == "/logout")
+_bjs = panel_c.get("/agenda").data.decode()
+chequear("recientes: se guardan por cuenta y se borran al salir", "'fibot-recientes-' + idx.cuenta" in _bjs and "borrarRec" in _bjs
+         and "x.r === pedida" in _bjs)
+_r = panel_c.post("/agenda/asistente", data={"csrf_token": "tok", "texto": "quién me debe"}).get_json()
+chequear("asistente en el buscador: contesta consultas sin vincular WhatsApp", _r["entendido"] and _r["texto"] and not _r.get("confirmar"), _r)
+_r = panel_c.post("/agenda/asistente", data={"csrf_token": "tok", "texto": "precio"}).get_json()
+chequear("asistente en el buscador: lo que no es un pedido no se inventa", _r == {"entendido": False}, _r)
+chequear("asistente en el buscador: sin CSRF no", panel_c.post("/agenda/asistente", data={"texto": "hoy"}).status_code == 403)
+_nb = len(TABLAS["bloqueos"])
+_r = panel_c.post("/agenda/asistente", data={"csrf_token": "tok", "texto": "bloquear pasado mañana"}).get_json()
+chequear("asistente en el buscador: una acción vuelve como pregunta, sin hacer nada", _r.get("confirmar") and len(TABLAS["bloqueos"]) == _nb, _r)
+_n = _r["confirmar"]["n"]
+_r2 = panel_c.post("/agenda/asistente/confirmar", data={"csrf_token": "tok", "n": _n, "modo": "no"}).get_json()
+chequear("asistente en el buscador: «No» no hace nada", not _r2["hecho"] and len(TABLAS["bloqueos"]) == _nb, _r2)
+_r = panel_c.post("/agenda/asistente", data={"csrf_token": "tok", "texto": "bloquear pasado mañana"}).get_json()
+_r2 = panel_c.post("/agenda/asistente/confirmar", data={"csrf_token": "tok", "n": _r["confirmar"]["n"], "modo": "si"}).get_json()
+chequear("asistente en el buscador: «Sí» lo hace", _r2["hecho"] and len(TABLAS["bloqueos"]) == _nb + 1, _r2)
+_r3 = panel_c.post("/agenda/asistente/confirmar", data={"csrf_token": "tok", "n": _r["confirmar"]["n"], "modo": "si"}).get_json()
+chequear("asistente en el buscador: confirmar dos veces no lo repite", not _r3["hecho"] and len(TABLAS["bloqueos"]) == _nb + 1, _r3)
+chequear("asistente en el buscador: la cola del panel es de esta cuenta",
+         all(f["tenant_id"] == "t1" for f in TABLAS["acciones_profesional"] if f["telefono"].startswith("panel:")))
+TABLAS["bloqueos"] = TABLAS["bloqueos"][:_nb]
+
+_ag, _aj = panel_c.get("/agenda").data.decode(), panel_c.get("/ajustes").data.decode()
+chequear("barra del celular: en agenda y ajustes, con Hoy, Buscar y Ajustes", all('class="barra-movil"' in h and 'href="/agenda#hoy"' in h
+         and 'href="/ajustes"' in h for h in (_ag, _aj)) and 'id="hoy"' in _ag)
+_libre = next(t for t in TABLAS["turnos"] if t["tenant_id"] == "t1" and t["estado"] == "libre"
+              and datetime.fromisoformat(t["inicio"]) > datetime.now(timezone.utc))
+panel_c.post(f"/agenda/agendar/{_libre['id']}", data={"csrf_token": "tok", "nombre": "Paciente Recién Llegada"})
+_ag = panel_c.get("/agenda").data.decode()
+chequear("paciente nuevo: la guía sale con lo que le falta", 'id="paciente-nuevo"' in _ag and "Paciente Recién Llegada quedó agendado/a" in _ag
+         and "Sin WhatsApp no le llegan" in _ag and "Sin valor no sabés" in _ag and "Quedó una sola sesión" in _ag)
+chequear("paciente nuevo: sale una sola vez", 'id="paciente-nuevo"' not in panel_c.get("/agenda").data.decode())
+_libre2 = next(t for t in TABLAS["turnos"] if t["tenant_id"] == "t1" and t["estado"] == "libre"
+               and datetime.fromisoformat(t["inicio"]) > datetime.now(timezone.utc))
+panel_c.post(f"/agenda/agendar/{_libre2['id']}", data={"csrf_token": "tok", "nombre": "Paciente Recién Llegada"})
+chequear("paciente nuevo: a alguien que ya tenía sesiones no se le repite", 'id="paciente-nuevo"' not in panel_c.get("/agenda").data.decode())
+
 # --- Listas de WhatsApp, reprogramar y «¿con quién es?» ---
 import conversation as _conv  # noqa: E402
 _wa_env, _wa_int = [], []

@@ -8,6 +8,10 @@ agenda) y se filtra en el navegador: responde mientras se escribe, sin ir al
 servidor. Sólo trae lo de ESTE tenant: sale de `_comunes_panel`, que ya está
 filtrado por tenant_id; nada de otro profesional entra en la página.
 """
+import hashlib
+import hmac
+
+import config
 import db
 
 # (grupo, título, detalle, (endpoint, args, ancla), palabras para encontrarlo)
@@ -112,6 +116,12 @@ def _texto(*partes) -> str:
     return " · ".join(str(p).strip() for p in partes if p and str(p).strip())
 
 
+def _ref(*partes) -> str:
+    """Un identificador opaco y estable (para «Recientes», que se guarda en el
+    navegador): ni el nombre ni el teléfono del paciente salen de la página."""
+    return hmac.new(config.FLASK_SECRET_KEY.encode(), "|".join(map(str, partes)).encode(), hashlib.sha256).hexdigest()[:14]
+
+
 def indice(tenant: dict, comunes: dict, rubro: dict, url_for) -> dict:
     """Todo lo que se puede buscar, listo para JSON. `comunes` es el
     contexto del panel de ESTE tenant (_comunes_panel)."""
@@ -133,7 +143,7 @@ def indice(tenant: dict, comunes: dict, rubro: dict, url_for) -> dict:
         telefono = f.get("telefono") if db.tiene_whatsapp(f.get("telefono")) else ""
         notas_sesion = [t.get("nota") for t in (f.get("sesiones") or []) if t.get("nota")]
         fichas.append({
-            "n": f.get("nombre") or "Sin nombre", "c": f.get("clave"), "d": f.get("dom"), "tel": telefono,
+            "n": f.get("nombre") or "Sin nombre", "c": f.get("clave"), "r": _ref(tenant["id"], f.get("clave")), "d": f.get("dom"), "tel": telefono,
             "p": f.get("proxima"), "a": f.get("adeudado") or 0, "e": f.get("estado"), "os": f.get("obra_social") or "",
             # Lo que se busca «adentro» de la ficha; se muestra un pedacito alrededor de lo encontrado.
             "x": _texto(f.get("motivo_consulta"), f.get("objetivos"), f.get("notas"), f.get("como_viene"), f.get("psiquiatra"),
@@ -146,4 +156,6 @@ def indice(tenant: dict, comunes: dict, rubro: dict, url_for) -> dict:
     espera = [{"n": p.get("nombre"), "tel": p.get("telefono"), "pr": p.get("preferencia") or ""} for p in comunes.get("espera") or []]
     mensajes = [{"n": m.get("_quien"), "x": (m.get("_texto") or "")[:300], "w": m.get("_cuando")} for m in comunes.get("mensajes") or []]
     return {"items": items, "fichas": fichas, "sesiones": sesiones, "espera": espera, "mensajes": mensajes,
-            "agenda": url_for("agenda"), "ayuda": url_for("ayuda")}
+            "agenda": url_for("agenda"), "ayuda": url_for("ayuda"), "cuenta": _ref("cuenta", tenant["id"])[:10],
+            "asistente": url_for("agenda_asistente"), "confirmar": url_for("agenda_asistente_confirmar"),
+            "salir": url_for("logout")}

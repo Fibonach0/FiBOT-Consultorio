@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 reset()
 random.seed(7)
-for t in ("sesiones", "llaves_acceso", "admin_llaves", "actividad", "login_intentos", "qr_logins", "enlaces_clave"):
+for t in ("sesiones", "llaves_acceso", "admin_llaves", "actividad", "login_intentos", "qr_logins", "enlaces_clave", "acciones_profesional"):
     TABLAS[t] = []
 tz = ZoneInfo("America/Argentina/Buenos_Aires")
 T = TABLAS["tenants"][0]

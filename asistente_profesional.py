@@ -1313,7 +1313,7 @@ def _mensajes_para_contestar(tenant: dict) -> list[dict]:
     return sorted(lista, key=lambda x: str(x["creado"]), reverse=True)
 
 
-def _ejecutar(tenant: dict, accion: dict) -> str:
+def _ejecutar(tenant: dict, accion: dict, origen: str = "profesional (WhatsApp)") -> str:
     tipo = accion.get("tipo")
     if tipo == "reprogramar":
         import app as _app
@@ -1326,7 +1326,7 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
                                      tenant.get("duracion_turno_minutos") or 50, ignorar_bloqueo=True)
         if error:
             return f"No la pude pasar: {error}"
-        db.registrar_actividad("profesional (WhatsApp)", "reprogramó una sesión", tenant["id"])
+        db.registrar_actividad(origen, "reprogramó una sesión", tenant["id"])
         aviso = ""
         if db.tiene_whatsapp(turno.get("paciente_telefono")) and not accion.get("avisar", True):
             primero = (accion.get("nombre") or "").split()[:1]
@@ -1341,7 +1341,7 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
         if not turno or turno.get("estado") != "reservado":
             return "Esa sesión ya no está reservada."
         db.cancelar_turno(tenant["id"], turno["id"], "profesional")
-        db.registrar_actividad("profesional (WhatsApp)", "canceló una sesión", tenant["id"])
+        db.registrar_actividad(origen, "canceló una sesión", tenant["id"])
         extra = ""
         if turno.get("pago_web") == "aprobado":
             try:
@@ -1382,7 +1382,7 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
             hechas = accion["cantidad"] - len(salteadas)
             if not hechas:
                 return "No pude agendar ninguna: todas esas fechas ya estaban ocupadas o bloqueadas."
-            db.registrar_actividad("profesional (WhatsApp)", f"agendó {hechas} sesiones ({accion['frecuencia']})", tenant["id"])
+            db.registrar_actividad(origen, f"agendó {hechas} sesiones ({accion['frecuencia']})", tenant["id"])
             cada = "cada semana" if accion["frecuencia"] == "semanal" else "cada 15 días"
             aviso = _resultado_aviso(tenant, accion, accion["telefono"],
                                      f"Te agendé {hechas} sesiones {cada}, desde el {cuando}.")
@@ -1393,7 +1393,7 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
                                       accion.get("nombre"), accion.get("valor"), None, accion.get("modalidad"),
                                       ficha, ignorar_bloqueo=True):
             return "No la pude agendar: ese horario ya está ocupado."
-        db.registrar_actividad("profesional (WhatsApp)", "agendó una sesión", tenant["id"])
+        db.registrar_actividad(origen, "agendó una sesión", tenant["id"])
         aviso = _resultado_aviso(tenant, accion, accion["telefono"], f"Te agendé una sesión el {cuando}.")
         return f"Listo, {accion.get('nombre')} quedó agendada el {_cuando(inicio.isoformat(), tz)}.{aviso}"
     if tipo == "cortar":
@@ -1415,7 +1415,7 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
                     logger.exception("No se pudo anotar la devolución del turno %s", turno_id)
         if not canceladas:
             return "Esas sesiones ya no estaban reservadas."
-        db.registrar_actividad("profesional (WhatsApp)", f"cortó una serie ({canceladas} sesiones)", tenant["id"])
+        db.registrar_actividad(origen, f"cortó una serie ({canceladas} sesiones)", tenant["id"])
         cuando = scheduler_cuando(tenant, {"inicio": accion["desde"]})
         aviso = _resultado_aviso(tenant, accion, telefono, f"Tus sesiones fijas desde el {cuando} quedaron canceladas.")
         return (f"Listo, cancelé {canceladas} sesi{'ón' if canceladas == 1 else 'ones'} de {accion.get('nombre')}; "
@@ -1436,7 +1436,7 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
                 movidas += 1
         if not movidas:
             return "No pude pasar ninguna: " + ("esos horarios se ocuparon." if fallidas else "ya no estaban reservadas.")
-        db.registrar_actividad("profesional (WhatsApp)", f"pasó una serie de sesiones ({movidas})", tenant["id"])
+        db.registrar_actividad(origen, f"pasó una serie de sesiones ({movidas})", tenant["id"])
         cuando = scheduler_cuando(tenant, {"inicio": accion["desde"]})
         aviso = _resultado_aviso(tenant, accion, telefono,
                                  f"Tus sesiones fijas pasan a los {accion['dia']} a las {accion['hora']}, desde el {cuando}.")
@@ -1449,7 +1449,7 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
             if turno and turno.get("estado") == "reservado" and (turno.get("pago") or "pendiente") == "pendiente":
                 db.marcar_valor(tenant["id"], turno_id, accion["monto"])
                 cambiadas += 1
-        db.registrar_actividad("profesional (WhatsApp)", "cambió el valor de las sesiones de un paciente", tenant["id"])
+        db.registrar_actividad(origen, "cambió el valor de las sesiones de un paciente", tenant["id"])
         return f"Listo, {cambiadas} sesi{'ón' if cambiadas == 1 else 'ones'} de {accion.get('nombre')} quedaron en {_pesos(accion['monto'])}."
     if tipo == "ofrecer":
         import cancelaciones
@@ -1460,31 +1460,31 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
             db.marcar_ofrecido(tenant["id"], accion["espera"], datetime.now(_tz(tenant)).date().isoformat())
         ok = cancelaciones.ofrecer_horario(tenant, accion["telefono"], accion["cuando"],
                                            f"{cancelaciones.base_url()}/{tenant['slug']}")
-        db.registrar_actividad("profesional (WhatsApp)", "le ofreció un horario a la lista de espera", tenant["id"])
+        db.registrar_actividad(origen, "le ofreció un horario a la lista de espera", tenant["id"])
         return (f"Listo, se lo ofrecí a {accion.get('nombre')}. Si lo reserva, te llega el aviso." if ok
                 else f"No se pudo escribirle a {accion.get('nombre')}. Probá desde el panel.")
     if tipo == "espera_sumar":
         if not db.agregar_a_espera(tenant["id"], accion["nombre"], accion["telefono"], accion.get("preferencia")):
             return f"{accion['nombre']} ya estaba en tu lista de espera."
-        db.registrar_actividad("profesional (WhatsApp)", "anotó a alguien en la lista de espera", tenant["id"])
+        db.registrar_actividad(origen, "anotó a alguien en la lista de espera", tenant["id"])
         return f"Listo, {accion['nombre']} quedó en tu lista de espera. Te aviso cuando se libere un horario."
     if tipo == "espera_sacar":
         db.quitar_de_espera(tenant["id"], accion["espera"])
-        db.registrar_actividad("profesional (WhatsApp)", "sacó a alguien de la lista de espera", tenant["id"])
+        db.registrar_actividad(origen, "sacó a alguien de la lista de espera", tenant["id"])
         return f"Listo, saqué a {accion.get('nombre')} de tu lista de espera."
     if tipo == "pagada":
         turno = db.turno_por_id(tenant["id"], accion["turno"])
         if not turno:
             return "Esa sesión ya no está."
         db.marcar_pago(tenant["id"], turno["id"], "pagado")
-        db.registrar_actividad("profesional (WhatsApp)", "marcó pagada una sesión", tenant["id"])
+        db.registrar_actividad(origen, "marcó pagada una sesión", tenant["id"])
         return f"Listo, la sesión de {accion.get('nombre')} quedó pagada."
     if tipo == "recordar":
         import app as _app
         telefono = db.partir_clave(accion["clave"])[0]
         db.guardar_paciente(tenant["id"], accion["clave"], {"ultimo_recordatorio_pago": datetime.now(_tz(tenant)).date().isoformat()})
         ok = _app._recordar_pago(tenant, telefono, _pesos(accion["monto"]))
-        db.registrar_actividad("profesional (WhatsApp)", "le recordó un pago a un paciente", tenant["id"])
+        db.registrar_actividad(origen, "le recordó un pago a un paciente", tenant["id"])
         return (f"Listo, le recordamos a {accion.get('nombre')} que tiene {_pesos(accion['monto'])} pendientes." if ok
                 else "No se pudo mandar el recordatorio. Probá desde el panel.")
     if tipo == "contestar":
@@ -1498,7 +1498,7 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
             return "WhatsApp no aceptó el mensaje. Probá de nuevo en un rato."
         db.actualizar_mensaje_paciente(tenant["id"], msj["id"], {"respuesta": accion["texto"], "leido": True,
                                                                  "respondido": datetime.now(timezone.utc).isoformat()})
-        db.registrar_actividad("profesional (WhatsApp)", "contestó un mensaje de la bandeja", tenant["id"])
+        db.registrar_actividad(origen, "contestó un mensaje de la bandeja", tenant["id"])
         return f"Listo, le contesté a {accion.get('nombre')}."
     if tipo in ("aceptar", "rechazar"):
         import pagos
@@ -1507,30 +1507,30 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
             return "Ese comprobante ya no está para validar (¿lo resolviste desde el panel?)."
         if tipo == "aceptar":
             resultado = pagos.aprobar(tenant, pago)
-            db.registrar_actividad("profesional (WhatsApp)", "aceptó un comprobante de transferencia", tenant["id"])
+            db.registrar_actividad(origen, "aceptó un comprobante de transferencia", tenant["id"])
             return ("Listo: aceptado, la sesión quedó pagada y le confirmamos al paciente." if resultado == "aprobado"
                     else "Lo acepté, pero el horario ya se había liberado: devolvé la transferencia o reprogramalo desde el panel.")
         pagos.rechazar(tenant, pago, None)
-        db.registrar_actividad("profesional (WhatsApp)", "rechazó un comprobante de transferencia", tenant["id"])
+        db.registrar_actividad(origen, "rechazó un comprobante de transferencia", tenant["id"])
         return "Listo: rechazado, el horario quedó libre y le avisamos al paciente."
     if tipo == "bloquear":
         tz = _tz(tenant)
         desde, hasta = date.fromisoformat(accion["desde"]), date.fromisoformat(accion["hasta"])
         db.agregar_bloqueo(tenant["id"], datetime.combine(desde, dtime.min, tzinfo=tz).astimezone(timezone.utc),
                            datetime.combine(hasta + timedelta(days=1), dtime.min, tzinfo=tz).astimezone(timezone.utc), "desde WhatsApp")
-        db.registrar_actividad("profesional (WhatsApp)", "bloqueó días", tenant["id"])
+        db.registrar_actividad(origen, "bloqueó días", tenant["id"])
         return "Listo, bloqueado. Lo ves (y lo podés borrar) en el panel, en «Bloqueos»."
     if tipo == "pausar":
         db.guardar_ajustes(tenant["id"], {"pausado": True, "pausado_hasta": accion.get("hasta")})
-        db.registrar_actividad("profesional (WhatsApp)", "pausó la página de turnos", tenant["id"])
+        db.registrar_actividad(origen, "pausó la página de turnos", tenant["id"])
         return "Listo, tu página está en pausa." + (" Escribí *reactivar* cuando quieras volver." if not accion.get("hasta") else "")
     if tipo == "reactivar":
         db.guardar_ajustes(tenant["id"], {"pausado": False, "pausado_hasta": None})
-        db.registrar_actividad("profesional (WhatsApp)", "reactivó la página de turnos", tenant["id"])
+        db.registrar_actividad(origen, "reactivó la página de turnos", tenant["id"])
         return "Listo, tu página vuelve a tomar turnos."
     if tipo == "avisar":
         ok, nota = _al_paciente(tenant, accion["telefono"], accion["mensaje"])
-        db.registrar_actividad("profesional (WhatsApp)", "le mandó un mensaje a un paciente", tenant["id"])
+        db.registrar_actividad(origen, "le mandó un mensaje a un paciente", tenant["id"])
         if ok:  # si tenía mensajes suyos en la bandeja, quedan contestados
             for x in _mensajes_para_contestar(tenant):
                 if x["telefono"] == accion["telefono"]:
@@ -1641,6 +1641,59 @@ def _preparar_es_accion(texto: str) -> bool:
                 or _sumar_match(texto) or _OFRECER.search(n)
                 or _CORTAR.search(n) or _VALOR.search(n) or _RENOVAR.search(n) or _MOVER_SERIE.search(n) or _ESPERA_SACAR.search(n) or _ESPERA_SUMAR.search(texto or "")
                 or _AVISAR.search(texto or "") or _CONTESTAR.search(texto or ""))
+
+
+# ---------- desde el panel (el buscador) ----------
+# Lo mismo que por WhatsApp, escrito en el buscador del panel. Acá no hace
+# falta el WhatsApp vinculado: ya entró con su clave, y todo sale de SU
+# tenant. Las acciones esperan confirmación igual, en su propia cola.
+
+def _clave_panel(tenant: dict) -> str:
+    return f"panel:{tenant['id']}"
+
+
+def desde_panel(tenant: dict, texto: str) -> dict:
+    """{"entendido": bool, "texto": str, "confirmar": {"n", "avisar"} | None}."""
+    texto = (texto or "").strip()[:700]
+    if not texto:
+        return {"entendido": False}
+    try:
+        funcion = _pedido(texto)
+        if funcion is not None and not _AYUDA.search(_normal(texto)):
+            return {"entendido": True, "texto": str(funcion(tenant))}
+        preparado = _preparar(tenant, texto)
+    except Exception:
+        logger.exception("Falló el asistente desde el panel (%s)", tenant.get("id"))
+        return {"entendido": True, "texto": "Uh, no pude con eso. Probá de nuevo en un rato."}
+    if preparado is None:
+        return {"entendido": False}
+    if isinstance(preparado, str):
+        return {"entendido": True, "texto": preparado}
+    accion, pregunta = preparado
+    n, _ = _encolar(_clave_panel(tenant), tenant["id"], accion, pregunta)
+    return {"entendido": True, "texto": pregunta, "confirmar": {"n": n, "avisar": bool(accion.get("avisar"))}}
+
+
+def confirmar_desde_panel(tenant: dict, n: int, modo: str) -> dict:
+    """`modo`: «si», «sin_avisar» o «no». {"texto", "hecho": bool}."""
+    clave = _clave_panel(tenant)
+    items = _cola(clave)
+    item = next((x for x in items if x["n"] == n and x["tenant_id"] == tenant["id"]), None)
+    if not item:
+        return {"texto": "Eso ya no está pendiente: pedímelo de nuevo.", "hecho": False}
+    _guardar_cola(clave, [x for x in items if x is not item])
+    if modo == "no":
+        return {"texto": "Listo, no hice nada.", "hecho": False}
+    if _vencida(item):
+        return {"texto": "Pasó mucho tiempo: por las dudas no lo hice. Pedímelo de nuevo.", "hecho": False}
+    accion = dict(item["accion"])
+    if modo == "sin_avisar":
+        accion["avisar"] = False
+    try:
+        return {"texto": str(_ejecutar(tenant, accion, origen="profesional (buscador)")), "hecho": True}
+    except Exception:
+        logger.exception("Falló una acción desde el panel (%s)", tenant.get("id"))
+        return {"texto": "Uh, no pude hacerlo. Probá desde la agenda.", "hecho": False}
 
 
 def bienvenida(tenant: dict) -> str:

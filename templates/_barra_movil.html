@@ -1,0 +1,41 @@
+{# Barra fija abajo, sólo en el celular: lo de todos los días a un toque. Se incluye en agenda y ajustes. #}
+{% set _pend = ((mensajes or [])|rejectattr('leido')|list|length) + ((pagos_revisar or [])|length) + ((reservas_nuevas or [])|length)
+               + ((huecos or [])|length) + ((cuestionarios_nuevos or [])|length) + ((tests_para_repetir or [])|length) %}
+{% set _hay = mensajes or pagos_revisar or reservas_nuevas or huecos or cuestionarios_nuevos or tests_para_repetir %}
+{% set _en_agenda = request.endpoint == 'agenda' %}
+<nav class="barra-movil" aria-label="Accesos rápidos">
+  <a href="{{ url_for('agenda') }}#hoy" data-barra="hoy"{% if _en_agenda %} aria-current="page"{% endif %}><span aria-hidden="true">📅</span>Hoy</a>
+  {% if _hay %}<a href="{{ url_for('agenda') }}#para-resolver" data-barra="resolver"><span aria-hidden="true">📥</span>Para resolver{% if _pend %}<b class="barra-num">{{ _pend }}</b>{% endif %}</a>{% endif %}
+  <button type="button" data-buscar-abrir><span aria-hidden="true">🔍</span>Buscar</button>
+  <a href="{{ url_for('ajustes') }}"{% if request.endpoint == 'ajustes' %} aria-current="page"{% endif %}><span aria-hidden="true">⚙️</span>Ajustes</a>
+</nav>
+<style>
+  .barra-movil { display:none; }
+  @media (max-width: 640px) {
+    .barra-movil { display:grid; grid-auto-flow:column; grid-auto-columns:1fr; position:fixed; left:0; right:0; bottom:0; z-index:20;
+                   background:var(--card); border-top:1px solid var(--rule); box-shadow:0 -4px 14px rgba(0,0,0,.08);
+                   padding:4px 4px calc(4px + env(safe-area-inset-bottom)); }
+    .barra-movil a, .barra-movil button { position:relative; display:flex; flex-direction:column; align-items:center; gap:1px; padding:6px 2px;
+                   font:inherit; font-size:.72rem; font-weight:600; color:var(--muted); text-decoration:none; background:none; border:none;
+                   border-radius:8px; cursor:pointer; min-height:48px; justify-content:center; }
+    .barra-movil span { font-size:1.15rem; line-height:1; }
+    .barra-movil [aria-current="page"] { color:var(--green); }
+    .barra-movil .barra-num { position:absolute; top:2px; left:calc(50% + 6px); background:var(--green); color:var(--on-green); border-radius:999px;
+                   font-size:.66rem; min-width:17px; padding:1px 4px; line-height:15px; text-align:center; }
+    body { padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
+    .barra-guardar { bottom:calc(60px + env(safe-area-inset-bottom)) !important; }
+    .vista { bottom:calc(72px + env(safe-area-inset-bottom)) !important; }
+    .novedades { bottom:calc(72px + env(safe-area-inset-bottom)) !important; }
+  }
+  @media print { .barra-movil { display:none !important; } }
+</style>
+<script>
+(() => {
+  // Ya en la agenda: ir a «Hoy» o «Para resolver» es bajar, no recargar.
+  document.querySelectorAll('.barra-movil a[href*="#"]').forEach(a => a.addEventListener('click', e => {
+    const destino = new URL(a.href);
+    const el = document.getElementById(destino.hash.slice(1));
+    if (destino.pathname === location.pathname && el) { e.preventDefault(); history.replaceState(null, '', destino.hash); el.scrollIntoView({block: 'start', behavior: 'smooth'}); }
+  }));
+})();
+</script>
