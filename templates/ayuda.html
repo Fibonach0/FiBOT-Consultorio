@@ -11,6 +11,37 @@
     <p class="tenue">Lo necesario para arrancar, y qué hacer cuando algo pide tu atención.</p>
   </div>
 
+  <div class="card" id="recorrido">
+    <h3>Recorrido por tu panel</h3>
+    <p class="tenue">Cada parte en un video corto (los pacientes y datos son inventados). Se ve igual en el celular y en la compu.</p>
+    <div class="recorrido">
+      {% for archivo, titulo, texto in [
+        ("panel", "Arriba de todo", "Reservas nuevas, las sesiones de hoy (con deuda y la última nota) y «Para mirar»: faltas seguidas o fechas importantes. Tocando una sesión se abre la ficha."),
+        ("calendario", "El calendario", "El mes, tipo Google Calendar. Tocás un día y vas a la semana, donde cada sesión tiene «Acciones»: si vino, si pagó, el valor, una nota, pasarla a otro día o cancelarla."),
+        ("ficha", "La ficha del paciente", "Pestañas Terapia, Sesiones, Crisis, Personas y Datos. Arriba siempre ves la próxima sesión y lo que debe."),
+        ("mensajes-pagos", "Mensajes y pagos para revisar", "Lo que te escribieron por WhatsApp y el asistente no supo contestar (lo respondés desde acá), y los comprobantes de transferencia para aceptar o rechazar."),
+        ("horario", "Horario de atención", "Los días y horas en que atendés. Los horarios libres se generan solos, semana a semana."),
+        ("bloqueos", "Días bloqueados", "Vacaciones, feriados o un rato libre: nadie puede reservar ahí, y te avisamos si ya había sesiones."),
+        ("espera", "Lista de espera", "Quienes se anotaron porque no había lugar. Les ofrecés un horario con un toque (o se lo ofrecemos solos, si lo activás)."),
+        ("mi-pagina", "Tu página de turnos", "El link para tus pacientes: copiarlo, mandarlo por WhatsApp o imprimir el QR. Ahí cargás tu foto, portada, cómo te presentás y el color."),
+        ("cobros", "Cobrar las reservas", "Mercado Pago o transferencia, total o seña, y qué devolver si cancelan. Abajo, lo que entró en el mes."),
+        ("ajustes", "Ajustes", "Tu WhatsApp para avisos (desde ahí también le preguntás «hoy» o «pagos» al asistente), matrícula, videollamada, clave y seguridad."),
+        ("pagina-paciente", "Lo que ve tu paciente", "Elige el tipo de turno, el día y el horario, deja nombre y WhatsApp, revisa y reserva. Si cobrás, sigue al pago."),
+      ] %}
+      <figure>
+        <img src="{{ url_for('static', filename='ayuda/' ~ archivo ~ '.gif') }}" loading="lazy" width="360" height="699" alt="Video: {{ titulo }}">
+        <figcaption><strong>{{ titulo }}.</strong> {{ texto }}</figcaption>
+      </figure>
+      {% endfor %}
+    </div>
+  </div>
+  <style>
+    .recorrido { display:grid; grid-template-columns:repeat(auto-fill, minmax(min(100%, 300px), 1fr)); gap:18px; }
+    .recorrido figure { margin:0; }
+    .recorrido img { width:100%; height:auto; border:1px solid var(--rule); border-radius:10px; background:var(--card); }
+    .recorrido figcaption { font-size:.9rem; margin-top:6px; }
+  </style>
+
   <div class="card">
     <h3>Borrador de informe</h3>
     <p>En la pestaña {{ dict(rubro.pestanias).sesiones }}, «Borrador de informe» arma un informe con lo cargado: datos, motivo, {% if rubro.tests %}resultados de tests y su evolución, lectura, {% endif %}cuestionarios y objetivos. Todo se edita tocándolo; lo que dejes vacío no se imprime. Terminá con «Imprimir o guardar en PDF».</p>

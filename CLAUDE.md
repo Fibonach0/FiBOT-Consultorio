@@ -789,6 +789,13 @@ o con un nombre que no coincide, el bot los lista y no cancela nada hasta recibi
 
 Guía dentro del panel, adaptada al rubro. Si cambia un flujo o un texto visible,
 se actualiza acá en el mismo PR.
+Arriba tiene «Recorrido por tu panel»: GIFs de cada parte (`static/ayuda/*.gif`,
+celular de 412 px, datos inventados). Se graban con `scripts/guia/` (la app con la
+base en memoria de `test_seguimiento.py` en 127.0.0.1:8770 + Chrome sin ventana por
+DevTools; ver el docstring de `servidor.py`). Si cambia mucho una pantalla, se
+vuelve a grabar esa escena. `test_inicio.py` revisa que cada GIF exista y pese
+menos de 800 KB, y que ningún `var(--x)` quede pegado a restos de un color (así
+quedó la ficha transparente desde #97: `var(--card)df5`).
 
 ### Reservas nuevas (`migrations/025`)
 

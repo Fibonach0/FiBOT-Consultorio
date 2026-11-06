@@ -473,8 +473,8 @@
   <div class="card" id="pagos-revisar">
     <h3>Pagos para revisar <span class="contador">{{ pagos_revisar|length }}</span></h3>
     {% for p in pagos_revisar %}
-    <div class="turno">
-      <span><strong>{{ p._quien or 'Paciente' }}</strong> · {{ p.monto|pesos }}
+    <div class="turno" style="flex-wrap:wrap;gap:6px">
+      <span style="flex:1 1 220px"><strong>{{ p._quien or 'Paciente' }}</strong> · {{ p.monto|pesos }}
         <span class="tenue">· {% for t in p._turnos %}{{ t._dia }} {{ t._hora }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
         {% if p.estado == 'aprobado_tarde' %}<br><span class="tenue">Pagó por Mercado Pago cuando el horario ya se había liberado: devolvelo o dale otro turno.</span>
         {% elif p.a_devolver %}<br><span class="tenue">Canceló una sesión pagada: hay que devolverle <strong>{{ p.a_devolver|pesos }}</strong>{% if p.metodo == 'transferencia' %} por transferencia{% endif %}.</span>{% endif %}
@@ -483,7 +483,7 @@
         {% if p.estado == 'comprobante' %}
         <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ url_for('agenda_pago_comprobante', pago_id=p.id) }}">Ver comprobante</a>
         <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='aceptar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit">Aceptar</button></form>
-        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='rechazar') }}" style="display:flex;gap:6px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="motivo" aria-label="Motivo del rechazo" style="width:auto"><option value="">Motivo (opcional)</option>{% for m in motivos_rechazo %}<option value="{{ m }}">{{ m|capitalize }}</option>{% endfor %}</select><button class="btn chico secundario" type="submit" onclick="return confirm('¿Rechazar el comprobante? El horario queda libre.')">Rechazar</button></form>
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='rechazar') }}" style="display:flex;gap:6px;flex-wrap:wrap;max-width:100%"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="motivo" aria-label="Motivo del rechazo" style="width:auto;max-width:100%"><option value="">Motivo (opcional)</option>{% for m in motivos_rechazo %}<option value="{{ m }}">{{ m|capitalize }}</option>{% endfor %}</select><button class="btn chico secundario" type="submit" onclick="return confirm('¿Rechazar el comprobante? El horario queda libre.')">Rechazar</button></form>
         {% else %}
         {% if p._puede_mp %}
         <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='devolver') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit" onclick="return confirm('¿Devolverle {{ (p.a_devolver or p.monto)|pesos }} por Mercado Pago? No se puede deshacer.')">Devolver {{ (p.a_devolver or p.monto)|pesos }}</button></form>
