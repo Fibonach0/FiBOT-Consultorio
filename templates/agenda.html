@@ -31,6 +31,24 @@
     </ol>
   </div>
   {% endif %}
+  {% if paciente_nuevo %}
+  <div class="card primeros-pasos paciente-nuevo" id="paciente-nuevo" role="status">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <h3 style="margin:0">{{ paciente_nuevo.nombre }} quedó agendado/a{% if paciente_nuevo.completo %} ✓{% endif %}</h3>
+      <button class="btn chico secundario" type="button" onclick="this.closest('.paciente-nuevo').remove()">Entendido</button>
+    </div>
+    <p class="tenue" style="margin:.4em 0">{% if paciente_nuevo.completo %}Está todo para que ande solo:{% else %}Para que todo ande solo con este paciente:{% endif %}</p>
+    <ol class="pasos">
+      {% for paso in paciente_nuevo.pasos %}
+      <li class="{{ 'hecho' if paso.hecho }}">
+        <span class="paso-marca" aria-hidden="true">{{ '✓' if paso.hecho else loop.index }}</span>
+        <span><strong>{{ paso.titulo }}</strong> <span class="tenue">{{ paso.si if paso.hecho else paso.no }}</span></span>
+      </li>
+      {% endfor %}
+    </ol>
+    {% if paciente_nuevo.dom %}<button class="btn chico" type="button" data-ficha="{{ paciente_nuevo.dom }}" style="margin-top:8px">Abrir su ficha</button>{% endif %}
+  </div>
+  {% endif %}
   {% set para_resolver = (mensajes|rejectattr('leido')|list|length) + (pagos_revisar|length) + (reservas_nuevas|length) + (huecos|length) + (cuestionarios_nuevos|length) + (tests_para_repetir|length) %}
   {% if mensajes or pagos_revisar or reservas_nuevas or huecos or cuestionarios_nuevos or tests_para_repetir %}
   <div class="card bandeja" id="para-resolver">
@@ -185,7 +203,7 @@
   </script>
   {% endif %}
 
-  <div class="card">
+  <div class="card" id="hoy">
     <h3>Hoy{% if hoy %} <span class="contador">{{ hoy|length }}</span>{% endif %}</h3>
     {% if not hoy %}<div class="tenue">Hoy no hay sesiones.</div>{% endif %}
     <div class="hoy-grilla">
@@ -481,7 +499,8 @@
             <input type="hidden" name="semana" value="{{ semana }}">
             <div><label>Nombre</label><input type="text" name="nombre" required></div>
             <div><label>WhatsApp <span class="tenue">(opcional)</span></label><input type="text" inputmode="tel" name="telefono" placeholder="54 9 11 2345 6789"></div>
-            <div><label>Valor de sesión</label><input type="text" inputmode="numeric" name="valor" placeholder="25000"></div>
+            {% if not fichas %}<p class="ancho tenue guia-primero">Tu primer paciente: con su <strong>WhatsApp</strong> le llegan los recordatorios, con el <strong>valor</strong> sabés quién te debe y con <strong>Semanal</strong> se agendan las próximas sesiones de una.</p>{% endif %}
+            <div><label>Valor de sesión</label><input type="text" inputmode="numeric" name="valor" placeholder="{{ tenant.precio_sesion or 25000 }}"></div>
             <div><label>Frecuencia</label>
               <select name="frecuencia">
                 <option value="">Una sola vez</option>
@@ -1464,4 +1483,5 @@
 })();
 </script>
 {% include "_buscador.html" %}
+{% include "_barra_movil.html" %}
 {% endblock %}

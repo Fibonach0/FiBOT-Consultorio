@@ -2447,9 +2447,34 @@ def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
         "meses": MESES_LABEL,
         "duracion_default": tenant.get("duracion_turno_minutos") or 50,
         "primeros_pasos": _primeros_pasos(tenant, fichas),
+        "paciente_nuevo": _paciente_nuevo(fichas),
     }
     comunes["buscador"] = buscador.indice(tenant, comunes, rubros.de(tenant), url_for)
     return comunes
+
+
+def _paciente_nuevo(fichas: list[dict]) -> dict | None:
+    """La guía corta que sale UNA vez después de agendar a alguien por primera
+    vez (la deja `agenda_agendar` en la sesión): qué le falta para que los
+    recordatorios, la cuenta y las sesiones fijas anden solos."""
+    if request.endpoint != "agenda" or "paciente_nuevo" not in session:
+        return None
+    nuevo = session.pop("paciente_nuevo")
+    ficha = next((f for f in fichas if f["clave"] == nuevo.get("clave")), None)
+    if not ficha:
+        return None
+    pasos = [
+        {"hecho": db.tiene_whatsapp(ficha["telefono"]), "titulo": "WhatsApp",
+         "si": "Le llegan el recordatorio de cada sesión y los avisos de cambios.",
+         "no": "Sin WhatsApp no le llegan recordatorios ni avisos. Cargalo en su ficha, pestaña Datos."},
+        {"hecho": bool(nuevo.get("valor")), "titulo": "Valor de la sesión",
+         "si": "Ya llevás la cuenta de lo que paga y lo que debe.",
+         "no": "Sin valor no sabés cuánto te debe. Cargalo en la sesión (en la semana) o agendalo con valor."},
+        {"hecho": bool(nuevo.get("frecuencia")), "titulo": "Sesiones fijas",
+         "si": f"Quedaron agendadas las próximas ({nuevo.get('frecuencia')}). Te aviso cuando queden 2 para renovar.",
+         "no": "Quedó una sola sesión. Si viene siempre, agendala «Semanal» y se cargan las próximas de una."},
+    ]
+    return {"nombre": ficha["nombre"], "dom": ficha.get("dom"), "pasos": pasos, "completo": all(x["hecho"] for x in pasos)}
 
 
 def _primeros_pasos(tenant: dict, fichas: list[dict]) -> dict | None:
@@ -2485,6 +2510,28 @@ def agenda_primeros_pasos_ocultar():
     db.guardar_ajustes(session["tenant_id"], {"preferencias_vista": pref})
     flash("Listo, oculté «Primeros pasos». Lo que falta lo encontrás en Ajustes.")
     return _volver_a_agenda()
+
+
+@app.post("/agenda/asistente")
+@login_required
+def agenda_asistente():
+    """El buscador le pide algo al asistente: lo mismo que por WhatsApp
+    («bloquear el viernes», «cobré a Juana», «quién me debe»). Las acciones
+    vuelven como pregunta y se hacen recién con /confirmar."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    return jsonify(asistente_profesional.desde_panel(tenant, request.form.get("texto") or ""))
+
+
+@app.post("/agenda/asistente/confirmar")
+@login_required
+def agenda_asistente_confirmar():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    try:
+        n = int(request.form.get("n") or 0)
+    except ValueError:
+        n = 0
+    modo = request.form.get("modo") if request.form.get("modo") in ("si", "sin_avisar", "no") else "no"
+    return jsonify(asistente_profesional.confirmar_desde_panel(tenant, n, modo))
 
 
 AJUSTES_PESTANIAS = [("agenda", "Agenda"), ("pagina", "Mi página"), ("cobros", "Cobros"), ("cancelaciones", "Cancelaciones"),
@@ -4520,6 +4567,7 @@ def agenda_agendar(turno_id):
     if modalidad not in MODALIDADES:
         modalidad = None
     turno = db.turno_por_id(tenant["id"], turno_id)
+    claves_previas = {db.clave_de(t) for t in db.sesiones_reservadas(tenant["id"])}
     if db.tiene_whatsapp(telefono):
         ambiguo = not otra_persona and db.nombre_ambiguo(tenant["id"], telefono, nombre)
         ficha, ficha_nueva = (db.ficha_aparte(tenant["id"], telefono, nombre), False) if otra_persona \
@@ -4531,6 +4579,9 @@ def agenda_agendar(turno_id):
         flash("Ese horario ya no está libre.")
         return _volver_a_agenda()
     _avisar_si_bloqueado(tenant, turno["inicio"], turno["fin"])
+    clave = db.clave_de({"paciente_telefono": telefono, "ficha": ficha})
+    if clave not in claves_previas:
+        session["paciente_nuevo"] = {"clave": clave, "valor": bool(valor), "frecuencia": frecuencia}
     if ambiguo:
         flash(f"Ese WhatsApp tiene más de una ficha que coincide con {nombre}: quedó en la más reciente. "
               "Si no es esa, pasá la sesión desde la pestaña Sesiones.")

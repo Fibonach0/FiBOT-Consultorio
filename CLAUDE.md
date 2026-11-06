@@ -1042,6 +1042,26 @@ Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
   cancelados, cuestionarios y tests, en una tarjeta con pestañas
   (`data-bandeja-tab`); los ids viejos (#mensajes, #pagos-revisar, #huecos)
   siguen sirviendo de ancla.
+- El buscador también le pide cosas al asistente: «Pedírselo al asistente»
+  hace `POST /agenda/asistente` (`asistente_profesional.desde_panel`: las
+  mismas `_pedido` / `_preparar`, sin vincular WhatsApp porque ya hay sesión
+  del panel) y las acciones vuelven como pregunta; se hacen con
+  `/agenda/asistente/confirmar` (`confirmar_desde_panel`, «si» /
+  «sin_avisar» / «no»). Cola propia en `acciones_profesional` con clave
+  `panel:<tenant_id>`; la actividad dice «profesional (buscador)». El texto
+  con `*negritas*` se pinta en el navegador escapado. Si algo se hizo, al
+  cerrar recarga la página.
+- «Recientes» del buscador: localStorage `fibot-recientes-<cuenta>`, sólo
+  referencias opacas (`buscador._ref`: HMAC con `FLASK_SECRET_KEY`), nunca
+  nombre ni teléfono; se borran al tocar «Salir». `?ficha=` usa esa misma
+  referencia (`r`), no la clave (que lleva el teléfono).
+- Barra fija del celular (`templates/_barra_movil.html`, < 640 px): Hoy,
+  Para resolver (con el total), Buscar, Ajustes. Sube «Aa», «Hubo novedades»
+  y «Guardar cambios» por encima.
+- Paciente nuevo: `agenda_agendar` deja `session["paciente_nuevo"]` si esa
+  ficha no tenía sesiones; `_paciente_nuevo` la muestra UNA vez en la agenda
+  (WhatsApp, valor, sesiones fijas). Sin pacientes todavía, el formulario de
+  agendar trae una línea de guía.
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
 - GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +

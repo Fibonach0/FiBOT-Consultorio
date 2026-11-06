@@ -92,7 +92,8 @@ def cobros(nav):
 def buscador(nav):
     nav.ir("/agenda", 1.5)
     nav.pausa(1.0)
-    nav.tocar("[data-buscar-abrir]", espera=0.6)
+    nav.tocar(".barra-movil [data-buscar-abrir]", espera=0.6)
+    nav.pausa(1.2)
     for texto in ("cam", "camila"):
         nav.js(f"(()=>{{const q=document.getElementById('buscador-q');q.value='{texto}';q.dispatchEvent(new Event('input'))}})()")
         nav.pausa(0.5)
@@ -108,6 +109,14 @@ def buscador(nav):
     nav.js("document.getElementById('buscador-q').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))")
     time.sleep(1.6)
     nav.pausa(2.0)
+    nav.tocar("[data-buscar-abrir]", espera=0.6)
+    for texto in ("quién", "quién me debe"):
+        nav.js(f"(()=>{{const q=document.getElementById('buscador-q');q.value='{texto}';q.dispatchEvent(new Event('input'))}})()")
+        nav.pausa(0.6)
+    nav.pausa(1.0)
+    nav.js("document.getElementById('buscador-q').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter',bubbles:true}))")
+    time.sleep(1.0)
+    nav.pausa(2.4)
 
 
 def seccion(id_, *subs):

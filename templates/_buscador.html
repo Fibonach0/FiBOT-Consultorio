@@ -1,13 +1,13 @@
 {# Buscador tipo Spotlight del panel (ver buscador.py). Se incluye en agenda y ajustes. #}
 <script type="application/json" id="buscador-indice">{{ buscador|tojson }}</script>
-<dialog class="buscador" id="buscador" aria-label="Buscar en tu panel">
+<dialog class="buscador" id="buscador" aria-label="Buscar en tu panel" data-csrf="{{ csrf_token() }}">
   <div class="buscador-caja">
-    <input type="search" id="buscador-q" placeholder="Buscá un paciente, una sesión, un ajuste…" autocomplete="off" spellcheck="false"
+    <input type="search" id="buscador-q" placeholder="Buscá o pedí algo…" autocomplete="off" spellcheck="false"
            role="combobox" aria-expanded="true" aria-controls="buscador-lista" aria-autocomplete="list">
     <kbd class="buscador-esc">Esc</kbd>
   </div>
   <div class="buscador-lista" id="buscador-lista" role="listbox" aria-label="Resultados"></div>
-  <p class="buscador-pie tenue">↑ ↓ para moverte · Enter para abrir · <kbd>Ctrl</kbd> <kbd>K</kbd> o <kbd>/</kbd> para buscar desde cualquier lado</p>
+  <p class="buscador-pie tenue">↑ ↓ para moverte · Enter para abrir · también podés pedirle cosas, como por WhatsApp · <kbd>Ctrl</kbd> <kbd>K</kbd> o <kbd>/</kbd> para buscar desde cualquier lado</p>
 </dialog>
 <style>
   .buscar-boton { display:inline-flex; align-items:center; gap:6px; background:rgba(255,255,255,.14); color:var(--on-green); border:1px solid rgba(255,255,255,.3);
@@ -30,6 +30,11 @@
   .buscador-item span { font-size:.84rem; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .buscador-item mark { background:var(--warn-bg); color:inherit; border-radius:3px; padding:0 1px; }
   .buscador-vacio { padding:18px 16px; color:var(--muted); font-size:.92rem; }
+  .buscador-pie-tip { padding:10px 16px 4px; font-size:.84rem; color:var(--muted); }
+  .buscador-pie-tip button { background:none; border:none; padding:0; font:inherit; color:var(--green); cursor:pointer; text-decoration:underline; }
+  .asistente-resp { padding:14px 16px; white-space:normal; line-height:1.45; overflow-wrap:anywhere; }
+  .asistente-resp .quien { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:6px; }
+  .asistente-botones { display:flex; gap:8px; flex-wrap:wrap; padding:0 16px 14px; }
   .buscador-pie { margin:0; padding:8px 14px; border-top:1px solid var(--rule); font-size:.76rem; }
   .buscador-pie kbd { font-family:inherit; border:1px solid var(--rule); border-radius:4px; padding:0 4px; }
   @media (max-width: 640px) { dialog.buscador { margin-top:12px; max-height:86vh; } .buscador-pie { display:none; } }
@@ -42,7 +47,21 @@
   const esc = s => (s || '').toString().replace(/[&<>"]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;'}[c]));
   const pesos = n => '$ ' + Math.round(n).toLocaleString('es-AR');
   const enAgenda = !!document.querySelector('.ficha-dialogo');
-  let resultados = [], elegido = 0;
+  let resultados = [], elegido = 0, recargar = false;
+  const csrf = dialogo.dataset.csrf;
+
+  // «Recientes»: sólo identificadores opacos (nunca nombres ni teléfonos), por cuenta.
+  const CLAVE_REC = 'fibot-recientes-' + idx.cuenta;
+  const leerRec = () => { try { return JSON.parse(localStorage.getItem(CLAVE_REC) || '[]'); } catch (e) { return []; } };
+  function anotarRec(ref) {
+    if (!ref) return;
+    try { localStorage.setItem(CLAVE_REC, JSON.stringify([ref, ...leerRec().filter(x => x !== ref)].slice(0, 8))); } catch (e) {}
+  }
+  const borrarRec = () => { try { Object.keys(localStorage).filter(k => k.startsWith('fibot-recientes-')).forEach(k => localStorage.removeItem(k)); } catch (e) {} };
+  document.querySelectorAll(`a[href="${idx.salir}"]`).forEach(a => a.addEventListener('click', borrarRec));
+
+  // Lo que suena a pedido va primero al asistente (lo mismo que por WhatsApp).
+  const PEDIDO = /^(hoy|manana|(esta )?semana|que tengo|libres?|huecos|pagos?|comprobantes?|quien(es)? (me )?deben?|deudas?|me deben|(cuanto|que) (me )?debe|saldo de|como (vengo|voy|me fue|me va)|resumen|mensajes|lista de espera|pendientes|bloquea|pausa|reactiva|despausa|pasa(le|me|r)?|move(le|r)?|cambia(le|r)?|reprograma|cancela(le|r)?|suspende|marca(r|me)?|cobre|anota|pago|recorda|reclama|cobrale|suma(le|r)?|agenda(le|me|r)? |dale|ofrece|corta|termina|frena|actualiza|pone(le)?|subi(le)?|baja(le)?|renova|segui|extende|avisale|decile|mandale|escribile|contestale|respondele|agrega|saca|borra|quita|acepta|valida|rechaza|paciente|ficha de|telefono de|cuando viene)/;
 
   // Resalta las palabras buscadas (sin importar tildes ni mayúsculas).
   function resaltar(texto, palabras) {
@@ -70,7 +89,7 @@
       const disparador = document.querySelector(`[data-ficha="${f.d}"]`);
       if (disparador) disparador.click(); else document.getElementById(f.d).showModal();
     }
-    else location.href = idx.agenda + '?ficha=' + encodeURIComponent(f.c);
+    else location.href = idx.agenda + '?ficha=' + encodeURIComponent(f.r);
   };
 
   function buscar(texto) {
@@ -79,7 +98,13 @@
     const salida = [];
     const todas = hay => palabras.every(p => hay.includes(p));
     if (!palabras.length) {
-      idx.items.filter(x => x.g === 'Acciones').slice(0, 6).forEach(x => salida.push({g: 'Sugerencias', t: x.t, d: x.d, u: x.u, s: 0}));
+      leerRec().forEach((ref, i) => {
+        const f = ref.startsWith('f:') && idx.fichas.find(x => x.r === ref.slice(2));
+        const x = ref.startsWith('u:') && idx.items.find(y => y.u === ref.slice(2));
+        if (f) salida.push({g: 'Recientes', t: f.n, d: f.p ? `Próxima: ${f.p}` : 'Paciente', h: abrirFicha(f), ref, s: i});
+        else if (x) salida.push({g: 'Recientes', t: x.t, d: x.d, u: x.u, ref, s: i});
+      });
+      idx.items.filter(x => x.g === 'Acciones').slice(0, 6).forEach(x => salida.push({g: 'Sugerencias', t: x.t, d: x.d, u: x.u, ref: 'u:' + x.u, s: 0}));
       return salida;
     }
     for (const f of idx.fichas) {
@@ -88,9 +113,9 @@
       const deuda = f.a ? ` · debe ${pesos(f.a)}` : '';
       const detalle = (f.p ? `Próxima: ${f.p}` : (f.e && f.e !== 'activo' ? f.e : 'Sin sesiones próximas')) + deuda + (f.tel ? ` · +${f.tel}` : '');
       if (todas(base) || porTel) {
-        salida.push({g: 'Pacientes', t: f.n, d: detalle, h: abrirFicha(f), s: norm(f.n).startsWith(palabras[0]) ? 0 : 1});
+        salida.push({g: 'Pacientes', t: f.n, d: detalle, h: abrirFicha(f), ref: 'f:' + f.r, s: norm(f.n).startsWith(palabras[0]) ? 0 : 1});
       } else if (f.x && todas(norm(`${f.n} ${f.x}`))) {
-        salida.push({g: 'Pacientes', t: f.n, d: 'En su ficha: ' + recorte(f.x, palabras.find(p => norm(f.x).includes(p)) || palabras[0]), h: abrirFicha(f), s: 3});
+        salida.push({g: 'Pacientes', t: f.n, d: 'En su ficha: ' + recorte(f.x, palabras.find(p => norm(f.x).includes(p)) || palabras[0]), h: abrirFicha(f), ref: 'f:' + f.r, s: 3});
       }
     }
     for (const x of idx.sesiones) {
@@ -100,7 +125,7 @@
     for (const x of idx.items) {
       const t = norm(x.t);
       if (todas(norm(`${x.t} ${x.d} ${x.k}`)))
-        salida.push({g: x.g, t: x.t, d: x.d, u: x.u, s: t.startsWith(palabras[0]) ? 0 : todas(t) ? 1 : 2});
+        salida.push({g: x.g, t: x.t, d: x.d, u: x.u, ref: 'u:' + x.u, s: t.startsWith(palabras[0]) ? 0 : todas(t) ? 1 : 2});
     }
     for (const p of idx.espera) {
       if (todas(norm(`${p.n} ${p.pr}`)) || (digitos.length >= 4 && (p.tel || '').includes(digitos)))
@@ -110,14 +135,20 @@
       if (todas(norm(`${m.n} ${m.x}`)))
         salida.push({g: 'Mensajes', t: m.n, d: `${m.w} · ${m.x}`, u: idx.agenda + '#mensajes', s: 2});
     }
+    const pedido = texto.trim();
+    if (palabras.length >= 1 && pedido.length >= 3)
+      salida.push({g: 'Asistente', t: `Pedírselo al asistente: «${pedido}»`,
+                   d: 'Lo mismo que por WhatsApp: te pregunto antes de hacer cualquier cambio', h: () => pedir(pedido), s: 0});
     salida.push({g: 'Ayuda', t: `Buscar «${texto.trim()}» en la ayuda`, d: 'Cómo se usa', u: idx.ayuda + '#:~:text=' + encodeURIComponent(texto.trim()), s: 9});
     return salida;
   }
 
-  const ORDEN = ['Sugerencias', 'Pacientes', 'Sesiones', 'Ajustes', 'Acciones', 'Lista de espera', 'Mensajes', 'Ayuda'];
+  const GRUPOS = ['Recientes', 'Sugerencias', 'Pacientes', 'Sesiones', 'Ajustes', 'Acciones', 'Lista de espera', 'Mensajes'];
   function pintar() {
     const texto = q.value, palabras = norm(texto).split(/\s+/).filter(Boolean);
     const todos = buscar(texto);
+    // Si suena a pedido, el asistente va primero; si no, al final (antes de la ayuda).
+    const ORDEN = PEDIDO.test(norm(texto.trim())) ? ['Asistente', ...GRUPOS, 'Ayuda'] : [...GRUPOS, 'Asistente', 'Ayuda'];
     resultados = [];
     let html = '';
     for (const g of ORDEN) {
@@ -130,7 +161,9 @@
               + `<strong>${resaltar(r.t, palabras)}</strong><span>${resaltar(r.d, palabras)}</span></a>`;
       }
     }
-    if (resultados.length <= 1 && palabras.length) html = `<div class="buscador-vacio">No encontré «${esc(texto)}» en tu panel.</div>` + html;
+    if (palabras.length && !PEDIDO.test(norm(texto.trim())) && !resultados.some(r => r.g !== 'Asistente' && r.g !== 'Ayuda'))
+      html = `<div class="buscador-vacio">No encontré «${esc(texto)}» en tu panel.</div>` + html;
+    if (!palabras.length) html += `<div class="buscador-pie-tip">También podés pedirle cosas: ${EJEMPLOS.map(e => `<button type="button" data-ejemplo="${esc(e)}">${esc(e)}</button>`).join(' · ')}</div>`;
     lista.innerHTML = html;
     marcar(0);
   }
@@ -142,9 +175,52 @@
     items[elegido].scrollIntoView({block: 'nearest'});
     q.setAttribute('aria-activedescendant', items[elegido].id);
   }
+  const EJEMPLOS = ['qué tengo mañana', 'quién me debe', 'bloquear el viernes', 'cómo vengo este mes'];
+  // Texto del asistente (con *negritas* de WhatsApp) a HTML seguro.
+  const formato = t => esc(t).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>').replace(/(^|\s)_([^_\n]+)_/g, '$1<em>$2</em>').replace(/\n/g, '<br>');
+  async function enviar(url, datos) {
+    const fd = new FormData();
+    fd.append('csrf_token', csrf);
+    Object.entries(datos).forEach(([k, v]) => fd.append(k, v));
+    const r = await fetch(url, {method: 'POST', body: fd, credentials: 'same-origin'});
+    if (!r.ok) throw new Error(r.status);
+    return r.json();
+  }
+  function mostrar(html) { resultados = []; lista.innerHTML = html; q.removeAttribute('aria-activedescendant'); }
+  async function pedir(texto) {
+    mostrar('<div class="buscador-vacio">Un segundo…</div>');
+    let j;
+    try { j = await enviar(idx.asistente, {texto}); }
+    catch (e) { return mostrar('<div class="buscador-vacio">No pude conectarme. Probá de nuevo.</div>'); }
+    if (!j.entendido)
+      return mostrar(`<div class="asistente-resp"><div class="quien">Asistente</div>No lo entendí como un pedido. Probá, por ejemplo: `
+        + EJEMPLOS.concat(['cobré a Juana', 'pasá a Juana al jueves 18']).map(e => `<em>${esc(e)}</em>`).join(', ') + '.</div>');
+    let html = `<div class="asistente-resp" role="status"><div class="quien">Asistente</div>${formato(j.texto)}</div>`;
+    if (j.confirmar) {
+      const n = j.confirmar.n;
+      html += '<div class="asistente-botones">'
+        + (j.confirmar.avisar ? `<button class="btn chico" type="button" data-asist="si" data-n="${n}">Sí, y avisarle</button>`
+                                + `<button class="btn chico secundario" type="button" data-asist="sin_avisar" data-n="${n}">Sí, sin avisarle</button>`
+                              : `<button class="btn chico" type="button" data-asist="si" data-n="${n}">Sí, hacelo</button>`)
+        + `<button class="btn chico secundario" type="button" data-asist="no" data-n="${n}">No</button></div>`;
+    }
+    mostrar(html);
+    lista.querySelector('[data-asist="si"]')?.focus();
+  }
+  async function confirmar(n, modo) {
+    lista.querySelectorAll('[data-asist]').forEach(b => b.disabled = true);
+    let j;
+    try { j = await enviar(idx.confirmar, {n, modo}); }
+    catch (e) { return mostrar('<div class="buscador-vacio">No pude conectarme: fijate en la agenda si se hizo antes de repetirlo.</div>'); }
+    if (j.hecho) recargar = true;
+    mostrar(`<div class="asistente-resp" role="status"><div class="quien">Asistente</div>${formato(j.texto)}</div>`
+      + `<div class="asistente-botones"><button class="btn chico" type="button" data-cerrar>${j.hecho ? 'Listo, ver la agenda' : 'Cerrar'}</button></div>`);
+    lista.querySelector('[data-cerrar]')?.focus();
+  }
   function ir(i) {
     const r = resultados[i];
     if (!r) return;
+    if (r.u === idx.salir) borrarRec(); else anotarRec(r.ref);
     if (r.h) return r.h();
     dialogo.close();
     const destino = new URL(r.u, location.href);
@@ -165,13 +241,19 @@
     else if (e.key === 'Enter') { e.preventDefault(); ir(elegido); }
   });
   lista.addEventListener('click', e => {
+    const boton = e.target.closest('[data-asist]');
+    if (boton) return confirmar(+boton.dataset.n, boton.dataset.asist);
+    if (e.target.closest('[data-cerrar]')) return dialogo.close();
+    const ejemplo = e.target.closest('[data-ejemplo]');
+    if (ejemplo) { q.value = ejemplo.dataset.ejemplo; q.focus(); return pintar(); }
     const a = e.target.closest('.buscador-item');
     if (!a) return;
     e.preventDefault(); ir(+a.dataset.i);
   });
   lista.addEventListener('mousemove', e => { const a = e.target.closest('.buscador-item'); if (a && +a.dataset.i !== elegido) marcar(+a.dataset.i); });
   dialogo.addEventListener('click', e => { if (e.target === dialogo) dialogo.close(); });
-  document.querySelectorAll('[data-buscar-abrir]').forEach(b => b.addEventListener('click', abrir));
+  dialogo.addEventListener('close', () => { if (recargar) location.reload(); });
+  document.addEventListener('click', e => { if (e.target.closest('[data-buscar-abrir]')) abrir(); });
   document.addEventListener('keydown', e => {
     const escribiendo = /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement?.tagName) || document.activeElement?.isContentEditable;
     if ((e.key === 'k' || e.key === 'K') && (e.ctrlKey || e.metaKey)) { e.preventDefault(); abrir(); }
@@ -180,7 +262,7 @@
   // /agenda?ficha=<clave>: viene del buscador desde otra página.
   const pedida = new URLSearchParams(location.search).get('ficha');
   if (pedida && enAgenda) {
-    const f = idx.fichas.find(x => x.c === pedida);
+    const f = idx.fichas.find(x => x.r === pedida);
     if (f) setTimeout(() => abrirFicha(f)(), 50);
   }
 })();
