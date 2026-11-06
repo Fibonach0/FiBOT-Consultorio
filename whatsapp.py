@@ -119,7 +119,7 @@ def numero_de(tenant: dict) -> str:
 
 
 def enviar_plantilla(phone_number_id: str, to: str, plantilla: str,
-                     lang: str, params: list[str]) -> bool:
+                     lang: str, params: list[str], boton_url: str | None = None) -> bool:
     """Manda un mensaje de PLANTILLA aprobada.
 
     Es lo único que Meta deja mandar fuera de la ventana de 24 h desde el
@@ -129,13 +129,15 @@ def enviar_plantilla(phone_number_id: str, to: str, plantilla: str,
     el recordatorio no llega nunca.
 
     Los `params` van en el mismo orden que los {{1}}, {{2}}… de la plantilla.
+    `boton_url` es el final del link del primer botón «URL dinámica» (el
+    {{1}} del botón), si la plantilla lo tiene.
     """
-    ok, _ = enviar_plantilla_detalle(phone_number_id, to, plantilla, lang, params)
+    ok, _ = enviar_plantilla_detalle(phone_number_id, to, plantilla, lang, params, boton_url)
     return ok
 
 
 def enviar_plantilla_detalle(phone_number_id: str, to: str, plantilla: str,
-                             lang: str, params: list[str]) -> tuple[bool, str]:
+                             lang: str, params: list[str], boton_url: str | None = None) -> tuple[bool, str]:
     """Igual que enviar_plantilla, pero devuelve también qué dijo Meta (para
     la prueba de envío de administración)."""
     if _sin_numero(to):
@@ -156,6 +158,10 @@ def enviar_plantilla_detalle(phone_number_id: str, to: str, plantilla: str,
             "type": "body",
             "parameters": [{"type": "text", "text": p} for p in params],
         }]
+    if boton_url:
+        template.setdefault("components", []).append({
+            "type": "button", "sub_type": "url", "index": "0",
+            "parameters": [{"type": "text", "text": boton_url}]})
     payload = {"messaging_product": "whatsapp", "to": to, "type": "template", "template": template}
     try:
         r = _mandar(url, headers, payload)

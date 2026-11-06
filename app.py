@@ -1359,7 +1359,12 @@ def admin_whatsapp():
         m["_cuando"] = datetime.fromisoformat(m["cuando"]).astimezone(tz).strftime("%d/%m %H:%M")
     simulacion = session.get("simulacion") or {}
     cuentas = [t for t in db.todos_los_tenants() if t.get("activo") is not False]
+    import plantillas as catalogo_plantillas
+    catalogo = [dict(p, cargada=getattr(config, p["variable"], ""),
+                     boton_activo=bool(p.get("url") and getattr(config, p["url"]["variable"], False)))
+                for p in catalogo_plantillas.CATALOGO]
     return render_template("admin_whatsapp.html", pasos=pasos, plantillas=plantillas, avisos=avisos, ajustes=ajustes,
+                           catalogo=catalogo, que_hace=catalogo_plantillas.QUE_HACE,
                            bandeja=bandeja, cuentas=cuentas, simulacion=simulacion, simulado=SIMULADO[-4:],
                            respuesta_sin_destino=_respuesta_sin_destino(), por_defecto=RESPUESTA_SIN_DESTINO,
                            vista=session.pop("vista_previa", None),

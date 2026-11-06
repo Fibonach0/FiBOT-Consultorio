@@ -60,6 +60,21 @@
     <div class="tenue" style="margin-top:6px">El gris es lo que se está usando hoy desde Railway. Para cambiar de número: Phone Number ID y cuenta nuevos, Guardar, y revisá los pasos de arriba.</div>
   </div>
 
+  <details class="card" id="crear-plantillas">
+    <summary><h3 style="display:inline">Cómo crear cada plantilla</h3></summary>
+    <p class="tenue">En WhatsApp Manager → Plantillas → Crear: categoría <strong>Utilidad</strong>, idioma Español (ARG). Copiá el texto tal cual; los botones de respuesta rápida van con este texto exacto (el bot los reconoce por el texto). Cuando Meta la apruebe, el nombre va a Railway en la variable de cada una.</p>
+    {% for p in catalogo %}
+    <div class="ficha-item" style="display:block">
+      <strong>{{ p.uso }}</strong> · <code>{{ p.variable }}</code>{% if p.cargada %} <span class="tenue">= {{ p.cargada }}</span>{% else %} <span class="tenue">(sin cargar)</span>{% endif %}
+      <div>Nombre sugerido: <code>{{ p.nombre }}</code></div>
+      <div style="white-space:pre-wrap">{{ p.texto }}</div>
+      <div class="tenue">{% for x in p.params %}{{ '{{' }}{{ loop.index }}{{ '}}' }} = {{ x }} (ej.: {{ p.ejemplo[loop.index0] }}){% if not loop.last %} · {% endif %}{% endfor %}</div>
+      {% if p.botones %}<div>Botones de respuesta rápida: {% for b in p.botones %}<code>{{ b }}</code> <span class="tenue">({{ que_hace[b] }})</span>{% if not loop.last %} · {% endif %}{% endfor %}</div>{% endif %}
+      {% if p.url %}<div>Botón «Visitar sitio web», URL dinámica: <code>{{ p.url.texto }}</code> → <code>{{ p.url.base }}</code> (ej.: {{ p.url.ejemplo }}). Después poné <code>{{ p.url.variable }}=1</code> en Railway{% if p.boton_activo %} <span class="tenue">(ya está)</span>{% endif %}.</div>{% endif %}
+    </div>
+    {% endfor %}
+  </details>
+
   <div class="card">
     <h3>Avisos de Meta sobre plantillas</h3>
     {% for a in avisos %}

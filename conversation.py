@@ -238,6 +238,9 @@ def responder(tenant: dict, telefono: str, texto: str) -> str:
         confirmado = _confirmar(tenant, telefono)
         if confirmado:
             return confirmado
+        if "confirm" in baja:
+            # El botón «Sí, confirmo» del recordatorio o del aviso de cambio.
+            return _confirmar_proximo_turno(tenant, telefono)
 
     m = _SELECCION.match(limpio)
     if m and _parece_nombre(m.group(2)):
@@ -255,6 +258,8 @@ def responder(tenant: dict, telefono: str, texto: str) -> str:
 
     if normal in _SALUDOS:
         return _menu(tenant)
+    if _DEUDA.search(normal):
+        return _que_debo(tenant, telefono)
     if _MI_TURNO.search(normal):
         return _mi_turno(tenant, telefono)
     if _QUIERE_CANCELAR.search(normal):
@@ -285,6 +290,7 @@ _CORTESIA = {"gracias", "muchas gracias", "mil gracias", "gracias!", "ok", "oka"
 CORTESIA = "¡De nada! Si necesitás algo, escribí *turno*, *mi turno* o *cancelar*."
 _MI_TURNO = re.compile(r"\b(mis? (proximos? )?turnos?|cuando (es|tengo|era) (mi|el) (proximo )?turno|"
                        r"a que hora (es|tengo|era)|tengo turno|que dia (es|tengo|era))\b")
+_DEUDA = re.compile(r"\b((que|cuanto) (le |te )?(debo|adeudo)|mi deuda|cuanto (es|era) la deuda|debo algo)\b")
 _QUIERE_CANCELAR = re.compile(r"\b(no (voy a )?(poder|puedo|podre|podria) (ir|asistir|venir|ir mas)|"
                               r"no voy a (ir|asistir|venir)|cancelo|quiero cancelar|quisiera cancelar|"
                               r"necesito cancelar|tengo que cancelar|suspend\w*|anul\w*|dar de baja)\b")
@@ -334,6 +340,42 @@ def _mi_turno(tenant: dict, telefono: str) -> str:
         texto = (f"Los próximos turnos con *{tenant['nombre']}* de este WhatsApp:\n\n"
                  + "\n".join(f"• {t.get('paciente_nombre') or 'Sin nombre'}: {_fmt(t['inicio'], tz)}" for t in turnos))
     return texto + "\n\nSi no podés ir, escribí *cancelar*."
+
+
+def _pesos(v) -> str:
+    return f"$ {int(v or 0):,}".replace(",", ".")
+
+
+def _que_debo(tenant: dict, telefono: str) -> str:
+    """El botón «¿Qué debo?» del recordatorio de pago: las sesiones sin pagar
+    de este teléfono, con fecha y valor. Sólo lo de quien escribe."""
+    tz = _tz(tenant)
+    sin_pagar = [t for t in db.pendientes_de_pago_de(tenant["id"], telefono, datetime.now(timezone.utc)) if t.get("valor")]
+    if not sin_pagar:
+        return f"No tenés sesiones pendientes de pago con *{tenant['nombre']}*. Si te parece que hay un error, escribile directamente."
+    varios = len({t.get("paciente_nombre") for t in sin_pagar}) > 1
+    lineas = [f"• {_fmt(t['inicio'], tz)}" + (f" ({t.get('paciente_nombre') or 'Sin nombre'})" if varios else "")
+              + f": {_pesos(t['valor'])}" for t in sin_pagar]
+    return (f"Sesiones pendientes de pago con *{tenant['nombre']}*:\n\n" + "\n".join(lineas)
+            + f"\n\nTotal: *{_pesos(sum(t['valor'] for t in sin_pagar))}*. Para pagar o si algo no coincide, escribile directamente.")
+
+
+def _confirmar_proximo_turno(tenant: dict, telefono: str) -> str:
+    """«Sí, confirmo» sin reserva web esperando: confirma el próximo turno de
+    este teléfono. Con turnos de varias personas, el más cercano (son todos
+    de quien escribe). Sin turno, lo dice."""
+    turnos = db.proximos_turnos_de(tenant["id"], telefono)
+    if not turnos:
+        return f"No tenés turnos reservados con *{tenant['nombre']}*. Escribí *turno* para ver horarios libres."
+    turno = min(turnos, key=lambda t: t["inicio"])
+    try:
+        db.marcar_confirmado(tenant["id"], turno["id"])
+    except Exception:
+        logger.warning("No se pudo marcar la confirmación", exc_info=True)
+    texto = f"¡Gracias! Quedó confirmado tu turno con *{tenant['nombre']}* el {_fmt(turno['inicio'], _tz(tenant))}."
+    if turno.get("modalidad") == "virtual" and tenant.get("link_videollamada"):
+        texto += f"\n\nEs por videollamada: {tenant['link_videollamada']}"
+    return texto + "\n\nSi al final no podés ir, escribí *cancelar*."
 
 
 def _antes_de_cancelar(tenant: dict, telefono: str) -> str:

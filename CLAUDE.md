@@ -112,6 +112,18 @@ compartido, si el paciente tiene turnos con más de un profesional
 `elecciones_whatsapp` y lo contesta al elegir; la elección dura 2 h desde el
 último mensaje.
 
+**Plantillas y sus botones (`plantillas.py`)**: `CATALOGO` tiene texto, categoría,
+{{n}}, botones y nombre sugerido de cada plantilla; /admin/whatsapp lo muestra («Cómo
+crear cada plantilla») y `test_conversation.py` manda cada botón al bot y revisa que
+haga lo de `QUE_HACE` (si cambia una frase reconocida, se rompe un botón ya aprobado).
+«Sí, confirmo» sin reserva web esperando confirma el próximo turno
+(`conversation._confirmar_proximo_turno`, `db.marcar_confirmado`); «¿Qué debo?» lista
+las sesiones pasadas sin pagar de ese teléfono (`db.pendientes_de_pago_de`). Botón de
+link: `whatsapp.enviar_plantilla(..., boton_url=)` agrega el componente `button/url`
+índice 0; con `PAGO_PENDIENTE_BOTON=1` el token del pago va en el botón (texto con
+{{1}} profesional, {{2}} cuándo) y con `PAGO_RECHAZADO_BOTON=1` el slug (texto sólo
+con {{1}}). Sin esas variables el link sigue en el texto.
+
 **Celulares argentinos y el 131030**: se manda con el 9 (549…), que es lo
 normal. Si Meta contesta 131030 («no está en la lista de autorizados»),
 `whatsapp._mandar` reintenta una vez con `con_15` (54 + característica + 15 +

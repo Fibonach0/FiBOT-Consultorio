@@ -101,6 +101,15 @@ PAGO_PENDIENTE_TEMPLATE = os.environ.get("PAGO_PENDIENTE_TEMPLATE", "")
 # Vacía = sólo se avisa por mail (si dejó email).
 PAGO_RECHAZADO_TEMPLATE = os.environ.get("PAGO_RECHAZADO_TEMPLATE", "")
 
+# Botón de link en vez del link en el texto (plantillas.py tiene el texto de
+# cada una). Con «1», la plantilla tiene un botón «URL dinámica» y el link va
+# como sufijo del botón, no como {{n}} del texto:
+#   Pago por vencer:        {{1}} profesional, {{2}} cuándo; botón https://<dominio>/pago/{{1}}
+#   Comprobante rechazado:  {{1}} profesional;              botón https://<dominio>/{{1}}
+# Vacía = el link va en el texto, como antes.
+PAGO_PENDIENTE_BOTON = os.environ.get("PAGO_PENDIENTE_BOTON", "") in ("1", "true", "si")
+PAGO_RECHAZADO_BOTON = os.environ.get("PAGO_RECHAZADO_BOTON", "") in ("1", "true", "si")
+
 # Mercado Pago (cobro de las reservas web). Son de la APLICACIÓN de la
 # plataforma en Mercado Pago Developers; cada profesional conecta su propia
 # cuenta con «Conectar Mercado Pago» (OAuth) y cobra en ella. MP_PRUEBA=1 usa
