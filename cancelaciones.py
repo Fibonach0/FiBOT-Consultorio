@@ -118,13 +118,13 @@ def tras_cancelar(tenant: dict, turno: dict, por: str) -> None:
         texto += f"; tenés {esperando} en lista de espera"
         propuesta = _proponer_a_espera(tenant, turno)
         if propuesta:
-            texto += f": respondé SÍ y se lo ofrezco a {propuesta}"
+            texto += f": respondé {propuesta['si']} y se lo ofrezco a {propuesta['nombre']}"
     scheduler.avisar_profesional(tenant, texto, paciente=turno.get("paciente_nombre"))
 
 
-def _proponer_a_espera(tenant: dict, turno: dict) -> str | None:
+def _proponer_a_espera(tenant: dict, turno: dict) -> dict | None:
     """Deja preparada la oferta del horario al primero de la lista de espera
-    (el profesional responde «sí»). Devuelve su nombre o None."""
+    (el profesional responde «sí»). Devuelve {"nombre", "si"} o None."""
     try:
         import asistente_profesional
         return asistente_profesional.propuesta_tras_cancelar(tenant, {**turno, "estado": "libre"})
@@ -175,7 +175,7 @@ def respuesta_del_profesional(telefono: str, texto: str) -> str | None:
             primero = _proponer_a_espera(tenant, turno)
             if primero:
                 texto += (f" Tenés {len(db.lista_de_espera(tenant['id']))} en lista de espera: "
-                          f"respondé *sí* y se lo ofrezco a {primero}.")
+                          f"respondé *{primero['si'].lower()}* y se lo ofrezco a {primero['nombre']}.")
     else:
         tomar(tenant, turno)
         texto = f"Listo, el {cuando} es tuyo: no se lo ofrecemos a nadie. ¡Que descanses!"
@@ -208,7 +208,7 @@ def vencer_huecos(tenant: dict, ahora: datetime | None = None) -> int:
                 "; se lo ofrecimos al primero de tu lista de espera" if ofrecido else "")
             primero = None if ofrecido else _proponer_a_espera(tenant, turno)
             if primero:
-                texto += f"; respondé SÍ y se lo ofrezco a {primero}"
+                texto += f"; respondé {primero['si']} y se lo ofrezco a {primero['nombre']}"
         scheduler.avisar_profesional(tenant, texto)
         resueltos += 1
     return resueltos

@@ -155,7 +155,14 @@ a 30000» (sólo sesiones próximas con pago pendiente). Fin de serie:
 `scheduler._series_por_terminar` (una vuelta por día desde las 10) llama a
 `series_por_terminar`: a quien le quedan 1-2 sesiones fijas, un aviso por
 serie (`pacientes.aviso_fin_serie`, migración 073) y la renovación preparada
-(«sí»), sin pisar una acción pendiente. Con el número en varias cuentas, no
+(«sí»). Varias pendientes por número: la fila de acciones_profesional
+guarda `{"lista": [...]}` (`_cola` / `_encolar`, numeradas con el menor libre);
+un pedido escrito reemplaza al anterior sin contestar, las propuestas de un
+aviso se suman. «sí» va a la más nueva, «sí 2» / «no 2» a esa (los botones
+llevan el número: `prof:si 2`), «pendientes» las lista. Lectura: «¿cuánto me
+debe Juana?» (`_saldo`), «¿cómo vengo este mes?» / «mes pasado» (`_mes`).
+«Pasá a Juana de los jueves 17 a los martes 18» corre toda la serie
+(`_MOVER_SERIE`, `db.reprogramar_turno` una por una, un solo aviso). Con el número en varias cuentas, no
 actúa (al panel). El mensaje al paciente usa `MENSAJE_PROFESIONAL_TEMPLATE` si
 está (si no, texto libre: sólo llega dentro de las 24 h). Con el número
 vinculado, `scheduler.avisar_profesional(…, paciente=, con_nombre=)` pone el

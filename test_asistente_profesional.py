@@ -260,8 +260,27 @@ db.agregar_bloqueo = lambda tid, desde, hasta, motivo: HECHO.append(("bloqueo", 
 db.guardar_ajustes = lambda tid, campos: HECHO.append(("ajustes", tid, campos))
 TEL = "5491155550000"
 
+
+def _titulos(r):
+    return [t for _, t in r.interactivo["botones"]]
+
+
+def _titulos_de(botones):
+    return [t for _, t in botones]
+
+
+def _ultima():
+    """La última acción pendiente del WhatsApp de prueba (la cola numerada)."""
+    return ap._cola(ap._diez(TEL))[-1]
+
+
+def _envejecer(**delta):
+    fila = PEND[ap._diez(TEL)]
+    fila["accion"]["lista"][-1]["creado"] = (datetime.now(timezone.utc) - timedelta(**delta)).isoformat()
+
+
 r = ap.responder_a([A], "aceptar comprobante de paciente", TEL)
-assert "¿Acepto el comprobante de Paciente t1 3" in r and "$ 30.000" in r and r.interactivo["botones"] == ap.BOTONES_CONFIRMAR, r
+assert "¿Acepto el comprobante de Paciente t1 3" in r and "$ 30.000" in r and _titulos(r) == _titulos_de(ap.BOTONES_CONFIRMAR), r
 assert not HECHO, "no hace nada sin el «sí»"
 r = ap.responder_a([A], "sí", TEL)
 assert HECHO == [("aprobar", "t1", "p1")] and "aceptado" in r and not PEND, (HECHO, r)
@@ -271,7 +290,7 @@ ap.responder_a([A], "rechazar comprobante", TEL)
 assert "Listo, no hice nada" in ap.responder_a([A], "no", TEL) and not HECHO and not PEND
 print("«no» cancela sin hacer nada OK")
 ap.responder_a([A], "rechazar el comprobante", TEL)
-PEND[ap._diez(TEL)]["creado"] = (datetime.now(timezone.utc) - timedelta(minutes=11)).isoformat()
+_envejecer(minutes=11)
 assert "más de 10 minutos" in ap.responder_a([A], "si", TEL) and not HECHO
 print("una acción vieja (más de 10 minutos) no se hace OK")
 assert ap.responder_a([A], "si", TEL) is None, "«sí» sin nada pendiente sigue como paciente"
@@ -328,7 +347,7 @@ print("acciones: si el número dejó de estar vinculado a esa cuenta antes del �
 whatsapp.enviar_respuesta = lambda pid, to, r: ENVIADOS.append((pid, to, r)) or True
 HECHO.clear()
 postear(TEL, "aceptar comprobante")
-assert ENVIADOS[-1][2].interactivo["botones"] == ap.BOTONES_CONFIRMAR
+assert _titulos(ENVIADOS[-1][2]) == _titulos_de(ap.BOTONES_CONFIRMAR)
 postear(TEL, boton={"id": "prof:si", "title": "Sí, hacelo"})
 assert HECHO == [("aprobar", "t1", "p1")], HECHO
 AL_PACIENTE.clear()
@@ -357,7 +376,7 @@ AL_TEL.clear()
 dia_de = lambda d: ap._DIAS_SIN_TILDE[(hoy + timedelta(days=d)).weekday()]
 
 r = ap.responder_a([A], f"Pasá a Juana del {dia_de(3)} al {dia_de(4)} 11:30", TEL)
-assert r.interactivo["botones"] == ap.BOTONES_AVISAR, r
+assert _titulos(r) == _titulos_de(ap.BOTONES_AVISAR), r
 assert "¿Paso la sesión de Juana Pérez del" in r and "11:30" in r and "Le aviso" in r and not HECHO, r
 ap.responder_a([A], "sí", TEL)
 assert HECHO[0][:3] == ("reprogramar", "t1", "s40") and HECHO[0][3].astimezone(TZ) == (hoy + timedelta(days=4)).replace(hour=11, minute=30) \
@@ -369,7 +388,7 @@ HECHO.clear()
 ESPERA = []
 db.lista_de_espera = lambda tid: [p for p in ESPERA if p["tenant_id"] == tid]
 r = ap.responder_a([A], "cancelá la sesión de juana", TEL)
-assert "¿Cancelo la sesión de Juana Pérez del" in r and "¿Le aviso" in r and r.interactivo["botones"] == ap.BOTONES_AVISAR, r
+assert "¿Cancelo la sesión de Juana Pérez del" in r and "¿Le aviso" in r and _titulos(r) == _titulos_de(ap.BOTONES_AVISAR), r
 AL_TEL.clear()
 r = ap.responder_a([A], "si", TEL)
 assert HECHO == [("cancelar", "t1", "s40", "profesional")] and "Le avisamos al paciente" in r, (HECHO, r)
@@ -426,7 +445,7 @@ db.reservar_en_horario = lambda tid, ini, dur, tel, nombre, valor, frec, mod=Non
 TURNOS["t1"].append(turno(42, 2, 9, paciente_nombre="Tomás Ruiz", paciente_telefono="5491100000041", valor=20000, modalidad="virtual"))
 r = ap.responder_a([A], f"Sumá a Tomás el {dia_de(5)} a las 10", TEL)
 assert "¿Le agendo a Tomás Ruiz una sesión el" in r and "10:00" in r and "virtual, $ 20.000" in r \
-    and r.interactivo["botones"] == ap.BOTONES_AVISAR and not HECHO, r
+    and _titulos(r) == _titulos_de(ap.BOTONES_AVISAR) and not HECHO, r
 r = ap.responder_a([A], "si", TEL)
 cuando = (hoy + timedelta(days=5)).replace(hour=10)
 assert HECHO == [("reservar", "t1", cuando.astimezone(timezone.utc), 50, "5491100000041", "Tomás Ruiz", 20000, None, "virtual", True)], HECHO
@@ -538,21 +557,38 @@ scheduler.avisar_profesional = lambda t, texto, paciente=None, con_nombre=None: 
 cancelaciones.ofrecer_a_espera = lambda t, turno: None
 cancelaciones.tras_cancelar(A, dict(LIBRE), "WhatsApp")
 assert "respondé SÍ y se lo ofrezco a Juana Pérez" in AVISOS[-1], AVISOS
-assert PEND[ap._diez(TEL)]["accion"]["vence_min"] == ap.VENCE_OFRECER_MIN
-PEND[ap._diez(TEL)]["creado"] = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+assert _ultima()["accion"]["vence_min"] == ap.VENCE_OFRECER_MIN
+_envejecer(minutes=30)
 r = ap.responder_a([A], "sí", TEL)
 assert OFRECIDOS[-1][0] == "549110000004" and "se lo ofrecí a Juana Pérez" in r, (OFRECIDOS, r)
 cancelaciones.tras_cancelar(ANA, dict(LIBRE), "WhatsApp")
 assert "respondé SÍ" not in AVISOS[-1] and not PEND, "sin vincular no se prepara nada"
-ap.responder_a([A], "pausar", TEL)
+r = ap.responder_a([A], "pausar", TEL)
+assert _titulos(r) == _titulos_de(ap.BOTONES_CONFIRMAR) and r.interactivo["botones"][0][0] == "prof:si 1", r.interactivo
 cancelaciones.tras_cancelar(A, dict(LIBRE), "WhatsApp")
-assert PEND[ap._diez(TEL)]["accion"]["tipo"] == "pausar", "no pisa una acción a medio confirmar"
+assert "respondé SÍ 2 y se lo ofrezco" in AVISOS[-1], AVISOS[-1]
+r = ap.responder_a([A], "pendientes", TEL)
+assert "*1.* ¿Pauso tu página" in r and "*2.* Ofrecerle a Juana Pérez" in r, r
+HECHO.clear(); OFRECIDOS.clear()
+r = ap.responder_a([A], "sí 1", TEL)
+assert HECHO[-1][0] == "ajustes" and not OFRECIDOS and "Te queda 1 pendiente" in r, (HECHO, r)
+assert "No tengo nada pendiente con el número 7" in ap.responder_a([A], "si 7", TEL)
+r = ap.responder_a([A], "si", TEL)
+assert OFRECIDOS and "pendiente" not in r and not PEND, (OFRECIDOS, r, PEND)
+# un pedido nuevo reemplaza al anterior sin contestar, pero no a una propuesta
+cancelaciones.tras_cancelar(A, dict(LIBRE), "WhatsApp")
+ap.responder_a([A], "pausar", TEL)
+r = ap.responder_a([A], "bloquear mañana", TEL)
+assert [x["accion"]["tipo"] for x in ap._cola(ap._diez(TEL))] == ["ofrecer", "bloquear"] and "*sí 2*" in r, ap._cola(ap._diez(TEL))
+postear(TEL, boton={"id": "prof:no 2", "title": "No"})
+assert [x["accion"]["tipo"] for x in ap._cola(ap._diez(TEL))] == ["ofrecer"]
 PEND.clear()
+print("varias pendientes: numeradas, «sí 1» / «sí 2» / «pendientes», el botón lleva su número OK")
 print("cancelación de un paciente con lista de espera: el aviso propone ofrecérselo y «sí» lo manda OK")
 ESPERA[1].pop("ofrecido_en")
 r = ap.responder_a([A], "cancelá la sesión de juana", TEL)
 r = ap.responder_a([A], "sin avisar", TEL)
-assert "¿Le ofrezco este horario a" in r and r.interactivo["botones"] == ap.BOTONES_CONFIRMAR, r
+assert "¿Le ofrezco este horario a" in r and _titulos(r) == _titulos_de(ap.BOTONES_CONFIRMAR), r
 print("cancelar desde WhatsApp con lista de espera: ofrece el horario con botones OK")
 
 # --- cortar la serie, cambiar el valor, renovar, fin de serie, LIBERAR con oferta ---
@@ -566,7 +602,7 @@ TURNOS["t1"] += FIJAS
 _pagos.al_cancelar = lambda t, turno, quien="paciente": (25000, False)
 r = ap.responder_a([A], "Cortá la serie de Lara", TEL)
 assert "¿Cancelo las 5 sesiones fijas de Lara Sosa desde el" in r and "1 estaba pagada por la web" in r \
-    and r.interactivo["botones"] == ap.BOTONES_AVISAR, r
+    and _titulos(r) == _titulos_de(ap.BOTONES_AVISAR), r
 r = ap.responder_a([A], "si", TEL)
 assert [h[2] for h in HECHO] == [t["id"] for t in FIJAS] and "cancelé 5 sesiones de Lara Sosa" in r \
     and "devolverle $ 25.000" in r and "Le avisamos" in r, (HECHO, r)
@@ -613,9 +649,9 @@ DATOS.clear()
 AVISOS.clear()
 assert ap.series_por_terminar(A) == 1 and "a Lara Sosa le quedan 2 sesiones fijas" in AVISOS[-1] \
     and "respondé SÍ y le renuevo 8 más" in AVISOS[-1], AVISOS
-assert PEND[ap._diez(TEL)]["accion"]["serie"] and PEND[ap._diez(TEL)]["accion"]["vence_min"] == ap.VENCE_OFRECER_MIN
+assert _ultima()["accion"]["serie"] and _ultima()["accion"]["vence_min"] == ap.VENCE_OFRECER_MIN
 assert ap.series_por_terminar(A) == 0, "una sola vez por serie"
-PEND[ap._diez(TEL)]["creado"] = (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat()
+_envejecer(hours=2)
 ap.responder_a([A], "sí", TEL)
 assert SERIE[-1][3] == "5491100000060" and SERIE[-1][2] == list(range(8)), SERIE
 assert ap.series_por_terminar(ANA) == 0, "sin vincular no avisa"
@@ -632,4 +668,38 @@ assert "quedó libre" in r and "respondé *sí* y se lo ofrezco a Zoe Paz" in r,
 ap.responder_a([A], "si", TEL)
 assert OFRECIDOS[-1][0] == "5491177770000", OFRECIDOS
 print("LIBERAR con lista de espera: propone ofrecérselo al primero y «sí» lo manda OK")
+
+# --- saldo de un paciente, resumen del mes, pasar toda una serie ---
+PASADAS["t1"][0]["asistencia"] = "no_vino"
+r = ap.responder(A, "¿Cuánto me debe Juana?")
+assert "Juana Pérez te debe $ 50.000 de 2 sesiones" in r and r.count("$ 25.000") == 2 and "(faltó)" in r \
+    and "recordale a Juana lo que debe" in r, r
+assert "Lara Sosa no te debe nada" in ap.responder(A, "saldo de lara"), ap.responder(A, "saldo de lara")
+assert "más de un paciente" in ap.responder(A, "cuanto me debe paciente")
+assert ap.responder(ANA, "cuanto me debe juana") == ap.sin_vincular()
+print("saldo: «¿cuánto me debe Juana?», sesión por sesión OK")
+
+db.cancelaciones_desde = lambda tid, desde: [{"origen": "paciente", "created_at": datetime.now(timezone.utc).isoformat()},
+                                             {"origen": "profesional", "created_at": datetime.now(timezone.utc).isoformat()}]
+r = ap.responder(A, "¿Cómo vengo este mes?")
+assert r.startswith("*" + ap._MESES_NOMBRE[hoy.month - 1].capitalize() + " (hasta hoy)*") and "• Sesiones:" in r \
+    and "• Cobrado:" in r and "• Cancelaciones: 2 (1 de pacientes, 1 tuyas)" in r and "mes pasado" in r, r
+r = ap.responder(A, "mes pasado")
+assert ap._MESES_NOMBRE[(hoy.month - 2) % 12].capitalize() in r and "(hasta hoy)" not in r, r
+assert ap.responder(A, "resumen del mes").startswith("*")
+print("mes: «¿cómo vengo este mes?» / «mes pasado» OK")
+
+HECHO.clear(); AL_TEL.clear(); PEND.clear()
+futuras_lara = [t for t in FIJAS if datetime.fromisoformat(t["inicio"]) > datetime.now(TZ)]
+r = ap.responder_a([A], f"Pasá a Lara de los {dia_de(0)} 17 a los {dia_de(2)} 18", TEL)
+assert f"¿Paso las {len(futuras_lara)} sesiones fijas de Lara Sosa de los" in r and "a las 18:00" in r \
+    and _titulos(r) == _titulos_de(ap.BOTONES_AVISAR), r
+ap.responder_a([A], "si", TEL)
+movidas = [h for h in HECHO if h[0] == "reprogramar"]
+assert [h[2] for h in movidas] == [t["id"] for t in futuras_lara] and all(
+    h[3].astimezone(TZ) == (datetime.fromisoformat(t["inicio"]).astimezone(TZ) + timedelta(days=2)).replace(hour=18)
+    for h, t in zip(movidas, futuras_lara)), movidas
+assert "Tus sesiones fijas pasan a los" in AL_TEL[-1][1], AL_TEL
+assert "no tiene sesiones fijas los" in ap.responder_a([A], f"pasá a lara de los {dia_de(1)} a los {dia_de(3)} 9", TEL)
+print("pasar la serie: «pasá a Lara de los jueves 17 a los martes 18», todas juntas y un solo aviso OK")
 print("\nTODOS LOS TESTS DEL ASISTENTE DEL PROFESIONAL PASARON")
