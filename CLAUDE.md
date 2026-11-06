@@ -1009,3 +1009,22 @@ runtime real.
 - No reutilizar el patrón de `Fleet-Test-Template` (`client/` por cliente,
   un deploy por cliente) — ese modelo es para clientes de ticket alto
   (flotas). Acá el modelo es el opuesto: un deploy, muchos tenants chicos.
+
+## Página de ajustes (`/ajustes`)
+
+Todo lo que se configura una vez vive en `templates/ajustes.html`, en pestañas
+(`AJUSTES_PESTANIAS`: agenda, pagina, cobros, cancelaciones, avisos, cuenta,
+avanzado; `?p=` elige y un `#ancla` lleva a la pestaña que la contiene). La
+agenda conserva lo operativo (vacaciones = pausa + bloqueos, lista de espera,
+cobros del mes, aumento). `_comunes_panel()` arma el contexto de las dos
+páginas. Los formularios siguen posteando a las rutas `/agenda/*` de siempre;
+los marcados `data-ajuste` se guardan juntos con «Guardar cambios» (fetch, en
+orden, `data-primero` antes: consultorios antes que el horario) y su botón
+propio sólo se ve sin JS (`.solo-sin-js`). El JS agrega `volver=ajustes` +
+`pestania` a todo form y `_volver_a_agenda()` vuelve a esa pestaña. Como los
+campos de `/agenda/perfil` y `/agenda/cobros` están repartidos entre
+pestañas, esas rutas sólo pisan lo que viene en el form (las casillas de
+perfil se declaran en `casillas`; sin ese campo, se toman las dos, como antes).
+Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
+`|`); el consultorio por franja aparece apenas hay dos cargados (`data-sede`).
+
