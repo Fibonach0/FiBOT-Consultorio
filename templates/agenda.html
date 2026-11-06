@@ -3,7 +3,7 @@
 {% block cuerpo %}
 <header>
   <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
-  <span><a href="{{ url_for('ajustes') }}">Ajustes</a> · <a href="{{ url_for('ayuda') }}">Cómo se usa</a> · <a href="{{ url_for('logout') }}">Salir</a></span>
+  <span style="display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;column-gap:6px"><button class="buscar-boton" type="button" data-buscar-abrir aria-label="Buscar en tu panel">🔍 Buscar <kbd>Ctrl K</kbd></button><a href="{{ url_for('ajustes') }}">Ajustes</a> · <a href="{{ url_for('ayuda') }}">Cómo se usa</a> · <a href="{{ url_for('logout') }}">Salir</a></span>
 </header>
 <main class="panel">
   {% with mensajes = get_flashed_messages() %}
@@ -14,9 +14,121 @@
   <div class="error">El {{ bloqueo_reciente }} tu cuenta se bloqueó 15 minutos porque pusieron la clave mal varias veces. Si no fuiste vos, cambiá la clave en «Ajustes» → «Cuenta».</div>
   {% endif %}
 
+  {% if primeros_pasos %}
+  <div class="card primeros-pasos" id="primeros-pasos">
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <h3 style="margin:0">Primeros pasos <span class="tenue" style="font-weight:400">· {{ primeros_pasos.hechos }} de {{ primeros_pasos.total }}</span></h3>
+      <form method="post" action="{{ url_for('agenda_primeros_pasos_ocultar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Ocultar</button></form>
+    </div>
+    <div class="pasos-barra" role="progressbar" aria-valuemin="0" aria-valuemax="{{ primeros_pasos.total }}" aria-valuenow="{{ primeros_pasos.hechos }}" aria-label="Pasos hechos"><span style="width:{{ (100 * primeros_pasos.hechos / primeros_pasos.total)|round|int }}%"></span></div>
+    <ol class="pasos">
+      {% for paso in primeros_pasos.pasos %}
+      <li class="{{ 'hecho' if paso.hecho }}">
+        {% if paso.hecho %}<span class="paso-marca" aria-hidden="true">✓</span><span><s>{{ paso.titulo }}</s></span>
+        {% else %}<span class="paso-marca" aria-hidden="true">{{ loop.index }}</span><a href="{{ paso.url }}"><strong>{{ paso.titulo }}</strong> <span class="tenue">{{ paso.detalle }}</span></a>{% endif %}
+      </li>
+      {% endfor %}
+    </ol>
+  </div>
+  {% endif %}
+  {% set para_resolver = (mensajes|rejectattr('leido')|list|length) + (pagos_revisar|length) + (reservas_nuevas|length) + (huecos|length) + (cuestionarios_nuevos|length) + (tests_para_repetir|length) %}
+  {% if mensajes or pagos_revisar or reservas_nuevas or huecos or cuestionarios_nuevos or tests_para_repetir %}
+  <div class="card bandeja" id="para-resolver">
+    <h3>Para resolver{% if para_resolver %} <span class="contador">{{ para_resolver }}</span>{% endif %}</h3>
+    <div class="bandeja-tabs" role="tablist" aria-label="Para resolver">
+    {% if mensajes %}<button class="bandeja-tab" type="button" role="tab" id="bt-mensajes" aria-controls="mensajes" data-bandeja-tab="mensajes" aria-selected="false" tabindex="-1">Mensajes{% if mensajes|rejectattr('leido')|list|length %} <span class="contador">{{ mensajes|rejectattr('leido')|list|length }}</span>{% endif %}</button>{% endif %}
+    {% if pagos_revisar %}<button class="bandeja-tab" type="button" role="tab" id="bt-pagos-revisar" aria-controls="pagos-revisar" data-bandeja-tab="pagos-revisar" aria-selected="false" tabindex="-1">Pagos{% if pagos_revisar|length %} <span class="contador">{{ pagos_revisar|length }}</span>{% endif %}</button>{% endif %}
+    {% if reservas_nuevas %}<button class="bandeja-tab" type="button" role="tab" id="bt-reservas-nuevas" aria-controls="reservas-nuevas" data-bandeja-tab="reservas-nuevas" aria-selected="false" tabindex="-1">Reservas nuevas{% if reservas_nuevas|length %} <span class="contador">{{ reservas_nuevas|length }}</span>{% endif %}</button>{% endif %}
+    {% if huecos %}<button class="bandeja-tab" type="button" role="tab" id="bt-huecos" aria-controls="huecos" data-bandeja-tab="huecos" aria-selected="false" tabindex="-1">Horarios cancelados{% if huecos|length %} <span class="contador">{{ huecos|length }}</span>{% endif %}</button>{% endif %}
+    {% if cuestionarios_nuevos %}<button class="bandeja-tab" type="button" role="tab" id="bt-cuestionarios" aria-controls="cuestionarios" data-bandeja-tab="cuestionarios" aria-selected="false" tabindex="-1">Cuestionarios{% if cuestionarios_nuevos|length %} <span class="contador">{{ cuestionarios_nuevos|length }}</span>{% endif %}</button>{% endif %}
+    {% if tests_para_repetir %}<button class="bandeja-tab" type="button" role="tab" id="bt-tests-repetir" aria-controls="tests-repetir" data-bandeja-tab="tests-repetir" aria-selected="false" tabindex="-1">Tests para repetir{% if tests_para_repetir|length %} <span class="contador">{{ tests_para_repetir|length }}</span>{% endif %}</button>{% endif %}
+    </div>
+  {% if mensajes %}
+  <section class="bandeja-panel" role="tabpanel" id="mensajes" aria-labelledby="bt-mensajes" data-bandeja="mensajes" hidden>
+    {% set sin_leer = mensajes|rejectattr('leido')|list|length %}
+    <p class="tenue" style="margin-top:0">Lo que tus pacientes le escribieron al WhatsApp de turnos y el asistente no supo resolver. Podés contestar desde acá hasta 24 h después del mensaje.</p>
+    {% for m in mensajes %}
+    <div class="turno"{% if m.leido %} style="opacity:.7"{% endif %}>
+      <span style="min-width:0"><strong>{{ m._quien }}</strong> <span class="tenue">· {{ m._cuando }}</span><br>
+        {% if m._sin_texto %}<em class="tenue">{{ m._texto }}</em>{% else %}<span style="white-space:pre-wrap;overflow-wrap:anywhere">{{ m._texto }}</span>{% endif %}
+        {% if m.respuesta %}<br><span class="tenue">Respondiste: {{ m.respuesta }}</span>{% endif %}
+      </span>
+      <span class="acciones" style="display:flex;gap:6px;flex-wrap:wrap">
+        {% if m._puede_responder %}
+        <form method="post" action="{{ url_for('agenda_mensaje', mensaje_id=m.id, accion='responder') }}" style="display:flex;gap:6px">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="text" name="respuesta" maxlength="1000" placeholder="Responder…" aria-label="Respuesta a {{ m._quien }}" required>
+          <button class="btn chico" type="submit">Enviar</button>
+        </form>
+        {% endif %}
+        {% if not m.leido %}
+        <form method="post" action="{{ url_for('agenda_mensaje', mensaje_id=m.id, accion='leido') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Leído</button></form>
+        {% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+  {% if pagos_revisar %}
+  <section class="bandeja-panel" role="tabpanel" id="pagos-revisar" aria-labelledby="bt-pagos-revisar" data-bandeja="pagos-revisar" hidden>
+    {% for p in pagos_revisar %}
+    <div class="turno" style="flex-wrap:wrap;gap:6px">
+      <span style="flex:1 1 220px"><strong>{{ p._quien or 'Paciente' }}</strong> · {{ p.monto|pesos }}
+        <span class="tenue">· {% for t in p._turnos %}{{ t._dia }} {{ t._hora }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
+        {% if p.estado == 'aprobado_tarde' %}<br><span class="tenue">Pagó por Mercado Pago cuando el horario ya se había liberado: devolvelo o dale otro turno.</span>
+        {% elif p.a_devolver %}<br><span class="tenue">Canceló una sesión pagada: hay que devolverle <strong>{{ p.a_devolver|pesos }}</strong>{% if p.metodo == 'transferencia' %} por transferencia{% endif %}.</span>{% endif %}
+      </span>
+      <span class="acciones" style="display:flex;gap:6px;flex-wrap:wrap">
+        {% if p.estado == 'comprobante' %}
+        <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ url_for('agenda_pago_comprobante', pago_id=p.id) }}">Ver comprobante</a>
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='aceptar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit">Aceptar</button></form>
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='rechazar') }}" style="display:flex;gap:6px;flex-wrap:wrap;max-width:100%"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="motivo" aria-label="Motivo del rechazo" style="width:auto;max-width:100%"><option value="">Motivo (opcional)</option>{% for m in motivos_rechazo %}<option value="{{ m }}">{{ m|capitalize }}</option>{% endfor %}</select><button class="btn chico secundario" type="submit" onclick="return confirm('¿Rechazar el comprobante? El horario queda libre.')">Rechazar</button></form>
+        {% else %}
+        {% if p._puede_mp %}
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='devolver') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit" onclick="return confirm('¿Devolverle {{ (p.a_devolver or p.monto)|pesos }} por Mercado Pago? No se puede deshacer.')">Devolver {{ (p.a_devolver or p.monto)|pesos }}</button></form>
+        {% endif %}
+        {% if p.a_devolver %}
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='devuelto') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Ya lo devolví</button></form>
+        {% else %}
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='resuelto') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Le di otro turno</button></form>
+        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='devuelto') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Ya lo devolví</button></form>
+        {% endif %}
+        {% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+  {% if reservas_nuevas %}
+  <section class="bandeja-panel" role="tabpanel" id="reservas-nuevas" aria-labelledby="bt-reservas-nuevas" data-bandeja="reservas-nuevas" hidden>
+    {% for r in reservas_nuevas %}
+    <div class="turno">
+      <span class="semana-fecha" role="button" tabindex="0" data-ficha="{{ r.ficha.dom }}"><strong>{{ r.ficha.nombre }}</strong> · {{ r.turno._dia }} {{ r.turno._hora }}</span>
+      <form method="post" action="{{ url_for('agenda_reserva_vista', turno_id=r.turno.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <button class="btn chico secundario" type="submit">Visto</button>
+      </form>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
+  {% if huecos %}
+  <section class="bandeja-panel" role="tabpanel" id="huecos" aria-labelledby="bt-huecos" data-bandeja="huecos" hidden>
+    <p class="tenue" style="margin-top:0">No se le ofrecen a nadie hasta que decidas. También podés contestar LIBERAR o ME LO TOMO al WhatsApp que te avisó.</p>
+    {% for h in huecos %}
+    <div class="turno">
+      <span><strong>{{ h._dia }} {{ h._hora }}</strong> <span class="tenue">· {{ 'esperando que decidas' if h.hueco == 'pendiente' else 'te lo tomaste' }}</span></span>
+      <span class="acciones" style="display:flex;gap:6px">
+        <form method="post" action="{{ url_for('agenda_hueco', turno_id=h.id, accion='liberar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Liberar</button></form>
+        {% if h.hueco == 'pendiente' %}<form method="post" action="{{ url_for('agenda_hueco', turno_id=h.id, accion='tomar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit">Me lo tomo</button></form>{% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </section>
+  {% endif %}
   {% if cuestionarios_nuevos %}
-  <div class="card">
-    <h3>Cuestionarios respondidos <span class="contador">{{ cuestionarios_nuevos|length }}</span></h3>
+  <section class="bandeja-panel" role="tabpanel" id="cuestionarios" aria-labelledby="bt-cuestionarios" data-bandeja="cuestionarios" hidden>
     {% for x in cuestionarios_nuevos %}
     <div class="turno">
       <span class="semana-fecha" role="button" tabindex="0" data-ficha="{{ x.ficha.dom }}"><strong>{{ x.ficha.nombre }}</strong> · {{ x.c.nombre }}{% if x.c.puntaje is number %} {{ x.c.puntaje }} ({{ x.c.severidad }}){% else %} respondido{% endif %}
@@ -28,12 +140,10 @@
       </form>
     </div>
     {% endfor %}
-  </div>
+  </section>
   {% endif %}
-
   {% if tests_para_repetir %}
-  <div class="card">
-    <h3>Tests que ya se pueden repetir <span class="contador">{{ tests_para_repetir|length }}</span></h3>
+  <section class="bandeja-panel" role="tabpanel" id="tests-repetir" aria-labelledby="bt-tests-repetir" data-bandeja="tests-repetir" hidden>
     {% for t in tests_para_repetir %}
     <div class="turno">
       <span class="semana-fecha" role="button" tabindex="0" data-ficha="{{ t.ficha.dom }}"><strong>{{ t.ficha.nombre }}</strong> · {{ t.nombre }}
@@ -41,23 +151,38 @@
     </div>
     {% endfor %}
     <div class="tenue">Avisa durante {{ ventana_aviso }} días desde que se cumple el plazo; los plazos se cambian en «Ajustes» → «Avanzado».</div>
-  </div>
+  </section>
   {% endif %}
-
-  {% if reservas_nuevas %}
-  <div class="card">
-    <h3>Reservas nuevas <span class="contador">{{ reservas_nuevas|length }}</span></h3>
-    {% for r in reservas_nuevas %}
-    <div class="turno">
-      <span class="semana-fecha" role="button" tabindex="0" data-ficha="{{ r.ficha.dom }}"><strong>{{ r.ficha.nombre }}</strong> · {{ r.turno._dia }} {{ r.turno._hora }}</span>
-      <form method="post" action="{{ url_for('agenda_reserva_vista', turno_id=r.turno.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
-        <button class="btn chico secundario" type="submit">Visto</button>
-      </form>
-    </div>
-    {% endfor %}
   </div>
+  <script>
+  (() => {
+    const tabs = [...document.querySelectorAll('[data-bandeja-tab]')];
+    if (!tabs.length) return;
+    const elegir = (id, enfocar) => tabs.forEach(t => {
+      const si = t.dataset.bandejaTab === id;
+      t.setAttribute('aria-selected', si); t.tabIndex = si ? 0 : -1;
+      document.getElementById(t.dataset.bandejaTab).hidden = !si;
+      if (si && enfocar) t.focus();
+      if (si) { try { sessionStorage.setItem('bandeja', id); } catch (_) {} }
+    });
+    const ancla = decodeURIComponent(location.hash.slice(1));
+    let guardada = null; try { guardada = sessionStorage.getItem('bandeja'); } catch (_) {}
+    const inicial = [ancla, guardada].find(x => x && tabs.some(t => t.dataset.bandejaTab === x)) || tabs[0].dataset.bandejaTab;
+    elegir(inicial);
+    if (ancla === inicial) document.getElementById('para-resolver').scrollIntoView({block: 'start'});
+    tabs.forEach((t, i) => {
+      t.addEventListener('click', () => elegir(t.dataset.bandejaTab));
+      t.addEventListener('keydown', e => {
+        const paso = {ArrowRight: 1, ArrowLeft: -1}[e.key];
+        if (paso) { e.preventDefault(); elegir(tabs[(i + paso + tabs.length) % tabs.length].dataset.bandejaTab, true); }
+      });
+    });
+    window.addEventListener('hashchange', () => {
+      const a = decodeURIComponent(location.hash.slice(1));
+      if (tabs.some(t => t.dataset.bandejaTab === a)) { elegir(a); document.getElementById('para-resolver').scrollIntoView({block: 'start'}); }
+    });
+  })();
+  </script>
   {% endif %}
 
   <div class="card">
@@ -442,81 +567,6 @@
   </div>
   <div class="tablero abajo">
   <div class="ajustes-col">
-  {% if mensajes %}
-  <div class="card" id="mensajes">
-    {% set sin_leer = mensajes|rejectattr('leido')|list|length %}
-    <h3>Mensajes{% if sin_leer %} <span class="contador">{{ sin_leer }}</span>{% endif %}</h3>
-    <p class="tenue" style="margin-top:0">Lo que tus pacientes le escribieron al WhatsApp de turnos y el asistente no supo resolver. Podés contestar desde acá hasta 24 h después del mensaje.</p>
-    {% for m in mensajes %}
-    <div class="turno"{% if m.leido %} style="opacity:.7"{% endif %}>
-      <span style="min-width:0"><strong>{{ m._quien }}</strong> <span class="tenue">· {{ m._cuando }}</span><br>
-        {% if m._sin_texto %}<em class="tenue">{{ m._texto }}</em>{% else %}<span style="white-space:pre-wrap;overflow-wrap:anywhere">{{ m._texto }}</span>{% endif %}
-        {% if m.respuesta %}<br><span class="tenue">Respondiste: {{ m.respuesta }}</span>{% endif %}
-      </span>
-      <span class="acciones" style="display:flex;gap:6px;flex-wrap:wrap">
-        {% if m._puede_responder %}
-        <form method="post" action="{{ url_for('agenda_mensaje', mensaje_id=m.id, accion='responder') }}" style="display:flex;gap:6px">
-          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-          <input type="text" name="respuesta" maxlength="1000" placeholder="Responder…" aria-label="Respuesta a {{ m._quien }}" required>
-          <button class="btn chico" type="submit">Enviar</button>
-        </form>
-        {% endif %}
-        {% if not m.leido %}
-        <form method="post" action="{{ url_for('agenda_mensaje', mensaje_id=m.id, accion='leido') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Leído</button></form>
-        {% endif %}
-      </span>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-  {% if pagos_revisar %}
-  <div class="card" id="pagos-revisar">
-    <h3>Pagos para revisar <span class="contador">{{ pagos_revisar|length }}</span></h3>
-    {% for p in pagos_revisar %}
-    <div class="turno" style="flex-wrap:wrap;gap:6px">
-      <span style="flex:1 1 220px"><strong>{{ p._quien or 'Paciente' }}</strong> · {{ p.monto|pesos }}
-        <span class="tenue">· {% for t in p._turnos %}{{ t._dia }} {{ t._hora }}{% if not loop.last %}, {% endif %}{% endfor %}</span>
-        {% if p.estado == 'aprobado_tarde' %}<br><span class="tenue">Pagó por Mercado Pago cuando el horario ya se había liberado: devolvelo o dale otro turno.</span>
-        {% elif p.a_devolver %}<br><span class="tenue">Canceló una sesión pagada: hay que devolverle <strong>{{ p.a_devolver|pesos }}</strong>{% if p.metodo == 'transferencia' %} por transferencia{% endif %}.</span>{% endif %}
-      </span>
-      <span class="acciones" style="display:flex;gap:6px;flex-wrap:wrap">
-        {% if p.estado == 'comprobante' %}
-        <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ url_for('agenda_pago_comprobante', pago_id=p.id) }}">Ver comprobante</a>
-        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='aceptar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit">Aceptar</button></form>
-        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='rechazar') }}" style="display:flex;gap:6px;flex-wrap:wrap;max-width:100%"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select name="motivo" aria-label="Motivo del rechazo" style="width:auto;max-width:100%"><option value="">Motivo (opcional)</option>{% for m in motivos_rechazo %}<option value="{{ m }}">{{ m|capitalize }}</option>{% endfor %}</select><button class="btn chico secundario" type="submit" onclick="return confirm('¿Rechazar el comprobante? El horario queda libre.')">Rechazar</button></form>
-        {% else %}
-        {% if p._puede_mp %}
-        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='devolver') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit" onclick="return confirm('¿Devolverle {{ (p.a_devolver or p.monto)|pesos }} por Mercado Pago? No se puede deshacer.')">Devolver {{ (p.a_devolver or p.monto)|pesos }}</button></form>
-        {% endif %}
-        {% if p.a_devolver %}
-        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='devuelto') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Ya lo devolví</button></form>
-        {% else %}
-        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='resuelto') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Le di otro turno</button></form>
-        <form method="post" action="{{ url_for('agenda_pago_web', pago_id=p.id, accion='devuelto') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Ya lo devolví</button></form>
-        {% endif %}
-        {% endif %}
-      </span>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
-  {% if huecos %}
-  <div class="card" id="huecos">
-    <h3>Horarios que te cancelaron <span class="contador">{{ huecos|length }}</span></h3>
-    <p class="tenue" style="margin-top:0">No se le ofrecen a nadie hasta que decidas. También podés contestar LIBERAR o ME LO TOMO al WhatsApp que te avisó.</p>
-    {% for h in huecos %}
-    <div class="turno">
-      <span><strong>{{ h._dia }} {{ h._hora }}</strong> <span class="tenue">· {{ 'esperando que decidas' if h.hueco == 'pendiente' else 'te lo tomaste' }}</span></span>
-      <span class="acciones" style="display:flex;gap:6px">
-        <form method="post" action="{{ url_for('agenda_hueco', turno_id=h.id, accion='liberar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Liberar</button></form>
-        {% if h.hueco == 'pendiente' %}<form method="post" action="{{ url_for('agenda_hueco', turno_id=h.id, accion='tomar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico" type="submit">Me lo tomo</button></form>{% endif %}
-      </span>
-    </div>
-    {% endfor %}
-  </div>
-  {% endif %}
-
   <h2 class="grupo">Tu agenda</h2>
   <details class="card plegable" id="bloqueos" data-plegable>
     <summary><h3>Vacaciones y días bloqueados{% if bloqueos %} <span class="contador">{{ bloqueos|length }}</span>{% endif %}</h3><span class="plegable-resumen">{{ 'Página pausada' if tenant.pausado else 'Pausar tu página, bloquear días' }}</span></summary>
@@ -1413,4 +1463,5 @@
   document.addEventListener('visibilitychange', mirar);
 })();
 </script>
+{% include "_buscador.html" %}
 {% endblock %}

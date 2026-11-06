@@ -1766,7 +1766,7 @@ chequear("con la 9 le da teléfonos de ayuda", "135" in fin and "911" in fin)
 otra = client.post(f"/cuestionario/{token}", data=todo(9, 0)).data.decode()
 chequear("un link sirve una vez", "ya se respondió" in otra and TABLAS["cuestionarios"][0]["puntaje"] == 17)
 html = _panel(client)
-chequear("aviso en el panel y en la ficha", "Cuestionarios respondidos" in html and "marcó ideas de hacerse daño" in html and "pregunta 9: varios días" in html)
+chequear("aviso en el panel y en la ficha", 'id="bt-cuestionarios"' in html and "Para resolver" in html and "marcó ideas de hacerse daño" in html and "pregunta 9: varios días" in html)
 TABLAS["cuestionarios"].append({"id": "viejo", "tenant_id": "t1", "paciente_telefono": TELC, "ficha": "", "instrumento": "phq9", "token": "tv",
                                 "vence": "2026-01-01T00:00:00+00:00", "respondido_at": "2026-01-02T12:00:00+00:00", "puntaje": 22,
                                 "severidad": "severa", "alerta": False, "respuestas": [2] * 9, "visto": True, "created_at": "00000000"})
@@ -1895,11 +1895,11 @@ TABLAS["paciente_tests"].append({"id": "rt", "tenant_id": "t1", "paciente_telefo
 vence = tests_sugeridos._vence(_date.fromisoformat(fecha_vieja), 6)
 html = _panel(client)
 en_ventana = 0 <= (hoy_local - vence).days < 30
-chequear("tarjeta de tests para repetir", ("Tests que ya se pueden repetir" in html) == en_ventana, (fecha_vieja, vence))
+chequear("tarjeta de tests para repetir", ('id="bt-tests-repetir"' in html) == en_ventana, (fecha_vieja, vence))
 TABLAS["paciente_tests"][0]["fecha"] = _date(hoy_local.year - 1, hoy_local.month, min(hoy_local.day, 28)).isoformat() if hoy_local.day <= 28 else TABLAS["paciente_tests"][0]["fecha"]
 TABLAS["paciente_tests"][0]["test"] = "D2"  # 12 meses: vence hoy si el día existe
 html = _panel(client)
-chequear("aparece el día que vence", hoy_local.day > 28 or ("Tests que ya se pueden repetir" in html and "Teresa Gil" in html and "D2" in html))
+chequear("aparece el día que vence", hoy_local.day > 28 or ('id="bt-tests-repetir"' in html and "Teresa Gil" in html and "D2" in html))
 partes = scheduler._partes_del_resumen(TABLAS["tenants"][0], hoy_local)
 chequear("el resumen cuenta los de hoy sin nombres", hoy_local.day > 28 or ("1 test que hoy se puede repetir" in ", ".join(partes) and "Teresa" not in ", ".join(partes)))
 
@@ -3585,7 +3585,7 @@ chequear("preguntar: tampoco reservándolo por id", web3.post("/marcos/reservar/
     "nombre": "X", "telefono": "5491100002222", "confirmado": "1"}).status_code == 302 and h1["estado"] == "libre")
 chequear("preguntar: le avisa al profesional cómo decidir", _avisos_p and "LIBERAR" in _avisos_p[-1] and "ME LO TOMO" in _avisos_p[-1])
 html = _panel(panel_c)
-chequear("preguntar: el panel lo muestra para decidir", "Horarios que te cancelaron" in html and "esperando que decidas" in html)
+chequear("preguntar: el panel lo muestra para decidir", 'id="bt-huecos"' in html and "Horarios cancelados" in html and "esperando que decidas" in html)
 
 # el profesional contesta por WhatsApp: sólo con el número vinculado
 import asistente_profesional as _apv
@@ -4542,6 +4542,42 @@ chequear("ajustes: la devolución se guarda sin tocar el precio", _t1["devolucio
 panel_c.post("/agenda/avisos", data={"csrf_token": "tok", "matricula": "MN 999"})
 chequear("ajustes: Tus datos no toca los avisos", _t1["matricula"] == "MN 999" and _t1.get("resumen_noche") is not False)
 chequear("agenda: las anclas viejas llevan a ajustes", "'mi-pagina': 'pagina'" in panel_c.get("/agenda").data.decode())
+
+# --- buscador (tipo Spotlight) y primeros pasos ---
+import html as _html_mod  # noqa: E402
+import re as _re  # noqa: E402
+TABLAS["turnos"].append(turno("ajena-busq", "t2", manana + timedelta(hours=6), estado="reservado", paciente_telefono="5491166660001",
+                              paciente_nombre="Zoe De Otra Cuenta"))
+
+
+def _indice(html):
+    m = _re.search(r'<script type="application/json" id="buscador-indice">(.*?)</script>', html, _re.S)
+    return json.loads(m.group(1)) if m else None
+
+
+_ag, _aj = panel_c.get("/agenda").data.decode(), panel_c.get("/ajustes").data.decode()
+_ix = _indice(_ag)
+chequear("buscador: está en la agenda y en ajustes, con botón y atajo", _ix is not None and _indice(_aj) is not None
+         and "data-buscar-abrir" in _ag and "data-buscar-abrir" in _aj and "e.ctrlKey || e.metaKey" in _ag)
+chequear("buscador: trae los pacientes de la cuenta con su ficha", len(_ix["fichas"]) > 0 and all(f["d"].startswith("ficha-") and f["c"] for f in _ix["fichas"]))
+chequear("buscador: nunca trae pacientes de otra cuenta", "Zoe De Otra Cuenta" not in json.dumps(_ix) and "5491166660001" not in json.dumps(_ix))
+chequear("buscador: cada ajuste lleva a su pestaña", any(x["t"] == "Precio de la sesión" and x["u"] == "/ajustes?p=agenda#tipos" for x in _ix["items"])
+         and any(x["t"] == "Cambiar la clave" and x["u"] == "/ajustes?p=cuenta#seguridad" for x in _ix["items"])
+         and any(x["t"] == "Bloquear días (vacaciones)" and x["u"] == "/agenda#bloqueos" for x in _ix["items"]))
+_dest = {x["u"].split("#")[1] for x in _ix["items"] if "#" in x["u"]}
+_todo = _ag + _aj
+chequear("buscador: todas las anclas del catálogo existen en el panel", all(f'id="{a}"' in _todo for a in _dest), [a for a in _dest if f'id="{a}"' not in _todo])
+chequear("buscador: la agenda abre la ficha pedida por ?ficha=", "get('ficha')" in _ag)
+
+_t1.pop("preferencias_vista", None)
+_t1.update({"horario_semanal": [{"dia": 0, "desde": "09:00", "hasta": "12:00"}], "precio_sesion": None, "tipos_turno": None,
+            "foto": None, "sobre_mi": None})
+_ag = panel_c.get("/agenda").data.decode()
+chequear("primeros pasos: aparece con lo que falta y lo hecho tachado", 'id="primeros-pasos"' in _ag and "<s>Cargá tu horario de atención</s>" in _ag
+         and 'href="/ajustes?p=agenda#tipos"><strong>Poné el precio de la sesión' in _ag)
+panel_c.post("/agenda/primeros-pasos/ocultar", data={"csrf_token": "tok"})
+chequear("primeros pasos: se puede ocultar y queda en la cuenta", 'id="primeros-pasos"' not in panel_c.get("/agenda").data.decode()
+         and _t1["preferencias_vista"].get("sin_primeros_pasos") is True)
 
 # --- Listas de WhatsApp, reprogramar y «¿con quién es?» ---
 import conversation as _conv  # noqa: E402

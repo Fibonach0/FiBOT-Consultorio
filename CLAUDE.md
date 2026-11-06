@@ -1028,3 +1028,21 @@ perfil se declaran en `casillas`; sin ese campo, se toman las dos, como antes).
 Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
 `|`); el consultorio por franja aparece apenas hay dos cargados (`data-sede`).
 
+## Buscador, «Para resolver» y «Primeros pasos»
+
+- Buscador tipo Spotlight (`buscador.py` + `templates/_buscador.html`, en agenda
+  y ajustes): Ctrl/⌘+K, «/» o el botón «Buscar». El índice va en la página
+  (`buscador.indice()` sobre `_comunes_panel`, o sea sólo lo de ESTE tenant) y
+  se filtra en el navegador: pacientes (nombre, teléfono, obra social y el texto
+  de la ficha y notas de sesión), próximas sesiones, lista de espera, mensajes,
+  y el `CATALOGO` de ajustes/acciones con sinónimos. Un ajuste nuevo → sumarlo
+  al CATALOGO (test: toda ancla del catálogo existe en el panel; las secciones
+  condicionales van en `hay`). `/agenda?ficha=<clave>` abre esa ficha.
+- «Para resolver»: mensajes, pagos para revisar, reservas nuevas, horarios
+  cancelados, cuestionarios y tests, en una tarjeta con pestañas
+  (`data-bandeja-tab`); los ids viejos (#mensajes, #pagos-revisar, #huecos)
+  siguen sirviendo de ancla.
+- «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
+  vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
+- GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +
+  escenas.py). Si cambia una pantalla, regrabar su escena.
