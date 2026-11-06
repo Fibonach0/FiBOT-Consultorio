@@ -213,3 +213,57 @@ assert "le avisé a *Lic. Ana Pérez*" in r and BANDEJA[-1][3] == "imagen" and l
 print("foto sin pago pendiente: a la bandeja (sin el archivo) OK")
 
 print("\nTODOS LOS TESTS DE BANDEJA Y FRASES PASARON")
+
+
+# --- Cada botón de las plantillas: el bot tiene que entenderlo ---
+# El texto del botón llega como si el paciente lo hubiera escrito. Si alguien
+# cambia una frase que reconoce el bot, se rompe el botón de una plantilla ya
+# aprobada por Meta: esta prueba lo agarra.
+import plantillas  # noqa: E402
+
+for p in plantillas.CATALOGO:
+    assert len(p["botones"]) <= 3 and all(len(b) <= 20 for b in p["botones"]), p["uso"]
+    assert all(f"{{{{{i}}}}}" in p["texto"] for i in range(1, len(p["params"]) + 1)), p["uso"]
+    assert len(p["ejemplo"]) == len(p["params"]), p["uso"]
+    assert not p["texto"].rstrip().endswith("}}") and not p["texto"].startswith("{{"), p["uso"]  # Meta lo rechaza
+    if p.get("url"):
+        assert len(p["url"]["texto"]) <= 25 and p["url"]["base"].endswith("{{1}}"), p["uso"]
+assert set(plantillas.botones_de_todas()) <= set(plantillas.QUE_HACE), "cada botón dice qué hace"
+print("catálogo de plantillas: botones de 20 letras, hasta 3, {{n}} completos y sin variable al borde OK")
+
+BANDEJA.clear()
+_canceladas.clear()
+TRAS_CANCELAR.clear()
+CONFIRMADOS = []
+db.confirmar_proximo = lambda tid, tel: None            # no es una reserva web esperando confirmación
+db.marcar_confirmado = lambda tid, turno_id: CONFIRMADOS.append(turno_id)
+db.pendientes_de_pago_de = lambda tid, tel, hasta: [
+    {"id": "p1", "inicio": (datetime.now(timezone.utc) - timedelta(days=9)).isoformat(), "valor": 25000, "paciente_nombre": "Juan"},
+    {"id": "p2", "inicio": (datetime.now(timezone.utc) - timedelta(days=2)).isoformat(), "valor": 25000, "paciente_nombre": "Juan"},
+] if tel == TEL else []
+FAKE_TURNOS[:] = [{"id": "lib1", "tenant_id": "t1", "estado": "libre", "paciente_telefono": None, "paciente_nombre": None,
+                   "inicio": (datetime.now(timezone.utc) + timedelta(days=4)).isoformat()}]
+db.proximos_turnos_de = lambda tid, tel: [dict(_turno_mio)] if tel == TEL and "mio" not in _canceladas else []
+
+ESPERADO = {
+    "Sí, confirmo": lambda r: "Quedó confirmado tu turno" in r and CONFIRMADOS == ["mio"],
+    "No puedo ir": lambda r: "¿Querés cancelar tu turno" in r and not _canceladas,
+    "Cambiar el turno": lambda r: getattr(r, "interactivo", None) and r.interactivo["filas"][0]["id"] == "mover:mio:lib1",
+    "¿Qué debo?": lambda r: "Total: *$ 50.000*" in r and "Juan" not in r,
+    "Mi turno": lambda r: "Tu próximo turno con *Lic. Ana Pérez*" in r,
+    "Cancelar": lambda r: "Cancelado" in r and _canceladas == ["mio"],   # último: cancela de verdad
+}
+assert set(ESPERADO) == set(plantillas.QUE_HACE), "cada botón del catálogo tiene su prueba"
+for boton in sorted(plantillas.botones_de_todas(), key=lambda b: b == "Cancelar"):
+    r = conversation.responder(tenant, TEL, boton)
+    assert ESPERADO[boton](r), (boton, r)
+    assert not BANDEJA, (boton, "no tiene que ir a la bandeja")
+print("cada botón de las plantillas hace lo que dice el catálogo (y ninguno va a la bandeja) OK")
+
+assert "No tenés sesiones pendientes" in conversation.responder(tenant, "5491199999999", "¿Qué debo?")
+for frase in ("cuánto le debo?", "debo algo?", "mi deuda"):
+    assert "Sesiones pendientes de pago" in conversation.responder(tenant, TEL, frase), frase
+print("«¿qué debo?» y variantes; sin deuda lo dice OK")
+assert "No tenés turnos reservados" in conversation.responder(tenant, "5491199999999", "Sí, confirmo")
+print("«Sí, confirmo» sin turno no confirma nada OK")
+print("\nTODOS LOS TESTS DE BOTONES DE PLANTILLAS PASARON")

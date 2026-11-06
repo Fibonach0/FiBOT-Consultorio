@@ -566,6 +566,11 @@ def avisar_rechazo_whatsapp(tenant: dict, telefono: str | None) -> bool:
     link = _link_reservas(tenant)
     if not config.PAGO_RECHAZADO_TEMPLATE or not numero or not telefono or not link:
         return False
+    if config.PAGO_RECHAZADO_BOTON:
+        # Botón «Reservar de nuevo» → https://<dominio>/{{1}}: va sólo el slug.
+        return bool(whatsapp.enviar_plantilla(numero, telefono, config.PAGO_RECHAZADO_TEMPLATE,
+                                              config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"]],
+                                              boton_url=tenant["slug"]))
     return bool(whatsapp.enviar_plantilla(numero, telefono, config.PAGO_RECHAZADO_TEMPLATE,
                                           config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], link]))
 
@@ -656,10 +661,16 @@ def avisar_por_vencer(tenant: dict, base: str | None, ahora: datetime | None = N
             continue
         db.actualizar_pago(pago["id"], {"avisado_at": ahora.isoformat()})   # antes de mandar: una sola vez
         try:
-            whatsapp.enviar_plantilla(numero, turnos[0]["paciente_telefono"], config.PAGO_PENDIENTE_TEMPLATE,
-                                      config.RECORDATORIO_TEMPLATE_LANG,
-                                      [tenant["nombre"], scheduler.cuando_de(turnos[0], tenant, tz),
-                                       f"{base}/pago/{pago['token']}"])
+            cuando = scheduler.cuando_de(turnos[0], tenant, tz)
+            if config.PAGO_PENDIENTE_BOTON:
+                # Botón «Pagar» → https://<dominio>/pago/{{1}}: va sólo el token.
+                whatsapp.enviar_plantilla(numero, turnos[0]["paciente_telefono"], config.PAGO_PENDIENTE_TEMPLATE,
+                                          config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], cuando],
+                                          boton_url=pago["token"])
+            else:
+                whatsapp.enviar_plantilla(numero, turnos[0]["paciente_telefono"], config.PAGO_PENDIENTE_TEMPLATE,
+                                          config.RECORDATORIO_TEMPLATE_LANG,
+                                          [tenant["nombre"], cuando, f"{base}/pago/{pago['token']}"])
             avisados += 1
         except Exception:
             logger.warning("No se pudo avisar el pago por vencer %s", pago["id"], exc_info=True)

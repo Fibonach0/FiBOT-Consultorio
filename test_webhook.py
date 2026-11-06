@@ -123,3 +123,19 @@ assert NO_TEXTO == [("t1", "5491100000001", "audio", "media-a"), ("t1", "5491100
 assert [e[2] for e in ENVIADOS] == ["respuesta a audio", "respuesta a image"] and all(e[0] == "PN1" for e in ENVIADOS), ENVIADOS
 assert LEIDOS == [("PN1", "wamid.A"), ("PN1", "wamid.B")], LEIDOS
 print("audio y foto: se contestan; la reacción no; todo menos la reacción queda leído OK")
+
+
+# --- Botones de plantilla: llegan como `type: button` y el bot recibe su texto ---
+import plantillas  # noqa: E402
+
+RECIBIDOS = []
+conversation.responder = lambda t, tel, texto: RECIBIDOS.append(texto) or f"ok {texto}"
+db.tenant_por_aviso = lambda tel: None
+ENVIADOS.clear()
+botones = plantillas.botones_de_todas()
+r = _postear([{"id": f"wamid.b{i}", "type": "button", "from": "5491100000002",
+               "button": {"text": b, "payload": b}} for i, b in enumerate(botones)])
+assert r.status_code == 200
+assert RECIBIDOS == botones, RECIBIDOS
+assert [e[2] for e in ENVIADOS] == [f"ok {b}" for b in botones], ENVIADOS
+print("cada botón de las plantillas llega al bot como texto y se contesta OK")

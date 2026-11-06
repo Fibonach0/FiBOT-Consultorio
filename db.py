@@ -609,6 +609,14 @@ def pendientes_de_pago(tenant_id: str, hasta: datetime, limite: int = 50) -> lis
     return res.data
 
 
+def pendientes_de_pago_de(tenant_id: str, telefono: str, hasta: datetime) -> list[dict]:
+    """Lo mismo, de un teléfono: lo que ve el paciente al preguntar «¿qué debo?»."""
+    res = (_client.table("turnos").select("*").eq("tenant_id", tenant_id).eq("paciente_telefono", telefono)
+           .eq("estado", "reservado").eq("pago", "pendiente").lt("inicio", hasta.isoformat())
+           .order("inicio").limit(50).execute())
+    return res.data
+
+
 def crear_turnos_libres(tenant_id: str, inicios: list[datetime], duracion_minutos: int,
                         solo_modalidad: str | None = None, sede: str | None = None,
                         a_mano: bool = False) -> int:
@@ -1452,6 +1460,13 @@ def confirmar_proximo(tenant_id: str, telefono: str) -> dict | None:
     _client.table("turnos").update({"confirmado_at": ahora.isoformat()}).eq("tenant_id", tenant_id).eq(
         "id", turno["id"]).execute()
     return {**turno, "confirmado_at": ahora.isoformat()}
+
+
+def marcar_confirmado(tenant_id: str, turno_id: str) -> None:
+    """El paciente tocó «Sí, confirmo» en el recordatorio (no era una reserva
+    web esperando confirmación): queda «✓ confirmó» en el panel."""
+    _client.table("turnos").update({"confirmado_at": datetime.now(timezone.utc).isoformat()}).eq(
+        "tenant_id", tenant_id).eq("id", turno_id).eq("estado", "reservado").execute()
 
 
 def sin_confirmar(tenant_id: str) -> list[dict]:

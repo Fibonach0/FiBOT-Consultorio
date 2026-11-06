@@ -3033,6 +3033,9 @@ html = celu_adm.get("/admin/whatsapp").data.decode()
 chequear("prueba frenada", "no está en el freno de envíos" in html and not enviados)
 celu_adm.post("/admin/whatsapp/prueba", data={"csrf_token": "tok", "telefono": "5491122223333"})
 html = celu_adm.get("/admin/whatsapp").data.decode()
+chequear("admin whatsapp: cómo crear cada plantilla, con botones y URL dinámica",
+         "Cómo crear cada plantilla" in html and "PAGO_RECHAZADO_TEMPLATE" in html and "Sí, confirmo" in html
+         and "https://consultorio.fibot.ar/pago/{{1}}" in html and "PAGO_PENDIENTE_BOTON=1" in html.replace("</code>", "").replace("<code>", ""))
 chequear("prueba aceptada", "Meta aceptó «hello_world»" in html and enviados[-1]["template"] == {"name": "hello_world", "language": {"code": "en_US"}})
 celu_adm.post("/admin/whatsapp/prueba", data={"csrf_token": "tok", "telefono": "5491122223333", "plantilla": "recordatorio_turno"})
 chequear("prueba con el recordatorio lleva parámetros", len(enviados[-1]["template"]["components"][0]["parameters"]) == 2)
@@ -3708,6 +3711,8 @@ chequear("sacar: una sesión agendada no", "ya no está libre" in r.data.decode(
 _otros_15 = [t for t in _lunes if _hora(t) == "15:00" and t is not _res]
 _otros_15[0]["hueco"] = "pendiente"
 _mano_dia = (datetime.now(_tz_ar) + timedelta(days=3)).date()
+if _mano_dia.weekday() == 0:   # el lunes ya tiene libres a las 15 del horario: no se crearía nada nuevo
+    _mano_dia += timedelta(days=1)
 panel_c.post("/agenda/generar", data={"csrf_token": "tok", "fecha_desde": _mano_dia.isoformat(), "fecha_hasta": _mano_dia.isoformat(),
                                       "hora_inicio": "15:00", "hora_fin": "16:00", "duracion_minutos": "50",
                                       "dias_semana": str(_mano_dia.weekday())})
@@ -3886,6 +3891,12 @@ _pg.rechazar(dict(_t1, slug="marcos"), {"id": "x", "turnos": [], "paciente_email
 chequear("rechazo: un motivo inventado no viaja", "Motivo" not in _rz_mails[-1][2] and "inventado" not in _rz_mails[-1][2])
 chequear("rechazo: WhatsApp con la plantilla, profesional y link", _pg.avisar_rechazo_whatsapp(dict(_t1, slug="marcos"), "5491100004444")
          and _rz_wa[-1] == ("5491100004444", "pago_rechazado", [_t1["nombre"], "https://consultorio.fibot.ar/marcos"]), _rz_wa)
+_wa_rz.enviar_plantilla = lambda numero, to, plantilla, lang, params, boton_url=None: _rz_wa.append((to, plantilla, params, boton_url)) or True
+_pg.config.PAGO_RECHAZADO_BOTON = True
+chequear("rechazo: con botón de link, el slug va en el botón y no en el texto",
+         _pg.avisar_rechazo_whatsapp(dict(_t1, slug="marcos"), "5491100004444")
+         and _rz_wa[-1] == ("5491100004444", "pago_rechazado", [_t1["nombre"]], "marcos"), _rz_wa)
+_pg.config.PAGO_RECHAZADO_BOTON = False
 _pg.config.PAGO_RECHAZADO_TEMPLATE = ""
 chequear("rechazo: sin plantilla no hay WhatsApp", _pg.avisar_rechazo_whatsapp(dict(_t1, slug="marcos"), "5491100004444") is False)
 _mail_rz.disponible, _mail_rz.enviar, _pg.config.DOMINIO_PRINCIPAL, _pg.config.PAGO_RECHAZADO_TEMPLATE = _rz_prev
@@ -4418,6 +4429,13 @@ chequear("por vencer: al principio no avisa", _pg.avisar_por_vencer(dict(_t1), "
 chequear("por vencer: en el último tercio avisa con el link", _pg.avisar_por_vencer(dict(_t1), "https://x.ar", _ahora + timedelta(minutes=22)) == 1
          and _enviadas[-1][0] == "5491100008888" and _enviadas[-1][2][2] == f"https://x.ar/pago/{pd5['token']}")
 chequear("por vencer: una sola vez", _pg.avisar_por_vencer(dict(_t1), "https://x.ar", _ahora + timedelta(minutes=25)) == 0)
+_pg.config.PAGO_PENDIENTE_BOTON = True
+_wa.enviar_plantilla = lambda numero, tel, nombre, lang, params, boton_url=None: _enviadas.append((tel, nombre, params, boton_url)) or True
+pd5["avisado_at"] = None
+chequear("por vencer: con botón de link, el token va en el botón y el texto lleva profesional y cuándo",
+         _pg.avisar_por_vencer(dict(_t1), "https://x.ar", _ahora + timedelta(minutes=22)) == 1
+         and len(_enviadas[-1][2]) == 2 and _enviadas[-1][3] == pd5["token"], _enviadas[-1])
+_pg.config.PAGO_PENDIENTE_BOTON = False
 _pg.config.PAGO_PENDIENTE_TEMPLATE = ""
 chequear("por vencer: sin plantilla no manda", _pg.avisar_por_vencer(dict(_t1), "https://x.ar", _ahora + timedelta(minutes=22)) == 0)
 _pg.config.PAGO_PENDIENTE_TEMPLATE = _vt
