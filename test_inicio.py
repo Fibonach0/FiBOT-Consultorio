@@ -181,3 +181,19 @@ print("con la base caída portada, directorio y sitemap salen igual OK")
 
 assert client.get("/health").data == b"FiBOT Consultorio activo."
 print("/health sigue igual OK")
+
+# Un reemplazo a medias dejó «var(--card)df5» (CSS inválido = fondo transparente):
+# la ficha abierta se veía con el panel atrás. Ningún var() puede quedar pegado a un color.
+import glob  # noqa: E402
+import re as _re  # noqa: E402
+for _ruta in glob.glob("templates/*.html"):
+    _malo = _re.search(r"var\(--[a-z0-9-]+\)[0-9a-fA-F]{2,6}\b", open(_ruta, encoding="utf8").read())
+    assert not _malo, (_ruta, _malo.group(0))
+print("ningún var(--x) pegado a restos de un color en los templates OK")
+
+# Cada GIF de «Recorrido por tu panel» existe en static/ayuda (si se renombra una escena, se rompe la guía).
+_ayuda = open("templates/ayuda.html", encoding="utf8").read()
+_gifs = _re.findall(r'\("([a-z-]+)", "[^"]+", "[^"]+"\)', _ayuda[_ayuda.index('id="recorrido"'):])
+assert len(_gifs) >= 10 and all(os.path.exists(f"static/ayuda/{g}.gif") for g in _gifs), _gifs
+assert all(os.path.getsize(f"static/ayuda/{g}.gif") < 800_000 for g in _gifs), "GIF demasiado pesado"
+print("recorrido de la guía: cada GIF existe y pesa menos de 800 KB OK")
