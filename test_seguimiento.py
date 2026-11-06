@@ -2342,7 +2342,7 @@ chequear("no muestra pacientes", "Paciente Secreto" not in html and "54911000000
 chequear("el admin no entra al panel de un profesional", client.get("/agenda").status_code == 302)
 _bienvenidas = []
 _av_alta = app.scheduler.avisar_profesional
-app.scheduler.avisar_profesional = lambda t, texto: _bienvenidas.append((t, texto)) or True
+app.scheduler.avisar_profesional = lambda t, texto, **_kw: _bienvenidas.append((t, texto)) or True
 html = client.post("/admin/profesionales", data={"nombre": "Lic. Nueva", "rubro": "psicopedagogía", "slug": "nueva", "panel_user": "nueva",
                                                  "clave": "una-clave-larga", "telefono": "11 2345-6789"}, follow_redirects=True).data.decode()
 nueva = next((t for t in TABLAS["tenants"] if t.get("panel_user") == "nueva"), None)
@@ -3509,7 +3509,7 @@ _t1 = TABLAS["tenants"][0]
 _t1.update({"slug": "marcos", "aviso_telefono": "5491122223333", "cancelar_hasta_horas": 24})
 _avisos_prof = []
 _viejo_avisar = scheduler.avisar_profesional
-app.scheduler.avisar_profesional = lambda tenant, texto: _avisos_prof.append(texto) or True
+app.scheduler.avisar_profesional = lambda tenant, texto, **_kw: _avisos_prof.append(texto) or True
 _por_slug, _por_id2 = db.get_tenant_by_slug, db.get_tenant_by_id
 db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
 db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
@@ -3559,7 +3559,7 @@ _t1 = TABLAS["tenants"][0]
 _t1.update({"slug": "marcos", "aviso_telefono": "5491122223333", "cancelar_hasta_horas": 24, "al_cancelar": "preguntar"})
 _avisos_p, _ofrecidos = [], []
 _viejo_av = scheduler.avisar_profesional
-scheduler.avisar_profesional = lambda tenant, texto: _avisos_p.append(texto) or True
+scheduler.avisar_profesional = lambda tenant, texto, **_kw: _avisos_p.append(texto) or True
 _viejo_of = _canc.ofrecer_horario
 _canc.ofrecer_horario = lambda tenant, tel, cuando, link: _ofrecidos.append((tel, link)) or True
 db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
@@ -3580,7 +3580,12 @@ chequear("preguntar: le avisa al profesional cómo decidir", _avisos_p and "LIBE
 html = panel_c.get("/agenda").data.decode()
 chequear("preguntar: el panel lo muestra para decidir", "Horarios que te cancelaron" in html and "esperando que decidas" in html)
 
-# el profesional contesta por WhatsApp
+# el profesional contesta por WhatsApp: sólo con el número vinculado
+import asistente_profesional as _apv
+r = _canc.respuesta_del_profesional("5491122223333", "Me lo tomo")
+chequear("whatsapp profesional: sin vincular, LIBERAR / ME LO TOMO sólo dice cómo vincular",
+         r == _apv.sin_vincular() and h1["hueco"] == "pendiente", r)
+_t1["aviso_verificado"] = "5491122223333"
 r = _canc.respuesta_del_profesional("5491122223333", "Me lo tomo")
 chequear("whatsapp profesional: me lo tomo", "es tuyo" in r and h1["hueco"] == "propio")
 chequear("whatsapp profesional: sin retenidos lo dice", "No tenés ningún horario retenido" in _canc.respuesta_del_profesional("5491122223333", "liberar"))
@@ -3628,7 +3633,7 @@ _t1.update({"slug": "marcos", "aviso_telefono": "5491122223333", "al_cancelar": 
             "hueco_vence_horas": 2, "hueco_por_defecto": "liberar", "cancelar_hasta_horas": 0})
 _av = []
 _viejo_av2 = scheduler.avisar_profesional
-scheduler.avisar_profesional = lambda tenant, texto: _av.append(texto) or True
+scheduler.avisar_profesional = lambda tenant, texto, **_kw: _av.append(texto) or True
 db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
 db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
 _b = datetime.now(timezone.utc).replace(second=0, microsecond=0)
@@ -3705,7 +3710,7 @@ TABLAS["lista_espera"] = [{"id": "e1", "tenant_id": "t1", "nombre": "Nora", "tel
 _ofr, _avs = [], []
 _vo, _va = _canc3.ofrecer_horario, scheduler.avisar_profesional
 _canc3.ofrecer_horario = lambda tenant, tel, cuando, link: _ofr.append(tel) or True
-scheduler.avisar_profesional = lambda tenant, texto: _avs.append(texto) or True
+scheduler.avisar_profesional = lambda tenant, texto, **_kw: _avs.append(texto) or True
 chequear("pausa con fecha: antes no se reactiva", not _canc3.reactivar_si_toca(dict(_t1), _hoy_ar + timedelta(days=9)))
 chequear("pausa con fecha: ese día se reactiva", _canc3.reactivar_si_toca(dict(_t1), _hoy_ar + timedelta(days=10))
          and _t1["pausado"] is False and _t1["pausado_hasta"] is None)
@@ -3858,7 +3863,7 @@ db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
 db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
 _avp = []
 _va3 = scheduler.avisar_profesional
-scheduler.avisar_profesional = lambda tenant, texto: _avp.append(texto) or True
+scheduler.avisar_profesional = lambda tenant, texto, **_kw: _avp.append(texto) or True
 _d = datetime.now(timezone.utc).replace(second=0, microsecond=0) + timedelta(days=3)
 TABLAS["turnos"] = [turno("p1", "t1", _d), turno("p2", "t1", _d + timedelta(hours=1)), turno("p3", "t1", _d + timedelta(hours=2))]
 w = app.app.test_client()
@@ -4098,7 +4103,7 @@ chequear("rechazo: sin email no manda nada", _pg.avisar_rechazo(_t1, {**pago6, "
 _mail.disponible, _mail.enviar, _pg.config.DOMINIO_PRINCIPAL = _md, _me, _dom
 _avs_mp = []
 _va_mp = scheduler.avisar_profesional
-scheduler.avisar_profesional = lambda tenant, texto: _avs_mp.append(texto) or True
+scheduler.avisar_profesional = lambda tenant, texto, **_kw: _avs_mp.append(texto) or True
 _avs_adm = []
 _vadm = whatsapp_real.avisar_admin
 whatsapp_real.avisar_admin = lambda texto: _avs_adm.append(texto) or True
@@ -4211,7 +4216,7 @@ _t1.update({"slug": "marcos", "activo": True, "cobro_web": "transferencia", "pre
 db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
 db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
 _va4 = scheduler.avisar_profesional
-scheduler.avisar_profesional = lambda tenant, texto: True
+scheduler.avisar_profesional = lambda tenant, texto, **_kw: True
 _s = datetime.now(timezone.utc).replace(second=0, microsecond=0, minute=0) + timedelta(days=2)
 TABLAS["turnos"] = [turno(f"s{k}", "t1", _s + timedelta(days=7 * k)) for k in range(4)]
 TABLAS["turnos"][2]["estado"] = "reservado"
@@ -4298,7 +4303,7 @@ db.get_tenant_by_slug = lambda slug: dict(_t1) if slug == "marcos" else None
 db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
 _avd = []
 _va5 = scheduler.avisar_profesional
-scheduler.avisar_profesional = lambda tenant, texto: _avd.append(texto) or True
+scheduler.avisar_profesional = lambda tenant, texto, **_kw: _avd.append(texto) or True
 _pg.config.MP_CLIENT_ID, _pg.config.MP_CLIENT_SECRET = "app", "secreto"
 _reint = []
 
@@ -4510,7 +4515,7 @@ app.whatsapp._interactivo = lambda n, to, inter: _wa_int.append((n, to, inter)) 
 app.config.PLATAFORMA_PHONE_NUMBER_ID = "PLAT"
 db.get_tenant_by_phone_number_id = lambda pid: None
 _avisos_mov = []
-scheduler.avisar_profesional = lambda t, texto: _avisos_mov.append(texto) or True
+scheduler.avisar_profesional = lambda t, texto, **_kw: _avisos_mov.append(texto) or True
 TABLAS["tenants"][1].update({"activo": True, "slug": "otra"})
 _dl = datetime.now(timezone.utc).replace(hour=13, minute=0, second=0, microsecond=0) + timedelta(days=4)
 _TEL = "5491177778888"

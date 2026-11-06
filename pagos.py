@@ -448,8 +448,10 @@ def _avisar_pago_mp(tenant: dict, pago: dict, turnos: list[dict]) -> None:
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     cuando = ", ".join(scheduler._fmt(t["inicio"], tz) for t in sorted(turnos, key=lambda t: t["inicio"])[:3])
     try:
-        scheduler.avisar_profesional(tenant, f"entró un pago de {('$ ' + format(int(pago['monto']), ',')).replace(',', '.')} "
-                                             f"por Mercado Pago de la reserva del {cuando}")
+        texto = (f"entró un pago de {('$ ' + format(int(pago['monto']), ',')).replace(',', '.')} "
+                 f"por Mercado Pago de la reserva del {cuando}")
+        quien = next((t.get("paciente_nombre") for t in turnos if t.get("paciente_nombre")), None)
+        scheduler.avisar_profesional(tenant, texto, con_nombre=f"{texto} ({quien})" if quien else None)
     except Exception:
         logger.exception("No se pudo avisar el pago de Mercado Pago")
 
@@ -608,7 +610,12 @@ def subir_comprobante(tenant: dict, pago: dict, crudo: bytes, email: str | None 
     for tid in pago["turnos"]:
         db.actualizar_reserva(tenant["id"], tid, {"pago_web": "comprobante", "pago_vence": None})
     import scheduler
-    scheduler.avisar_profesional(tenant, "un paciente subió el comprobante de una transferencia: validalo en el panel")
+    quien = next((t.get("paciente_nombre") for t in (db.turno_por_id(tenant["id"], tid) for tid in pago["turnos"])
+                  if t and t.get("paciente_nombre")), None) or pago.get("paciente_nombre")
+    scheduler.avisar_profesional(
+        tenant, "un paciente subió el comprobante de una transferencia: validalo en el panel",
+        con_nombre=(f"{quien} subió el comprobante de una transferencia de $ {int(pago.get('monto') or 0):,}".replace(",", ".")
+                    + f": validalo en el panel o escribime «aceptar comprobante de {quien.split()[0]}»") if quien else None)
     return None
 
 
@@ -799,9 +806,10 @@ def al_cancelar(tenant: dict, turno: dict, quien: str = "paciente") -> tuple[int
         db.actualizar_pago(pago["id"], {"a_devolver": int(pago.get("a_devolver") or 0) + monto})
         return monto, False
     if puede_devolver_mp(pago) and devolver(tenant, pago, monto) is None:
-        scheduler.avisar_profesional(tenant, f"se le devolvieron {texto} por Mercado Pago a un paciente que canceló, según tu política")
+        scheduler.avisar_profesional(tenant, f"se le devolvieron {texto} por Mercado Pago a un paciente que canceló, según tu política",
+                                     paciente=turno.get("paciente_nombre"))
         return monto, True
     db.actualizar_pago(pago["id"], {"a_devolver": int(pago.get("a_devolver") or 0) + monto})
     scheduler.avisar_profesional(tenant, f"un paciente canceló una sesión pagada: según tu política le corresponden {texto}; "
-                                         "devolvéselos y marcalo en el panel")
+                                         "devolvéselos y marcalo en el panel", paciente=turno.get("paciente_nombre"))
     return monto, False

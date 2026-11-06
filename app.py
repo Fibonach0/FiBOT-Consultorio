@@ -473,7 +473,8 @@ def _mover_por_paciente(tenant: dict, turno: dict, nuevo: dict, origen: str) -> 
     db.registrar_actividad(f"paciente ({origen})", f"cambió el horario de un turno desde {'el link de agendar' if origen == 'web' else origen}",
                            tenant["id"])
     scheduler.avisar_profesional(tenant, f"un paciente pasó {'desde la web' if origen == 'web' else 'por ' + origen} su turno del "
-                                         f"{scheduler.cuando_de(turno, tenant, tz)} al {scheduler.cuando_de(nuevo, tenant, tz)}")
+                                         f"{scheduler.cuando_de(turno, tenant, tz)} al {scheduler.cuando_de(nuevo, tenant, tz)}",
+                                 paciente=turno.get("paciente_nombre"))
     _evento(tenant, "cambio")
     db.actualizar_reserva(tenant["id"], nuevo["id"], {"reserva_avisada": True})
     return None
@@ -2826,6 +2827,7 @@ def agenda_avisos():
     if "resumen_cobros_form" in request.form:
         campos["resumen_cobros_mail"] = request.form.get("resumen_cobros_mail") == "1"
         campos["aviso_cada_pago"] = request.form.get("aviso_cada_pago") == "1"
+        campos["resumen_noche"] = request.form.get("resumen_noche") == "1"
     if "recibo_cuit" in request.form:
         cuit = "".join(ch for ch in request.form["recibo_cuit"] if ch.isdigit())
         if cuit and not cuit_valido(cuit):
@@ -5043,7 +5045,9 @@ def publico_espera(slug):
     nuevo = db.agregar_a_espera(tenant["id"], nombre, telefono, preferencia, origen="web")
     if nuevo:
         _evento(tenant, "espera")
-        scheduler.avisar_profesional(tenant, "alguien se anotó en tu lista de espera desde tu página de turnos")
+        scheduler.avisar_profesional(tenant, "alguien se anotó en tu lista de espera desde tu página de turnos",
+                                     con_nombre=f"{nombre} se anotó en tu lista de espera desde tu página de turnos"
+                                                + (f" (prefiere: {preferencia})" if preferencia else ""))
     return render_template("espera_listo.html", tenant=tenant, ya_estaba=not nuevo)
 
 

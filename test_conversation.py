@@ -137,7 +137,7 @@ BANDEJA, AVISOS = [], []
 db.mensajes_sin_leer = lambda tid: sum(1 for m in BANDEJA if m[0] == tid)
 db.guardar_mensaje_paciente = lambda tid, tel, texto, tipo="texto": BANDEJA.append((tid, tel, texto, tipo)) or {}
 import scheduler  # noqa: E402
-scheduler.avisar_profesional = lambda t, texto: AVISOS.append(texto) or True
+scheduler.avisar_profesional = lambda t, texto, **_kw: AVISOS.append(texto) or True
 _turno_mio = {"id": "mio", "inicio": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
               "paciente_telefono": TEL, "paciente_nombre": "Juan"}
 db.proximos_turnos_de = lambda tid, tel: [dict(_turno_mio)] if tel == TEL else []

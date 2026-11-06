@@ -5,7 +5,7 @@ import hashlib
 import hmac
 import json
 import os
-from datetime import datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 os.environ.setdefault("SUPABASE_URL", "https://example.supabase.co")
@@ -192,4 +192,148 @@ assert len(VINCULADOS) == 1 and AL_PACIENTE[-1][0] == "5491122220000", "un pacie
 postear("5491122220000", boton={"id": "prof:hoy", "title": "Hoy"})
 assert not any("Paciente t1" in str(e[2]) for e in ENVIADOS) and AL_PACIENTE[-1] == ("5491122220000", "Hoy"), (ENVIADOS, AL_PACIENTE)
 print("webhook: un paciente que escribe «hoy», manda un código o toca «prof:hoy» no ve ninguna agenda OK")
+
+# --- 1. avisos con nombre sólo con el número vinculado ---
+import scheduler as _sch  # noqa: E402
+_AV = []
+_sch.whatsapp.numero_de = lambda t: "PLAT"
+_sch.config.AVISO_TEMPLATE = "aviso_profesional"
+_sch.whatsapp.enviar_plantilla = lambda n, to, tpl, lang, params, **k: _AV.append((to, tpl, params)) or True
+_sch.avisar_profesional(ANA, "un paciente canceló por WhatsApp el turno del jue 10:00", paciente="Juana Pérez")
+_sch.avisar_profesional(A, "un paciente canceló por WhatsApp el turno del jue 10:00", paciente="Juana Pérez")
+assert "un paciente canceló" in _AV[0][2][0] and "Juana" not in _AV[0][2][0], _AV
+assert _AV[1][2][0].startswith("Juana Pérez canceló"), _AV
+_sch.avisar_profesional(A, "un paciente te escribió", con_nombre="Juana te escribió:\n«llego\ntarde»")
+assert "\n" not in _AV[-1][2][0] and "«llego tarde»" in _AV[-1][2][0], "en una línea (las plantillas no aceptan saltos)"
+print("avisos: con nombre sólo si está vinculado, y en una línea OK")
+_RES = [turno(30, 2, 10, paciente_nombre="Juana Pérez"), turno(31, 3, 11, paciente_nombre="Tomás Ruiz")]
+_sch.db.reservas_sin_avisar = lambda tid: list(_RES)
+_sch.db.marcar_reserva_avisada = lambda tid, x: None
+_AV.clear()
+_sch._avisar_reservas(ANA, TZ)
+_sch._avisar_reservas(A, TZ)
+assert "2 reservas nuevas" in _AV[0][2][0] and "Juana" not in _AV[0][2][0], _AV
+assert "Juana Pérez reservó para el" in _AV[1][2][0] and "Tomás Ruiz reservó" in _AV[1][2][0], _AV
+print("reservas nuevas: quién reservó y cuándo, con el número vinculado OK")
+
+# --- 4. resumen de la noche ---
+class _Noche(datetime):
+    hora = 21
+
+    @classmethod
+    def now(cls, tz=None):
+        return datetime.now(tz).replace(hour=cls.hora, minute=0)
+
+
+_sch.datetime = _Noche
+_NOCHE = []
+_sch.db.marcar_resumen_noche = lambda tid, dia: _NOCHE.append(dia)
+_AV.clear()
+_sch._resumen_noche(ANA, TZ)
+assert not _AV and not _NOCHE, "sin vincular no sale"
+_sch._resumen_noche(dict(A, resumen_noche=False), TZ)
+assert not _AV, "si lo apagó no sale"
+_Noche.hora = 15
+_sch._resumen_noche(A, TZ)
+assert not _AV, "antes de las 20 no sale"
+_Noche.hora = 21
+_sch._resumen_noche(A, TZ)
+assert len(_AV) == 1 and "mañana" in _AV[0][2][0] and "1 sesión" in _AV[0][2][0] and "09:00 Paciente t1 3" in _AV[0][2][0], _AV
+_sch._resumen_noche(dict(A, ultimo_resumen_noche=_NOCHE[-1]), TZ)
+assert len(_AV) == 1, "una vez por noche"
+_sch.datetime = datetime
+print("resumen de la noche: a las 20, con nombres, una vez, sólo vinculado y apagable OK")
+
+# --- 2 y 3. acciones con confirmación ---
+PEND = {}
+db.guardar_accion_profesional = lambda tel, tid, accion: PEND.__setitem__(tel, {"telefono": tel, "tenant_id": tid, "accion": accion,
+                                                                             "creado": datetime.now(timezone.utc).isoformat()})
+db.accion_profesional = lambda tel: PEND.get(tel)
+db.borrar_accion_profesional = lambda tel: PEND.pop(tel, None)
+db.registrar_actividad = lambda *a, **k: None
+HECHO = []
+import pagos as _pagos  # noqa: E402
+_pagos.aprobar = lambda t, p: HECHO.append(("aprobar", t["id"], p["id"])) or "aprobado"
+_pagos.rechazar = lambda t, p, motivo=None: HECHO.append(("rechazar", t["id"], p["id"]))
+db.pago_de = lambda tid, pid: next((p for p in db.pagos_para_revisar(tid) if p["id"] == pid), None)
+db.agregar_bloqueo = lambda tid, desde, hasta, motivo: HECHO.append(("bloqueo", tid, desde, hasta))
+db.guardar_ajustes = lambda tid, campos: HECHO.append(("ajustes", tid, campos))
+TEL = "5491155550000"
+
+r = ap.responder_a([A], "aceptar comprobante de paciente", TEL)
+assert "¿Acepto el comprobante de Paciente t1 3" in r and "$ 30.000" in r and r.interactivo["botones"] == ap.BOTONES_CONFIRMAR, r
+assert not HECHO, "no hace nada sin el «sí»"
+r = ap.responder_a([A], "sí", TEL)
+assert HECHO == [("aprobar", "t1", "p1")] and "aceptado" in r and not PEND, (HECHO, r)
+print("aceptar comprobante: pregunta, y con «sí» lo acepta OK")
+HECHO.clear()
+ap.responder_a([A], "rechazar comprobante", TEL)
+assert "Listo, no hice nada" in ap.responder_a([A], "no", TEL) and not HECHO and not PEND
+print("«no» cancela sin hacer nada OK")
+ap.responder_a([A], "rechazar el comprobante", TEL)
+PEND[ap._diez(TEL)]["creado"] = (datetime.now(timezone.utc) - timedelta(minutes=11)).isoformat()
+assert "más de 10 minutos" in ap.responder_a([A], "si", TEL) and not HECHO
+print("una acción vieja (más de 10 minutos) no se hace OK")
+assert ap.responder_a([A], "si", TEL) is None, "«sí» sin nada pendiente sigue como paciente"
+assert "No tenés comprobantes para validar de «zoe»" in ap.responder_a([A], "aceptar comprobante de zoe", TEL)
+
+r = ap.responder_a([A], "bloquear mañana", TEL)
+manana = (datetime.now(TZ) + timedelta(days=1)).date()
+assert f"¿Bloqueo {ap._dia_corto(manana)}?" in r and "tenés 1 sesión" in r and "Paciente t1 3" in r, r
+ap.responder_a([A], "dale", TEL)
+assert HECHO[-1][0] == "bloqueo" and HECHO[-1][2].astimezone(TZ).date() == manana \
+    and HECHO[-1][3].astimezone(TZ).date() == manana + timedelta(days=1), HECHO
+r = ap.responder_a([A], "bloquear del 20/12 al 5/1", TEL)
+assert "¿Bloqueo del " in r and "20/12" in r and "5/01" in r, r
+ap.responder_a([A], "no", TEL)
+assert "No entendí qué días" in ap.responder_a([A], "bloquear cuando pueda", TEL)
+print("bloquear: mañana, el viernes o un rango; avisa las sesiones que hay esos días OK")
+HECHO.clear()
+r = ap.responder_a([A], "pausar hasta el lunes", TEL)
+assert "¿Pauso tu página de turnos hasta el lunes" in r, r
+ap.responder_a([A], "si", TEL)
+assert HECHO[-1][0] == "ajustes" and HECHO[-1][2]["pausado"] is True and date.fromisoformat(HECHO[-1][2]["pausado_hasta"]).weekday() == 0, HECHO
+assert "ya está tomando turnos" in ap.responder_a([A], "reactivar", TEL)
+ap.responder_a([dict(A, pausado=True)], "reactivar", TEL)
+ap.responder_a([dict(A, pausado=True)], "si", TEL)
+assert HECHO[-1][2] == {"pausado": False, "pausado_hasta": None}, HECHO
+print("pausar hasta el lunes y reactivar, con confirmación OK")
+
+AL_TEL = []
+whatsapp.enviar_texto = lambda pid, to, texto: AL_TEL.append((to, texto)) or True
+whatsapp.enviar_plantilla = lambda pid, to, tpl, lang, params, **k: AL_TEL.append((to, tpl, params)) or True
+whatsapp.numero_de = lambda t: "PLAT"
+r = ap.responder_a([A], "Avisale a Juana que llego 10 minutos tarde, perdón", TEL)
+assert "¿Le mando a Juana Pérez (+549110000004)" in r and "«Lic. Ana: Llego 10 minutos tarde, perdón»" in r and not AL_TEL, r
+r = ap.responder_a([A], "si", TEL)
+assert AL_TEL == [("549110000004", "*Lic. Ana*: Llego 10 minutos tarde, perdón")] and "24 h" in r, (AL_TEL, r)
+config.MENSAJE_PROFESIONAL_TEMPLATE = "mensaje_profesional"
+ap.responder_a([A], "decile a juana perez: hoy atiendo virtual", TEL)
+ap.responder_a([A], "ok", TEL)
+assert AL_TEL[-1] == ("549110000004", "mensaje_profesional", ["Lic. Ana", "Hoy atiendo virtual"]), AL_TEL
+config.MENSAJE_PROFESIONAL_TEMPLATE = ""
+assert "más de un paciente" in ap.responder_a([A], "avisale a paciente que llego tarde", TEL)
+assert "No encontré" in ap.responder_a([A], "avisale a Zoe que llego tarde", TEL)
+print("avisale a Juana que…: confirma el destinatario y el texto; con plantilla si está OK")
+
+assert "varias cuentas" in ap.responder_a([A, vinculada(BETO)], "bloquear mañana", TEL) and not PEND
+assert ap.responder_a([ANA], "bloquear mañana", TEL) == ap.sin_vincular() and not PEND
+print("acciones: con el número en varias cuentas o sin vincular, no se hacen OK")
+ap.responder_a([A], "pausar", TEL)
+assert "ya no está vinculado" in ap.responder_a([dict(A, aviso_telefono="5491166660000", aviso_verificado="5491166660000")], "si", TEL)
+assert ("ajustes", "t1", {"pausado": True, "pausado_hasta": None}) not in HECHO
+print("acciones: si el número dejó de estar vinculado a esa cuenta antes del «sí», no se hace OK")
+
+# por el webhook: el botón «Sí, hacelo» y un paciente que dice «sí»
+whatsapp.enviar_respuesta = lambda pid, to, r: ENVIADOS.append((pid, to, r)) or True
+HECHO.clear()
+postear(TEL, "aceptar comprobante")
+assert ENVIADOS[-1][2].interactivo["botones"] == ap.BOTONES_CONFIRMAR
+postear(TEL, boton={"id": "prof:si", "title": "Sí, hacelo"})
+assert HECHO == [("aprobar", "t1", "p1")], HECHO
+AL_PACIENTE.clear()
+postear("5491122220000", boton={"id": "prof:si", "title": "Sí, hacelo"})
+postear("5491122220000", "aceptar comprobante")
+assert len(HECHO) == 1 and not PEND and len(AL_PACIENTE) == 2, (HECHO, PEND, AL_PACIENTE)
+print("webhook: el botón «Sí, hacelo» del profesional ejecuta; un paciente no puede pedir ni confirmar acciones OK")
 print("\nTODOS LOS TESTS DEL ASISTENTE DEL PROFESIONAL PASARON")

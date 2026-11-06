@@ -101,7 +101,8 @@ def tras_cancelar(tenant: dict, turno: dict, por: str) -> None:
         db.marcar_hueco(tenant["id"], turno["id"], "pendiente")
         scheduler.avisar_profesional(
             tenant, f"un paciente canceló por {por} el turno del {cuando}. Lo retuve: respondé LIBERAR para que "
-                    f"otro lo pueda tomar o ME LO TOMO para quedártelo (también desde el panel)")
+                    f"otro lo pueda tomar o ME LO TOMO para quedártelo (también desde el panel)",
+            paciente=turno.get("paciente_nombre"))
         return
     esperando = len(db.lista_de_espera(tenant["id"]))
     ofrecido = ofrecer_a_espera(tenant, turno)
@@ -110,7 +111,7 @@ def tras_cancelar(tenant: dict, turno: dict, por: str) -> None:
         texto += "; se lo ofrecimos al primero de tu lista de espera"
     elif esperando:
         texto += f"; tenés {esperando} en lista de espera"
-    scheduler.avisar_profesional(tenant, texto)
+    scheduler.avisar_profesional(tenant, texto, paciente=turno.get("paciente_nombre"))
 
 
 def liberar(tenant: dict, turno: dict) -> str | None:
@@ -127,13 +128,20 @@ def respuesta_del_profesional(telefono: str, texto: str) -> str | None:
     """«liberar» / «me lo tomo» desde el WhatsApp de avisos de un profesional.
     Decide sobre el horario retenido más próximo. None si no corresponde (no
     es un profesional, no es una de esas palabras o no hay nada retenido):
-    entonces el mensaje sigue su camino normal."""
+    entonces el mensaje sigue su camino normal. Desde un número de avisos sin
+    vincular, sólo le dice cómo vincularlo."""
     palabra = " ".join((texto or "").lower().replace(",", " ").replace(".", " ").split())
     if palabra not in LIBERAR and palabra not in TOMAR:
         return None
-    tenant = db.tenant_por_aviso(telefono)
-    if not tenant:
+    cuentas = db.tenants_por_aviso(telefono)
+    if not cuentas:
         return None
+    # Mismo candado que el asistente: sólo desde un WhatsApp vinculado.
+    import asistente_profesional
+    vinculadas = [t for t in cuentas if asistente_profesional.vinculado(t)]
+    if not vinculadas:
+        return asistente_profesional.sin_vincular()
+    tenant = vinculadas[0]
     pendientes = db.huecos_pendientes(tenant["id"])
     if not pendientes:
         return "No tenés ningún horario retenido."

@@ -131,6 +131,19 @@ propio bot). `db.tenants_por_aviso` no recibe tenant_id (lo averigua, como
 cada una vinculada, por separado; con número propio, sólo esa cuenta. El
 resumen de la mañana sale con `RESUMEN_TEMPLATE` (botones «Ver hoy», «Pagos»,
 «Mensajes», `plantillas.QUE_HACE_PROFESIONAL`) si está cargada.
+Acciones por WhatsApp (aceptar/rechazar comprobante, bloquear días, pausar,
+reactivar, «avisale a Juan que…»): `_preparar` arma la acción y pregunta; se
+guarda en `acciones_profesional` (migración 072, una por número, vence en 10
+min) y `_ejecutar` la hace recién con «sí» / botón `prof:si`, revisando otra vez
+que el número siga vinculado a esa cuenta. Con el número en varias cuentas, no
+actúa (al panel). El mensaje al paciente usa `MENSAJE_PROFESIONAL_TEMPLATE` si
+está (si no, texto libre: sólo llega dentro de las 24 h). Con el número
+vinculado, `scheduler.avisar_profesional(…, paciente=, con_nombre=)` pone el
+nombre en los avisos (cancelaciones, reservas, mensajes, comprobantes, pagos,
+lista de espera), siempre en una línea (parámetro de plantilla), y
+`_resumen_noche` manda a las 20 las sesiones de mañana con nombres
+(`tenants.resumen_noche`, apagable en avisos). LIBERAR / ME LO TOMO también
+exigen el número vinculado.
 
 **Plantillas y sus botones (`plantillas.py`)**: `CATALOGO` tiene texto, categoría,
 {{n}}, botones y nombre sugerido de cada plantilla; /admin/whatsapp lo muestra («Cómo
