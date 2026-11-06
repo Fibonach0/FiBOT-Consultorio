@@ -1,0 +1,898 @@
+{% extends "base.html" %}
+{% block titulo %}Ajustes — {{ tenant.nombre }}{% endblock %}
+{% block cuerpo %}
+<header>
+  <span><a href="{{ url_for('agenda') }}">← Agenda</a> · Ajustes</span>
+  <span><a href="{{ url_for('ayuda') }}">Cómo se usa</a> · <a href="{{ url_for('logout') }}">Salir</a></span>
+</header>
+<style>
+  .ajustes { max-width:880px; }
+  .ajustes-tabs { position:sticky; top:0; z-index:2; display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; background:var(--cream);
+                  border-bottom:1px solid var(--rule); margin:0 -4px 16px; padding:6px 4px 0; }
+  .ajustes-tabs::-webkit-scrollbar { display:none; }
+  .ajustes-tab { flex:0 0 auto; padding:9px 12px; font:inherit; font-size:.92rem; color:var(--muted); background:none; border:none;
+                 border-bottom:3px solid transparent; cursor:pointer; white-space:nowrap; }
+  .ajustes-tab:hover { color:var(--ink); }
+  .ajustes-tab[aria-selected="true"] { color:var(--green); font-weight:700; border-bottom-color:var(--green); }
+  .ajustes-tab:focus-visible { outline:2px solid var(--green); outline-offset:-2px; }
+  .ajustes-tab .punto { display:inline-block; width:7px; height:7px; border-radius:50%; background:var(--warn); margin-left:5px; vertical-align:middle; }
+  .ajustes section.card > h3 { margin-bottom:4px; }
+  .ajustes .corto { margin:0 0 6px; }
+  .que-es { margin:0 0 10px; }
+  .que-es > summary { color:var(--green); font-size:.84rem; cursor:pointer; }
+  .que-es > p { margin:6px 0 0; font-size:.88rem; color:var(--muted); }
+  .casilla { display:flex; gap:8px; align-items:flex-start; color:inherit; font-size:.92rem; }
+  .casilla input { width:auto; margin-top:3px; }
+  .barra-guardar { position:sticky; bottom:0; z-index:3; display:flex; gap:10px; align-items:center; justify-content:flex-end; flex-wrap:wrap;
+                   background:var(--card); border:1px solid var(--rule); border-radius:10px; padding:10px 14px; margin-top:8px;
+                   box-shadow:0 -4px 14px rgba(0,0,0,.08); }
+  .barra-guardar[hidden] { display:none; }
+  .barra-guardar span { flex:1; min-width:160px; }
+  .js .solo-sin-js { display:none; }
+  [data-si][hidden], [data-sede][hidden] { display:none; }
+  .ajustes .tenue a { color:var(--green); }
+  @media (max-width: 640px) { .ajustes { padding:12px; } .ajustes-tab { padding:9px 9px; font-size:.86rem; } }
+</style>
+<main class="ajustes">
+  {% with mensajes = get_flashed_messages() %}
+    {% for m in mensajes|unique %}<div class="aviso">{{ m }}</div>{% endfor %}
+  {% endwith %}
+  <h2 style="margin-bottom:10px">Ajustes</h2>
+  <div class="ajustes-tabs" role="tablist" aria-label="Ajustes">
+    {% for clave, titulo in pestanias %}
+    <button class="ajustes-tab" type="button" role="tab" id="tab-{{ clave }}" aria-controls="p-{{ clave }}" data-pestania="{{ clave }}"
+            aria-selected="{{ 'true' if clave == pestania else 'false' }}" tabindex="{{ 0 if clave == pestania else -1 }}">{{ titulo }}</button>
+    {% endfor %}
+  </div>
+
+  <section role="tabpanel" id="p-agenda" aria-labelledby="tab-agenda" data-panel="agenda"{% if pestania != 'agenda' %} hidden{% endif %}>
+  <section class="card" id="horario">
+    <h3>Horario de atención</h3>
+    <p class="tenue corto">Cargalo una vez y los horarios libres se generan solos.</p>
+    <details class="que-es"><summary>¿Qué es esto?</summary><p>Ejemplo: sesiones de 45 con 15 de descanso y la franja de 9:15 a 13:00 dan 9:15, 10:15, 11:15 y 12:15. Cada franja puede ser sólo presencial o sólo por videollamada y, si cargaste más de un consultorio, en cuál es.</p></details>
+    <form method="post" action="{{ url_for('agenda_horario') }}" data-ajuste>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="fila">
+        <div><label>Duración de cada turno (min)</label><input type="number" name="duracion_turno_minutos" min="10" max="240" step="5" value="{{ tenant.duracion_turno_minutos or 50 }}"></div>
+        <div><label>Descanso entre turnos (min)</label><input type="number" name="descanso_minutos" min="0" max="60" step="5" value="{{ tenant.descanso_minutos or 0 }}"></div>
+      </div>
+      {% for d in range(7) %}
+      {% set fr = horario_por_dia[d] %}
+      <div class="dia-horario{% if not fr %} sin-franjas{% endif %}" data-filas>
+        <strong>{{ dias_label[d] }}</strong>
+        <div>
+        {% for n in range(1, max_franjas + 1) %}
+        {% set r = fr[n-1] if fr|length >= n else none %}
+        <div class="fila franja"{% if not r %} hidden{% endif %}>
+          <div><input type="time" name="dia{{ d }}_desde{{ n }}" step="300" value="{{ r[1] if r else '' }}" aria-label="{{ dias_label[d] }} desde ({{ n }})"></div>
+          <div><input type="time" name="dia{{ d }}_hasta{{ n }}" step="300" value="{{ r[2] if r else '' }}" aria-label="{{ dias_label[d] }} hasta ({{ n }})"></div>
+          <div><select name="dia{{ d }}_mod{{ n }}" aria-label="{{ dias_label[d] }} modalidad ({{ n }})">
+            <option value="">Como ofrezcas</option>
+            <option value="presencial"{% if r and r[3] == 'presencial' %} selected{% endif %}>Presencial</option>
+            <option value="virtual"{% if r and r[3] == 'virtual' %} selected{% endif %}>Videollamada</option>
+          </select></div>
+          <div data-sede{% if not (tenant.sedes and tenant.sedes|length > 1) %} hidden{% endif %}><select name="dia{{ d }}_sede{{ n }}" aria-label="{{ dias_label[d] }} consultorio ({{ n }})">
+            <option value="">Consultorio…</option>
+            {% for x in tenant.sedes or [] %}<option value="{{ x.nombre }}"{% if r and r[4] == x.nombre %} selected{% endif %}>{{ x.nombre }}</option>{% endfor %}
+          </select></div>
+        </div>
+        {% endfor %}
+        {% if fr|length < max_franjas %}<button class="agregar-fila" type="button" data-agregar>{{ '+ otra franja' if fr else '+ agregar horario' }}</button>{% endif %}
+        </div>
+      </div>
+      {% endfor %}
+      <div class="fila">
+        <div><label>Feriados nacionales</label><select name="feriados">
+          <option value="bloquear"{% if tenant.feriados != 'atender' %} selected{% endif %}>No atiendo (se bloquean solos)</option>
+          <option value="atender"{% if tenant.feriados == 'atender' %} selected{% endif %}>Atiendo igual</option>
+        </select></div>
+        <div><label>Días puente (no laborables)</label><select name="puentes">
+          <option value="bloquear"{% if tenant.puentes != 'atender' %} selected{% endif %}>No atiendo (se bloquean solos)</option>
+          <option value="atender"{% if tenant.puentes == 'atender' %} selected{% endif %}>Atiendo igual</option>
+        </select></div>
+        <div><label>Generar con anticipación</label><select name="horario_semanas">
+          {% for x in range(1, 13) %}<option value="{{ x }}"{% if (tenant.horario_semanas or 4) == x %} selected{% endif %}>{{ x }} semana{{ 's' if x > 1 }}</option>{% endfor %}
+        </select></div>
+        <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar horario</button></div>
+      </div>
+    </form>
+  </section>
+
+  <section class="card" id="tipos">
+    <h3>Precio y tipos de turno</h3>
+    {% set tt = tenant.tipos_turno or [] %}
+    <form method="post" action="{{ url_for('agenda_cobros') }}" class="fila" data-ajuste>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label>Precio de la sesión ($)</label><input type="text" inputmode="numeric" name="precio_sesion" value="{{ tenant.precio_sesion or '' }}" placeholder="25000"></div>
+      <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar precio</button></div>
+    </form>
+    <p class="tenue corto" style="margin-top:14px"><strong>Tipos de turno</strong> (opcional): si ofrecés turnos de distinta duración o precio, el paciente elige al reservar.</p>
+    <details class="que-es"><summary>¿Qué es esto?</summary><p>Ej. «Primera entrevista» 60 min y «Sesión» 45. Un turno largo ocupa los horarios libres siguientes. Con precio, la sesión queda cargada con ese valor al reservar; si un tipo no tiene precio, se usa el precio de la sesión. Vacío = un solo tipo, de {{ duracion_default }} minutos. Para subirle el valor a tus pacientes actuales usá <a href="{{ url_for('agenda') }}#aumento">Aumento de honorarios</a> en la agenda.</p></details>
+    <form method="post" action="{{ url_for('agenda_tipos') }}" data-filas data-ajuste>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="fila encabezado-filas"><div style="flex:2">Nombre</div><div>Minutos</div><div>Precio (opcional)</div></div>
+      {% for n in range(1, max_tipos + 1) %}
+      <div class="fila" style="margin-bottom:4px"{% if n > [tt|length + 1, 2]|max %} hidden{% endif %}>
+        <div style="flex:2"><input type="text" name="tipo{{ n }}_nombre" maxlength="60" placeholder="{{ 'Primera entrevista' if n == 1 else 'Sesión' if n == 2 else '' }}" value="{{ tt[n-1].nombre if tt|length >= n else '' }}" aria-label="Nombre del tipo {{ n }}"></div>
+        <div><input type="number" name="tipo{{ n }}_minutos" min="10" max="240" step="5" placeholder="min" value="{{ tt[n-1].minutos if tt|length >= n else '' }}" aria-label="Minutos del tipo {{ n }}"></div>
+        <div><input type="text" inputmode="numeric" name="tipo{{ n }}_precio" placeholder="$" value="{{ tt[n-1].precio if tt|length >= n and tt[n-1].precio else '' }}" aria-label="Precio del tipo {{ n }}"></div>
+      </div>
+      {% endfor %}
+      <button class="agregar-fila" type="button" data-agregar>+ otro tipo</button>
+      <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar tipos</button></div>
+    </form>
+  </section>
+
+  <section class="card" id="sedes">
+    <h3>Consultorios</h3>
+    {% set ss = tenant.sedes or [] %}
+    <p class="tenue corto">Si atendés en más de un lugar: con dos o más, en el horario elegís dónde es cada franja.</p>
+    <form method="post" action="{{ url_for('agenda_sedes') }}" data-filas data-ajuste data-primero>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      {% for n in range(1, max_sedes + 1) %}
+      <div class="fila" style="margin-bottom:4px"{% if n > [ss|length + 1, 2]|max %} hidden{% endif %}>
+        <div><input type="text" name="sede{{ n }}_nombre" maxlength="40" placeholder="{{ 'Palermo' if n == 1 else 'Belgrano' if n == 2 else 'Nombre' }}" value="{{ ss[n-1].nombre if ss|length >= n else '' }}" aria-label="Nombre del consultorio {{ n }}"></div>
+        <div style="flex:2"><input type="text" name="sede{{ n }}_direccion" maxlength="120" placeholder="Dirección" value="{{ ss[n-1].direccion or '' if ss|length >= n else '' }}" aria-label="Dirección del consultorio {{ n }}"></div>
+      </div>
+      {% endfor %}
+      <button class="agregar-fila" type="button" data-agregar>+ otro consultorio</button>
+      <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar consultorios</button></div>
+    </form>
+  </section>
+  </section>
+
+  <section role="tabpanel" id="p-pagina" aria-labelledby="tab-pagina" data-panel="pagina"{% if pestania != 'pagina' %} hidden{% endif %}>
+  {% if tenant.slug %}
+  {% set mi_pagina = url_for('publico', slug=tenant.slug, _external=True) %}
+  <section class="card" id="mi-pagina">
+    <h3>Tu página de turnos</h3>
+    <p class="tenue corto">Tus pacientes eligen día y hora y reservan solos.
+      {% if tenant.pausado %}<strong>Ahora está pausada</strong>{% else %}Ahora está tomando turnos{% endif %}: la pausa está en la agenda, en <a href="{{ url_for('agenda') }}#bloqueos">Vacaciones</a>.</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+      <input type="text" id="mi-pagina-link" value="{{ mi_pagina }}" readonly style="flex:1;min-width:220px">
+      <button class="btn chico" type="button" id="mi-pagina-copiar">Copiar</button>
+      <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener"
+         href="https://wa.me/?text={{ ('Sacá tu turno conmigo acá: ' ~ mi_pagina)|urlencode }}">Compartir por WhatsApp</a>
+      <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ mi_pagina }}">Ver</a>
+    </div>
+    {% if estadisticas is not none %}
+    <p style="margin-top:0"><strong>Este mes:</strong> {{ estadisticas.get('visita', 0) }} visita{{ '' if estadisticas.get('visita', 0) == 1 else 's' }}
+      · {{ estadisticas.get('reserva', 0) }} reserva{{ '' if estadisticas.get('reserva', 0) == 1 else 's' }}
+      · {{ estadisticas.get('cancelacion', 0) }} cancelada{{ '' if estadisticas.get('cancelacion', 0) == 1 else 's' }}
+      · {{ estadisticas.get('cambio', 0) }} cambio{{ '' if estadisticas.get('cambio', 0) == 1 else 's' }} de horario
+      · {{ estadisticas.get('espera', 0) }} a lista de espera</p>
+    {% endif %}
+    <details class="que-es" style="margin-top:10px"><summary class="tenue">Código QR (para imprimir o poner en el consultorio)</summary>
+      <img src="{{ url_for('agenda_qr_pagina') }}" alt="QR de tu página de turnos" width="220" height="220" loading="lazy" style="margin-top:8px">
+    </details>
+  </section>
+  <script>
+    document.getElementById('mi-pagina-copiar').addEventListener('click', async (e) => {
+      const campo = document.getElementById('mi-pagina-link');
+      try { await navigator.clipboard.writeText(campo.value); } catch (_) { campo.select(); document.execCommand('copy'); }
+      e.target.textContent = 'Copiado';
+      setTimeout(() => { e.target.textContent = 'Copiar'; }, 1800);
+    });
+  </script>
+  {% endif %}
+
+    <section class="card" id="presentacion">
+      <h3>Cómo te presentás</h3>
+      <p class="tenue corto">Es lo primero que ve un paciente, arriba de tus horarios.</p>
+      <div class="perfil-fotos">
+        <div>
+          <label>Foto de perfil</label>
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">
+            {% if tenant.foto %}<img src="{{ tenant.foto }}" alt="Tu foto" width="64" height="64" style="width:64px;height:64px;border-radius:50%;object-fit:cover">{% endif %}
+            <form method="post" action="{{ url_for('agenda_foto') }}" enctype="multipart/form-data" data-achicar="512x512" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label class="btn chico secundario elegir-archivo" style="margin:0;color:var(--green)">{{ 'Cambiar foto' if tenant.foto else 'Elegir foto' }}<input type="file" name="foto" accept="image/png,image/jpeg" aria-label="Elegir foto de perfil"></label>
+              <span class="tenue" data-estado hidden>Subiendo…</span>
+              <noscript><button class="btn chico secundario" type="submit">Subir</button></noscript>
+            </form>
+            {% if tenant.foto %}<form method="post" action="{{ url_for('agenda_foto_borrar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="quitar" type="submit" title="Quitar la foto">×</button></form>{% endif %}
+          </div>
+        </div>
+        <div>
+          <label>Portada (la imagen ancha de arriba)</label>
+          {% if tenant.portada_version %}<img src="{{ url_for('publico_portada', slug=tenant.slug, v=tenant.portada_version) }}" alt="Tu portada" style="width:100%;max-width:360px;aspect-ratio:4/1;object-fit:cover;border-radius:8px;display:block;margin-bottom:6px">{% endif %}
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            <form method="post" action="{{ url_for('agenda_portada') }}" enctype="multipart/form-data" data-achicar="1600x400" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <label class="btn chico secundario elegir-archivo" style="margin:0;color:var(--green)">{{ 'Cambiar portada' if tenant.portada_version else 'Elegir portada' }}<input type="file" name="portada" accept="image/png,image/jpeg" aria-label="Elegir imagen de portada"></label>
+              <span class="tenue" data-estado hidden>Subiendo…</span>
+              <noscript><button class="btn chico secundario" type="submit">Subir</button></noscript>
+            </form>
+            {% if tenant.portada_version %}<form method="post" action="{{ url_for('agenda_portada_borrar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="quitar" type="submit" title="Quitar la portada">×</button></form>{% endif %}
+          </div>
+          <span class="tenue" style="font-size:.8rem;display:block;margin-top:4px">Un paisaje, tu consultorio, algo que te guste. Sin portada se usa un fondo liso.</span>
+        </div>
+      </div>
+      <form method="post" action="{{ url_for('agenda_presentacion') }}" class="fila" style="margin-top:12px" data-ajuste>
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <div><label>Título</label><input type="text" name="titulo" maxlength="80" placeholder="Lic. en Psicología (UBA)" value="{{ tenant.titulo or '' }}"></div>
+        <div><label>Dónde atendés</label><input type="text" name="ubicacion" maxlength="80" placeholder="Palermo, CABA" value="{{ tenant.ubicacion or '' }}"></div>
+        <div class="ancho"><label>Una línea sobre vos (hasta 160 letras)</label><input type="text" name="descripcion" maxlength="160" placeholder="Acompaño a adolescentes y adultos en momentos de cambio" value="{{ tenant.descripcion or '' }}"></div>
+        <div class="ancho"><label>Sobre mí</label><textarea name="sobre_mi" rows="5" maxlength="1200" placeholder="Cómo trabajás, desde qué enfoque, qué puede esperar alguien en la primera sesión.">{{ tenant.sobre_mi or '' }}</textarea></div>
+        <div class="ancho"><label>Temas que trabajás (separados por coma, hasta {{ 8 }})</label><input type="text" name="enfoques" maxlength="400" placeholder="Ansiedad, Duelo, Adolescentes, Vínculos" value="{{ (tenant.enfoques or [])|join(', ') }}"></div>
+        <div class="ancho"><label>Formación (un renglón por título o curso, hasta 6)</label><textarea name="formacion" rows="3" maxlength="800" placeholder="Lic. en Psicología — UBA&#10;Posgrado en Terapia Cognitiva — Fundación Aiglé">{{ (tenant.formacion or [])|join('\n') }}</textarea></div>
+        <div class="ancho"><label>Un poco más de mí <span class="tenue">(lo que te humaniza: qué te gusta, tus mascotas, qué estás leyendo)</span></label><textarea name="mas_de_mi" rows="2" maxlength="400" placeholder="Fuera del consultorio me vas a encontrar en bici o con mis dos gatos.">{{ tenant.mas_de_mi or '' }}</textarea></div>
+        <div class="ancho"><label>Obras sociales y prepagas</label><input type="text" name="obras_sociales" maxlength="200" placeholder="Particular. Doy factura para reintegro de OSDE y Swiss Medical." value="{{ tenant.obras_sociales or '' }}"></div>
+        <div class="ancho"><label>Color de tu página</label>
+          <div class="colores">
+            {% set cp = tenant.color_pagina or 'verde' %}
+            {% for clave, c in colores_pagina.items() %}
+            <label class="color-opcion"><input type="radio" name="color_pagina" value="{{ clave }}"{% if cp == clave %} checked{% endif %}><span class="color-muestra" style="background:{{ c.muestra }}"></span>{{ c.nombre }}</label>
+            {% endfor %}
+          </div>
+        </div>
+        <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar presentación</button></div>
+      </form>
+    </section>
+
+  <section class="card" id="reservas">
+    <h3>Reservas desde tu página</h3>
+    <form method="post" action="{{ url_for('agenda_perfil') }}" class="fila" data-ajuste>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="casillas" value="en_directorio">
+      <div><label>Qué turnos ofrecés</label><select name="modalidades_publicas">
+        {% set m = tenant.modalidades_publicas or 'presencial' %}
+        <option value="presencial"{% if m == 'presencial' %} selected{% endif %}>Sólo presenciales</option>
+        <option value="virtual"{% if m == 'virtual' %} selected{% endif %}>Sólo por videollamada</option>
+        <option value="ambas"{% if m == 'ambas' %} selected{% endif %}>Las dos (elige el paciente)</option>
+      </select></div>
+      <div class="ancho"><label class="casilla"><input type="checkbox" name="en_directorio" value="1"{% if tenant.en_directorio is not sameas false %} checked{% endif %}>
+        <span>Aparecer en la lista de profesionales <span class="tenue">(sin tildar, sólo entra quien tiene tu link)</span></span></label></div>
+      <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar</button></div>
+    </form>
+    <form method="post" action="{{ url_for('agenda_avisos') }}" class="fila" data-ajuste data-si="modalidades_publicas!=presencial">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="ancho"><label>Link de videollamada <span class="tenue">(se lo mandamos al paciente con el recordatorio)</span></label>
+        <input type="text" name="link_videollamada" placeholder="https://meet.google.com/..." value="{{ tenant.link_videollamada or '' }}"></div>
+      <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar link</button></div>
+    </form>
+  </section>
+  </section>
+
+  <section role="tabpanel" id="p-cobros" aria-labelledby="tab-cobros" data-panel="cobros"{% if pestania != 'cobros' %} hidden{% endif %}>
+  <section class="card" id="cobros">
+    <h3>Cobrar las reservas web</h3>
+    <p class="tenue corto">Si cobrás, cada turno de tu página se confirma recién cuando lo pagan.</p>
+    <details class="que-es"><summary>¿Qué es esto?</summary><p>Mientras tanto el horario queda apartado: 30 minutos con Mercado Pago, 2 horas para subir el comprobante de una transferencia. El precio se carga en <a href="{{ url_for('ajustes', p='agenda') }}#tipos">Agenda → Precio</a> y la devolución si cancelan, en <a href="{{ url_for('ajustes', p='cancelaciones') }}">Cancelaciones</a>. Lo cobrado de cada mes lo ves en la <a href="{{ url_for('agenda') }}#cobros">agenda</a>.</p></details>
+    <div style="margin-bottom:14px">
+      {% if tenant.mp_token_cifrado and tenant.mp_caido_at %}
+        <div class="aviso"><strong>Se cortó la conexión con Mercado Pago</strong> (se revocó el permiso o venció). Mientras tanto, las reservas web no se cobran por ahí.
+          <a class="btn chico" style="text-decoration:none" href="{{ url_for('agenda_mp_conectar') }}">Conectar Mercado Pago</a></div>
+      {% elif tenant.mp_token_cifrado %}
+        <strong>Mercado Pago conectado.</strong> Los pagos van a tu cuenta.
+        <form method="post" action="{{ url_for('agenda_mp_desconectar') }}" style="display:inline"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Desconectar</button></form>
+      {% elif mp_disponible %}
+        <a class="btn chico" style="text-decoration:none" href="{{ url_for('agenda_mp_conectar') }}">Conectar Mercado Pago</a>
+        <span class="tenue">Entrás con tu usuario de Mercado Pago; no hace falta copiar ninguna clave.</span>
+        {% if mp_prueba %}
+        <form method="post" action="{{ url_for('agenda_mp_token_prueba') }}" class="fila" style="margin-top:8px" autocomplete="off">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <div class="ancho"><label>Modo prueba: Access Token de la cuenta vendedor de prueba</label><input type="password" name="token" maxlength="200" placeholder="APP_USR-…" autocomplete="off"></div>
+          <div class="al-pie"><button class="btn chico secundario" type="submit">Conectar con el token</button></div>
+        </form>
+        {% endif %}
+      {% else %}
+        <span class="tenue">Mercado Pago todavía no está habilitado en la plataforma. Podés cobrar por transferencia.</span>
+      {% endif %}
+    </div>
+    <form method="post" action="{{ url_for('agenda_cobros') }}" class="fila" data-ajuste>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label>Cobrar</label><select name="cobro_web">
+        {% set cw = tenant.cobro_web or 'no' %}
+        <option value="no"{% if cw == 'no' %} selected{% endif %}>No cobrar (la reserva se acepta sola)</option>
+        <option value="mercadopago"{% if cw == 'mercadopago' %} selected{% endif %}>Con Mercado Pago</option>
+        <option value="transferencia"{% if cw == 'transferencia' %} selected{% endif %}>Por transferencia (valido el comprobante)</option>
+        <option value="ambos"{% if cw == 'ambos' %} selected{% endif %}>Las dos (elige el paciente)</option>
+      </select></div>
+      <div data-si="cobro_web!=no"><label>Qué se cobra</label><select name="cobro_modo">
+        <option value="total"{% if tenant.cobro_modo != 'sena' %} selected{% endif %}>El total de la sesión</option>
+        <option value="sena"{% if tenant.cobro_modo == 'sena' %} selected{% endif %}>Una seña</option>
+      </select></div>
+      <div data-si="cobro_web!=no;cobro_modo=sena"><label>Seña ($)</label><input type="text" inputmode="numeric" name="sena_monto" value="{{ tenant.sena_monto or '' }}" placeholder="10000"></div>
+      <div class="ancho" data-si="cobro_web=transferencia|ambos"><label>Datos para transferir (alias, CBU, titular)</label><textarea name="transferencia_datos" rows="2" maxlength="300" placeholder="Alias: marcos.consultorio.mp&#10;Titular: Marcos ...">{{ tenant.transferencia_datos or '' }}</textarea></div>
+      <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar</button></div>
+    </form>
+    {% if not (tenant.precio_sesion or (tenant.tipos_turno or [])|selectattr('precio')|list) %}
+    <p class="tenue" data-si="cobro_web!=no">Falta el precio: cargalo en <a href="{{ url_for('ajustes', p='agenda') }}#tipos">Agenda → Precio</a>. Sin precio, la reserva no se cobra.</p>
+    {% endif %}
+  </section>
+  </section>
+
+  <section role="tabpanel" id="p-cancelaciones" aria-labelledby="tab-cancelaciones" data-panel="cancelaciones"{% if pestania != 'cancelaciones' %} hidden{% endif %}>
+  <section class="card" id="cancelaciones">
+    <h3>Cuando un paciente cancela</h3>
+    <form method="post" action="{{ url_for('agenda_perfil') }}" class="fila" data-ajuste>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="casillas" value="ofrecer_espera_auto">
+      <div><label>Puede cancelar o cambiar desde la web</label><select name="cancelar_hasta_horas">
+        {% set h = tenant.cancelar_hasta_horas if tenant.cancelar_hasta_horas is not none else 24 %}
+        {% for x in [0, 2, 6, 12, 24, 48, 72] %}<option value="{{ x }}"{% if h == x %} selected{% endif %}>{{ 'Hasta que empieza' if x == 0 else 'Hasta ' ~ x ~ ' h antes' }}</option>{% endfor %}
+      </select></div>
+      <div><label>El horario que deja</label><select name="al_cancelar">
+        <option value="liberar"{% if tenant.al_cancelar != 'preguntar' %} selected{% endif %}>Queda libre enseguida</option>
+        <option value="preguntar"{% if tenant.al_cancelar == 'preguntar' %} selected{% endif %}>Preguntarme antes de liberarlo</option>
+      </select></div>
+      <div data-si="al_cancelar=preguntar"><label>Si no te decidís</label><select name="hueco_vence_horas">
+        {% set hv = tenant.hueco_vence_horas or 0 %}
+        {% for x in [0, 1, 2, 4, 8, 12, 24] %}<option value="{{ x }}"{% if hv == x %} selected{% endif %}>{{ 'Queda retenido hasta que decida' if x == 0 else 'Decidir solo a las ' ~ x ~ ' h' }}</option>{% endfor %}
+      </select></div>
+      <div data-si="al_cancelar=preguntar;hueco_vence_horas!=0"><label>…y en ese caso</label><select name="hueco_por_defecto">
+        <option value="liberar"{% if tenant.hueco_por_defecto != 'tomar' %} selected{% endif %}>Liberarlo</option>
+        <option value="tomar"{% if tenant.hueco_por_defecto == 'tomar' %} selected{% endif %}>Quedármelo</option>
+      </select></div>
+      <div class="ancho"><label class="casilla"><input type="checkbox" name="ofrecer_espera_auto" value="1"{% if tenant.ofrecer_espera_auto %} checked{% endif %}>
+        <span>Ofrecer el horario liberado al primero de mi lista de espera, solo <span class="tenue">(si no, te lo propone tu asistente por WhatsApp)</span></span></label></div>
+      <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar</button></div>
+    </form>
+    <h4 class="subtitulo" style="margin:16px 0 0">Si ya había pagado por la web</h4>
+    <form method="post" action="{{ url_for('agenda_cobros') }}" class="fila" data-ajuste data-si="cobro_web!=no">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label>Se le devuelve</label><select name="devolucion_modo">
+        {% set dm = tenant.devolucion_modo or 'todo' %}
+        <option value="todo"{% if dm == 'todo' %} selected{% endif %}>Todo</option>
+        <option value="menos_sena"{% if dm == 'menos_sena' %} selected{% endif %}>Todo menos la seña</option>
+        <option value="nada"{% if dm == 'nada' %} selected{% endif %}>Nada</option>
+      </select></div>
+      <div data-si="devolucion_modo!=nada"><label>…si cancela con al menos</label><select name="devolucion_horas">
+        {% set dh = tenant.devolucion_horas if tenant.devolucion_horas is number else 24 %}
+        {% for x in devolucion_horas %}<option value="{{ x }}"{% if dh == x %} selected{% endif %}>{{ 'Cualquier anticipación' if x == 0 else x ~ ' h de anticipación' }}</option>{% endfor %}
+      </select></div>
+      <div class="ancho"><details class="que-es"><summary>¿Qué es esto?</summary><p>Con Mercado Pago la devolución sale sola; con transferencia te queda anotada en «Pagos para revisar» para que la hagas. Si cancela más tarde, no se devuelve. Se le muestra al paciente antes de pagar y al cancelar.</p></details></div>
+      <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar</button></div>
+    </form>
+    <p class="tenue" data-si="cobro_web=no">No cobrás las reservas web, así que no hay nada que devolver. Se activa en <a href="{{ url_for('ajustes', p='cobros') }}">Cobros</a>.</p>
+  </section>
+  </section>
+
+  <section role="tabpanel" id="p-avisos" aria-labelledby="tab-avisos" data-panel="avisos"{% if pestania != 'avisos' %} hidden{% endif %}>
+  <section class="card" id="avisos">
+    <h3>Tu WhatsApp y tu asistente</h3>
+    <form method="post" action="{{ url_for('agenda_avisos') }}" class="fila" data-ajuste>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="ancho"><label>Tu WhatsApp para avisos</label><input type="text" name="telefono" placeholder="54 9 11 2345 6789" value="{{ tenant.aviso_telefono or '' }}">
+        {% if aviso_vinculado %}
+        <span class="tenue" style="display:block;font-size:.85em;margin-top:4px">✓ Vinculado. Desde este número escribile «ayuda» al WhatsApp de turnos: te dice tu agenda, pagos, deudas y mensajes, con nombres.</span>
+        {% elif codigo_vinculo %}
+        <span class="tenue" id="vincular-whatsapp" style="display:block;font-size:.85em;margin-top:4px">Para que tu asistente te pase la agenda con nombres, mandá <strong>VINCULAR {{ codigo_vinculo }}</strong> desde este número al WhatsApp de turnos (el mismo que te manda los avisos). Si cambiás el número, hay que vincularlo de nuevo.</span>
+        {% else %}
+        <span class="tenue" style="display:block;font-size:.85em;margin-top:4px">Cargá tu número: te llegan los avisos y, una vez vinculado, podés preguntarle tu agenda al asistente.</span>
+        {% endif %}</div>
+      <input type="hidden" name="resumen_cobros_form" value="1">
+      <div class="ancho">
+        <label class="casilla"><input type="checkbox" name="aviso_cada_pago" value="1" {{ 'checked' if tenant.aviso_cada_pago is not sameas false }}><span>Avisarme por WhatsApp cada pago que entra por Mercado Pago</span></label>
+        <label class="casilla"><input type="checkbox" name="resumen_noche" value="1" {{ 'checked' if tenant.resumen_noche is not sameas false }}{% if not aviso_vinculado %} disabled{% endif %}><span>Mandarme a las 20 las sesiones de mañana, con nombres{% if not aviso_vinculado %} <span class="tenue">(primero vinculá tu WhatsApp)</span>{% endif %}</span></label>
+        {% if not aviso_vinculado and tenant.resumen_noche is not sameas false %}<input type="hidden" name="resumen_noche" value="1">{% endif %}
+        <label class="casilla"><input type="checkbox" name="resumen_cobros_mail" value="1" {{ 'checked' if tenant.resumen_cobros_mail is not sameas false }}><span>Mandarme por mail el resumen de cobros web el día 1 de cada mes</span></label>
+      </div>
+      <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar</button></div>
+    </form>
+  </section>
+  </section>
+
+  <section role="tabpanel" id="p-cuenta" aria-labelledby="tab-cuenta" data-panel="cuenta"{% if pestania != 'cuenta' %} hidden{% endif %}>
+  <section class="card" id="ajustes">
+    <h3>Tus datos</h3>
+    <p class="tenue corto">Salen en los recibos y en los informes.</p>
+    <form method="post" action="{{ url_for('agenda_avisos') }}" class="fila" data-ajuste>
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div><label>Matrícula</label><input type="text" name="matricula" value="{{ tenant.matricula or '' }}"></div>
+      <div><label>CUIT <span class="tenue">(opcional)</span></label><input type="text" name="recibo_cuit" inputmode="numeric" placeholder="20-12345678-3" value="{{ tenant.recibo_cuit or '' }}"></div>
+      <div class="ancho"><label>Domicilio <span class="tenue">(opcional)</span></label><input type="text" name="recibo_domicilio" maxlength="150" value="{{ tenant.recibo_domicilio or '' }}"></div>
+      <div class="ancho"><label>Tu mail <span class="tenue">(para recuperar la clave)</span></label><input type="email" name="email" autocomplete="email" value="{{ tenant.email or '' }}"></div>
+      <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar</button></div>
+    </form>
+  </section>
+    <section class="card" id="firma">
+      <h3>Firma y sello para informes</h3>
+      {% if tenant.firma_imagen %}
+      <img src="{{ tenant.firma_imagen }}" alt="Tu firma" style="max-height:80px;max-width:220px;display:block;margin:8px 0">
+      <form method="post" action="{{ url_for('agenda_firma_borrar') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <button class="quitar" type="submit">Quitar firma</button>
+      </form>
+      {% endif %}
+      <form method="post" action="{{ url_for('agenda_firma') }}" enctype="multipart/form-data" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div class="ancho"><label>Foto o escaneo de tu firma con sello (PNG o JPG, hasta 300 KB, mejor con fondo blanco)</label>
+          <input type="file" name="firma" accept="image/png,image/jpeg" required></div>
+        <div class="al-pie"><button class="btn chico" type="submit">{{ 'Cambiar' if tenant.firma_imagen else 'Cargar' }} firma</button></div>
+      </form>
+    </section>
+  <section class="card" id="seguridad">
+    <h3>Seguridad</h3>
+    <p class="tenue corto">Tu clave, el doble factor, las llaves de acceso y dónde tenés el panel abierto.</p>
+    <details>
+      <summary class="tenue">Tus sesiones abiertas ({{ mis_sesiones|length }}) ▾</summary>
+      {% for x in mis_sesiones %}
+      <div class="ficha-item">
+        <span><strong>{{ x.dispositivo or 'Navegador' }}</strong>{% if x.actual %} <span class="chip chip-ok">esta</span>{% endif %}
+          <span class="tenue">· entró el {{ x._desde }} con {{ x.origen }} · última vez {{ x._ultima }}</span></span>
+        <form method="post" action="{{ url_for('agenda_sesion_cerrar', sesion_id=x.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="btn chico secundario" type="submit">{{ 'Salir' if x.actual else 'Cerrar' }}</button>
+        </form>
+      </div>
+      {% endfor %}
+      {% if mis_sesiones|length > 1 %}
+      <form method="post" action="{{ url_for('agenda_sesiones_cerrar_otras') }}" style="margin-top:6px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <button class="btn chico secundario" type="submit">Cerrar todas menos esta</button>
+      </form>
+      {% endif %}
+      <div class="tenue">Si ves una que no reconocés, cerrala y cambiá la clave.</div>
+    </details>
+    <details>
+      <summary class="tenue">Llaves de acceso ({{ mis_llaves|length }}) ▾</summary>
+      <p class="tenue">Entrás con la huella, la cara o el PIN del celular o la compu, sin escribir la clave. Agregá una en cada dispositivo que uses.</p>
+      {% for x in mis_llaves %}
+      <div class="ficha-item">
+        <span><strong>{{ x.nombre or 'Llave' }}</strong> <span class="tenue">· creada el {{ x._creada }} · último uso {{ x._ultima }}</span></span>
+        <form method="post" action="{{ url_for('agenda_llave_borrar', llave_id=x.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="quitar" type="submit" aria-label="Borrar llave" onclick="return confirm('¿Borrar esta llave?')">×</button>
+        </form>
+      </div>
+      {% endfor %}
+      <button class="btn chico secundario" type="button" id="llave-agregar">Agregar llave en este dispositivo</button>
+      <div class="tenue" id="llave-estado" style="margin-top:6px"></div>
+      {% include "_llaves_js.html" %}
+      <script>
+      (() => {
+        const b = document.getElementById('llave-agregar');
+        if (!fibotLlaves.disponible()) { b.disabled = true; document.getElementById('llave-estado').textContent = 'Este navegador no admite llaves de acceso.'; return; }
+        b.addEventListener('click', async () => {
+          const r = await fibotLlaves.registrar('{{ csrf_token() }}');
+          if (r.ok) location.reload(); else document.getElementById('llave-estado').textContent = r.error || 'No se pudo.';
+        });
+      })();
+      </script>
+    </details>
+    <details>
+      <summary class="tenue">Doble factor{% if tenant.totp_secreto %} (activado){% endif %} ▾</summary>
+      {% if tenant.totp_secreto %}
+      <p class="tenue">Al entrar con la clave te pide el código de la app. Para desactivarlo, escribí un código actual.</p>
+      <form method="post" action="{{ url_for('agenda_doble_factor_desactivar') }}" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div><label>Código de la app</label><input type="text" name="codigo" inputmode="numeric" maxlength="7" required></div>
+        <div class="al-pie"><button class="btn chico secundario" type="submit">Desactivar</button></div>
+      </form>
+      {% else %}
+      <p class="tenue">Opcional: además de la clave, al entrar te pide un código de una app del celular. Se activa escaneando un QR.</p>
+      <a class="btn chico secundario" href="{{ url_for('agenda_doble_factor') }}" style="text-decoration:none;display:inline-block">Activar</a>
+      {% endif %}
+    </details>
+    <details>
+      <summary class="tenue">Cambiar la clave ▾</summary>
+      <form method="post" action="{{ url_for('agenda_clave') }}" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div><label>Clave actual</label><input type="password" name="actual" autocomplete="current-password" required></div>
+        <div><label>Clave nueva (mínimo 10)</label><input type="password" name="nueva" autocomplete="new-password" minlength="10" required></div>
+        <div><label>Repetí la nueva</label><input type="password" name="repetir" autocomplete="new-password" minlength="10" required></div>
+        <div class="al-pie"><button class="btn chico" type="submit">Cambiar</button></div>
+      </form>
+      <div class="tenue">Cierra las sesiones abiertas en otros dispositivos.</div>
+    </details>
+  </section>
+  <section class="card" id="instalar">
+    <div id="instalar-app">
+      <strong>Tené el panel como una app</strong>
+      <p class="tenue" style="margin:4px 0 8px" id="instalar-texto">Queda con su ícono en el celular o en la compu y se abre sin la barra del navegador.</p>
+      <button class="btn chico" type="button" id="instalar-boton" hidden>Instalar en este dispositivo</button>
+      <p class="tenue" style="margin:0" id="instalar-manual">
+        <span data-so="ios" hidden>En iPhone o iPad: abrilo en Safari, tocá <strong>Compartir</strong> (el cuadrado con la flecha) y después <strong>«Agregar a inicio»</strong>.</span>
+        <span data-so="otro" hidden>Si no aparece el botón: en el menú del navegador (⋮) elegí <strong>«Instalar app»</strong> o <strong>«Agregar a la pantalla principal»</strong>.</span>
+      </p>
+    </div>
+    <script>
+    (function () {
+      var boton = document.getElementById('instalar-boton'), pedido = null;
+      var app = (window.matchMedia && matchMedia('(display-mode: standalone)').matches) || navigator.standalone;
+      if (app) { document.getElementById('instalar-texto').textContent = 'Ya lo estás usando como app. 👍'; return; }
+      var ios = /iphone|ipad|ipod/i.test(navigator.userAgent);
+      document.querySelector('[data-so="' + (ios ? 'ios' : 'otro') + '"]').hidden = false;
+      window.addEventListener('beforeinstallprompt', function (e) {
+        e.preventDefault(); pedido = e; boton.hidden = false;
+        document.querySelector('[data-so="otro"]').hidden = true;
+      });
+      boton.addEventListener('click', function () {
+        if (!pedido) return;
+        pedido.prompt();
+        pedido.userChoice.finally(function () { pedido = null; boton.hidden = true; });
+      });
+      window.addEventListener('appinstalled', function () { document.getElementById('instalar-texto').textContent = 'Listo, quedó instalado.'; boton.hidden = true; });
+    })();
+    </script>
+  </section>
+  </section>
+
+  <section role="tabpanel" id="p-avanzado" aria-labelledby="tab-avanzado" data-panel="avanzado"{% if pestania != 'avanzado' %} hidden{% endif %}>
+  <section class="card" id="herramientas">
+    <h3>Herramientas para informes y evaluaciones</h3>
+    <p class="tenue corto">Plantillas de informe, cuestionarios propios{% if rubro.tests %}, plazos de los tests y textos de lectura{% endif %}.</p>
+    <details>
+      <summary class="tenue">Plantillas de informe ({{ plantillas_informe|length }}) ▾</summary>
+      <div class="tenue" style="margin:6px 0">Se crean desde un borrador de informe: armá las secciones como te gustan y tocá «Guardar estructura como plantilla». Las secciones con «motivo», «evaluación», «lectura», «cuestionario» u «objetivo» en el título se completan solas.</div>
+      {% for p in plantillas_informe %}
+      <div class="ficha-item">
+        <span><strong>{{ p.contenido.nombre }}</strong> <span class="tenue">{{ p.contenido.secciones|join(' · ') }}</span></span>
+        <form method="post" action="{{ url_for('agenda_plantilla_informe_borrar', plantilla_id=p.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="quitar" type="submit" aria-label="Borrar plantilla" onclick="return confirm('¿Borrar esta plantilla?')">×</button>
+        </form>
+      </div>
+      {% endfor %}
+    </details>
+    {% if rubro.tests %}
+    <details>
+      <summary class="tenue">Plazo para repetir cada test ▾</summary>
+      <form method="post" action="{{ url_for('agenda_plazos_tests') }}" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div class="ancho tenue">Meses hasta volver a sugerir un test ya tomado. Vacío vuelve al de fábrica.</div>
+        {% for p in plazos_tests %}
+        <div><label>{{ p.nombre }}{% if p.propio %} <span class="tenue">(de fábrica: {{ p.fabrica }})</span>{% endif %}</label>
+          <input type="number" name="meses-{{ p.nombre }}" min="0" max="60" placeholder="{{ p.fabrica }}" value="{{ p.meses if p.propio else '' }}"></div>
+        {% endfor %}
+        <div class="al-pie"><button class="btn chico" type="submit">Guardar plazos</button></div>
+      </form>
+    </details>
+    <details>
+      <summary class="tenue">Textos para fluidez lectora ({{ textos_lectura|length }}) ▾</summary>
+      {% for t in textos_lectura %}
+      <div class="ficha-item">
+        <span><strong>{{ t.titulo }}</strong> <span class="tenue">{{ t.palabras }} palabras</span></span>
+        <form method="post" action="{{ url_for('agenda_textos_lectura_borrar', texto_id=t.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="quitar" type="submit" aria-label="Borrar texto" onclick="return confirm('¿Borrar este texto? Las lecturas ya tomadas quedan.')">×</button>
+        </form>
+      </div>
+      {% else %}
+      <div class="tenue">Todavía no cargaste ninguno.</div>
+      {% endfor %}
+      <form method="post" action="{{ url_for('agenda_textos_lectura') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <label>Título</label><input type="text" name="titulo" maxlength="80" required placeholder="Ej.: El perro de Sofía (2º grado)">
+        <label>Texto</label><textarea name="texto" rows="5" required></textarea>
+        <div class="tenue">Usá textos propios o de dominio público, no los de un test: esos son de la editorial.</div>
+        <button class="btn chico" type="submit">Agregar texto</button>
+      </form>
+    </details>
+    {% endif %}
+    <details>
+      <summary class="tenue">Cuestionarios propios ({{ plantillas|length }}) ▾</summary>
+      <div class="tenue" style="margin:6px 0">Cargás las preguntas y cómo se corrigen; se mandan por link igual que los demás y se corrigen solos. El material que cargues es tu responsabilidad.</div>
+      {% for p in plantillas %}
+      {% set c = p.contenido %}
+      <details class="test-grupo">
+        <summary><strong>{{ p.titulo }}</strong> <span class="tenue">{{ c["items"]|length }} preguntas{% if p.faltan %} · faltan {{ p.faltan }}: todavía no se puede mandar{% endif %}</span></summary>
+        <form method="post" action="{{ url_for('agenda_plantilla_editar', plantilla_id=p.id) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <div class="fila">
+            <div><label>Nombre</label><input type="text" name="nombre" value="{{ c.nombre }}" maxlength="60" required></div>
+            <div><label>Versión <span class="tenue">(padres, chico/a, docente…)</span></label><input type="text" name="version" value="{{ c.version or '' }}" maxlength="30"></div>
+            <div><label>Qué mide</label><input type="text" name="que_mide" value="{{ c.que_mide or '' }}" maxlength="60"></div>
+          </div>
+          <label>Consigna</label><textarea name="consigna" rows="2" maxlength="600">{{ c.consigna or '' }}</textarea>
+          <label>Preguntas, una por renglón y en orden</label><textarea name="items" rows="10">{{ p.form["items"] }}</textarea>
+          <label>Opciones de respuesta, «texto = puntos» por renglón</label><textarea name="opciones" rows="3">{{ p.form.opciones }}</textarea>
+          <label>Subescalas, «Nombre: preguntas | corte» por renglón (el corte es opcional)</label><textarea name="subescalas" rows="4">{{ p.form.subescalas }}</textarea>
+          <div class="fila">
+            <div><label>Corte del total (opcional)</label><input type="number" name="corte_total" value="{{ c.corte_total if c.corte_total is not none else '' }}"></div>
+          </div>
+          <label>Fuente o crédito (se muestra al pie)</label><input type="text" name="fuente" value="{{ c.fuente or '' }}" maxlength="400">
+          <button class="btn chico" type="submit" style="margin-top:8px">Guardar</button>
+        </form>
+        <form method="post" action="{{ url_for('agenda_plantilla_borrar', plantilla_id=p.id) }}" style="margin-top:6px">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <button class="quitar" type="submit" onclick="return confirm('¿Borrar este cuestionario? Las respuestas ya recibidas quedan.')">Borrar cuestionario</button>
+          · <a href="{{ url_for('agenda_plantilla_exportar', plantilla_id=p.id) }}">Exportar para pasárselo a otra profesional</a>
+        </form>
+        <form method="post" action="{{ url_for('agenda_plantilla_compartir', plantilla_id=p.id) }}" style="margin-top:6px">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="con_preguntas" value="1"> Incluir el texto de las preguntas</label>
+          <label style="display:flex;gap:6px;align-items:center;margin:0"><input type="checkbox" name="declaro" value="1"> Las preguntas son mías o de uso libre (sólo si las incluís)</label>
+          <button class="btn chico secundario" type="submit">Compartir en la biblioteca</button>
+        </form>
+      </details>
+      {% endfor %}
+      <form method="post" action="{{ url_for('agenda_plantilla_nueva') }}" style="margin:8px 0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <button class="btn chico secundario" type="submit" name="modelo" value="scared_chico">Crear SCARED para el chico/a</button>
+        <button class="btn chico secundario" type="submit" name="modelo" value="scared_padres">Crear SCARED para padres</button>
+        <div class="tenue">Con la corrección lista; faltan las preguntas de cada versión. Si cargás las dos, la ficha las compara lado a lado.</div>
+      </form>
+      <details style="margin:8px 0">
+        <summary class="tenue">Biblioteca compartida ({{ biblioteca|length }}) ▾</summary>
+        <div class="tenue" style="margin:6px 0">Cuestionarios que otras profesionales eligieron compartir. Los que dicen «sin preguntas» traen sólo la corrección: pegás el texto desde tu copia.</div>
+        {% for e in biblioteca %}
+        <div class="ficha-item">
+          <span><strong>{{ e.titulo }}</strong> <span class="tenue">{{ e.contenido["items"]|length }} preguntas · {{ 'con preguntas' if e.con_preguntas else 'sin preguntas' }} · compartido por {{ 'vos' if e.propia else e.autor }}</span>
+            {% if e.oculto %}<span class="chip chip-alerta">oculto por moderación{% if moderador %} ({{ e.oculto_por }}){% endif %}</span>{% endif %}</span>
+          <span style="display:flex;gap:6px">
+            <form method="post" action="{{ url_for('agenda_biblioteca_agregar', entrada_id=e.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+              <button class="btn chico secundario" type="submit">Agregar</button>
+            </form>
+            {% if moderador %}
+            <form method="post" action="{{ url_for('agenda_biblioteca_moderar', entrada_id=e.id, accion='mostrar' if e.oculto else 'ocultar') }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+              <button class="btn chico secundario" type="submit">{{ 'Mostrar' if e.oculto else 'Ocultar' }}</button>
+            </form>
+            {% endif %}
+            {% if e.propia %}
+            <form method="post" action="{{ url_for('agenda_biblioteca_retirar', entrada_id=e.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+              <button class="quitar" type="submit" onclick="return confirm('¿Retirar de la biblioteca?')">Retirar</button>
+            </form>
+            {% endif %}
+          </span>
+        </div>
+        {% else %}
+        <div class="tenue">Todavía nadie compartió nada.</div>
+        {% endfor %}
+      </details>
+      <form method="post" action="{{ url_for('agenda_plantilla_importar') }}" enctype="multipart/form-data" class="fila" style="margin:8px 0">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+        <div class="ancho"><label>Importar un cuestionario exportado</label><input type="file" name="archivo" accept=".json,application/json" required></div>
+        <div class="al-pie"><button class="btn chico secundario" type="submit">Importar</button></div>
+      </form>
+      <details>
+        <summary class="tenue">Crear uno desde cero ▾</summary>
+        <form method="post" action="{{ url_for('agenda_plantilla_nueva') }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
+          <label>Nombre</label><input type="text" name="nombre" maxlength="60" required>
+          <label>Versión (opcional)</label><input type="text" name="version" maxlength="30" placeholder="Padres, chico/a…">
+          <label>Qué mide</label><input type="text" name="que_mide" maxlength="60">
+          <label>Consigna</label><textarea name="consigna" rows="2" maxlength="600"></textarea>
+          <label>Preguntas, una por renglón</label><textarea name="items" rows="6" required></textarea>
+          <label>Opciones, «texto = puntos» por renglón</label><textarea name="opciones" rows="3" placeholder="Nunca = 0&#10;A veces = 1&#10;Siempre = 2" required></textarea>
+          <label>Subescalas (opcional), «Nombre: 1, 4, 7 | corte»</label><textarea name="subescalas" rows="3"></textarea>
+          <label>Corte del total (opcional)</label><input type="number" name="corte_total">
+          <label>Fuente o crédito</label><input type="text" name="fuente" maxlength="400">
+          <button class="btn chico" type="submit" style="margin-top:8px">Crear</button>
+        </form>
+      </details>
+    </details>
+  </section>
+  </section>
+
+  <div class="barra-guardar" id="barra-guardar" hidden role="status">
+    <span id="barra-texto">Tenés cambios sin guardar.</span>
+    <button class="btn chico secundario" type="button" id="descartar">Descartar</button>
+    <button class="btn" type="button" id="guardar-todo">Guardar cambios</button>
+  </div>
+</main>
+<dialog id="recorte" class="recorte" aria-label="Elegir el recorte">
+  <p style="margin:0 0 8px"><strong>Elegí qué parte se ve</strong> <span class="tenue">Arrastrá para mover y usá la barra para acercar.</span></p>
+  <div class="recorte-marco"><canvas width="560" height="560"></canvas><div class="recorte-mascara"></div></div>
+  <label style="display:flex;gap:8px;align-items:center;margin-top:10px">Acercar <input type="range" min="1" max="4" step="0.01" value="1" style="flex:1"></label>
+  <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:12px">
+    <button type="button" class="btn chico secundario" data-cancelar>Cancelar</button>
+    <button type="button" class="btn chico" data-usar>Usar este recorte</button>
+  </div>
+</dialog>
+<script>
+// Antes de subir la foto o la portada se elige el recorte: arrastrar para
+// mover, la barra para acercar. Sale achicada (las del celular pesan varios MB).
+// data-achicar="ANCHOxALTO": tamaño final; la proporción es la del recorte.
+(function () {
+  var dlg = document.getElementById('recorte');
+  if (!dlg || !dlg.showModal) return;
+  var lienzo = dlg.querySelector('canvas'), ctx = lienzo.getContext('2d'), zoom = dlg.querySelector('input[type=range]');
+  var mascara = dlg.querySelector('.recorte-mascara');
+  var img = null, W = 0, H = 0, base = 1, s = 1, ox = 0, oy = 0, form = null, input = null, estado = null, arrastre = null;
+  function limitar() {
+    ox = Math.min(0, Math.max(lienzo.width - img.width * s, ox));
+    oy = Math.min(0, Math.max(lienzo.height - img.height * s, oy));
+  }
+  function pintar() {
+    limitar();
+    ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, lienzo.width, lienzo.height);
+    ctx.drawImage(img, ox, oy, img.width * s, img.height * s);
+  }
+  function abrir(archivo) {
+    var url = URL.createObjectURL(archivo);
+    img = new Image();
+    img.onload = function () {
+      var ancho = Math.min(560, window.innerWidth - 64, Math.max(200, (window.innerHeight - 230) * W / H));
+      lienzo.width = ancho; lienzo.height = Math.round(ancho * H / W);
+      base = Math.max(lienzo.width / img.width, lienzo.height / img.height);
+      s = base; zoom.value = 1;
+      ox = (lienzo.width - img.width * s) / 2; oy = (lienzo.height - img.height * s) / 2;
+      mascara.classList.toggle('redonda', W === H);
+      pintar(); dlg.showModal();
+    };
+    img.onerror = function () { enviar(); };
+    img.src = url;
+  }
+  function enviar() { if (estado) estado.hidden = false; form.submit(); }
+  zoom.addEventListener('input', function () {
+    var cx = lienzo.width / 2, cy = lienzo.height / 2, nuevo = base * Number(zoom.value);
+    ox = cx - (cx - ox) * nuevo / s; oy = cy - (cy - oy) * nuevo / s; s = nuevo; pintar();
+  });
+  lienzo.addEventListener('pointerdown', function (e) { arrastre = {x: e.clientX, y: e.clientY}; lienzo.setPointerCapture(e.pointerId); });
+  lienzo.addEventListener('pointermove', function (e) {
+    if (!arrastre) return;
+    ox += e.clientX - arrastre.x; oy += e.clientY - arrastre.y; arrastre = {x: e.clientX, y: e.clientY}; pintar();
+  });
+  lienzo.addEventListener('pointerup', function () { arrastre = null; });
+  lienzo.addEventListener('wheel', function (e) {
+    e.preventDefault();
+    zoom.value = Math.min(Number(zoom.max), Math.max(1, Number(zoom.value) - e.deltaY * 0.002));
+    zoom.dispatchEvent(new Event('input'));
+  }, {passive: false});
+  dlg.querySelector('[data-cancelar]').addEventListener('click', function () { input.value = ''; dlg.close(); });
+  dlg.querySelector('[data-usar]').addEventListener('click', function () {
+    var sw = lienzo.width / s, sh = lienzo.height / s;
+    var outW = Math.min(W, Math.round(sw)), outH = Math.round(outW * H / W);
+    var c = document.createElement('canvas'); c.width = outW; c.height = outH;
+    var cx = c.getContext('2d'); cx.fillStyle = '#fff'; cx.fillRect(0, 0, outW, outH);
+    cx.drawImage(img, -ox / s, -oy / s, sw, sh, 0, 0, outW, outH);
+    c.toBlob(function (blob) {
+      if (blob && window.DataTransfer) {
+        var dt = new DataTransfer();
+        dt.items.add(new File([blob], 'imagen.jpg', {type: 'image/jpeg'}));
+        input.files = dt.files;
+      }
+      dlg.close(); enviar();
+    }, 'image/jpeg', 0.86);
+  });
+  document.querySelectorAll('form[data-achicar]').forEach(function (f) {
+    var i = f.querySelector('input[type=file]');
+    i.addEventListener('change', function () {
+      var archivo = i.files[0];
+      if (!archivo) return;
+      form = f; input = i; estado = f.querySelector('[data-estado]');
+      var m = f.dataset.achicar.split('x').map(Number); W = m[0]; H = m[1];
+      if (!/^image\/(png|jpeg)$/.test(archivo.type)) { enviar(); return; }
+      abrir(archivo);
+    });
+  });
+})();
+</script>
+<script>
+(() => {
+  document.documentElement.classList.add('js');
+  const pestanias = [...document.querySelectorAll('.ajustes-tab')];
+  const paneles = [...document.querySelectorAll('[data-panel]')];
+  const deFormulario = form => form.closest('[data-panel]')?.dataset.panel || 'agenda';
+
+  // Pestañas: ?p=, #ancla (lleva a la pestaña que la contiene) y flechas.
+  function mostrar(clave, enfocar) {
+    pestanias.forEach(p => {
+      const activa = p.dataset.pestania === clave;
+      p.setAttribute('aria-selected', activa); p.tabIndex = activa ? 0 : -1;
+      if (activa && enfocar) p.focus();
+    });
+    paneles.forEach(x => { x.hidden = x.dataset.panel !== clave; });
+    const url = new URL(location); url.searchParams.set('p', clave); url.hash = '';
+    history.replaceState(null, '', url);
+  }
+  pestanias.forEach((p, i) => {
+    p.addEventListener('click', () => mostrar(p.dataset.pestania));
+    p.addEventListener('keydown', e => {
+      const paso = {ArrowRight: 1, ArrowLeft: -1}[e.key];
+      if (paso) { e.preventDefault(); mostrar(pestanias[(i + paso + pestanias.length) % pestanias.length].dataset.pestania, true); }
+    });
+  });
+  const ancla = decodeURIComponent(location.hash.slice(1));
+  const destino = ancla && document.getElementById(ancla);
+  if (destino && destino.closest('[data-panel]')) {
+    mostrar(destino.closest('[data-panel]').dataset.panel);
+    if (destino.tagName === 'DETAILS') destino.open = true;
+    destino.scrollIntoView({block: 'start'});
+  }
+
+  // Volver a esta pestaña después de cualquier acción (sin JS vuelve a la agenda).
+  document.querySelectorAll('form[method="post"]').forEach(f => {
+    for (const [k, v] of [['volver', 'ajustes'], ['pestania', deFormulario(f)]]) {
+      const i = document.createElement('input'); i.type = 'hidden'; i.name = k; i.value = v; f.appendChild(i);
+    }
+  });
+
+  // Campos que dependen de otros: data-si="cobro_web!=no;cobro_modo=sena" (valores con |).
+  const valor = nombre => {
+    const c = document.querySelector(`[name="${nombre}"]:not([type=hidden])`);
+    return c ? (c.type === 'checkbox' ? (c.checked ? c.value : '') : c.value) : '';
+  };
+  const cumple = cond => cond.split(';').every(parte => {
+    const m = parte.match(/^([\w]+)(!?=)(.*)$/);
+    if (!m) return true;
+    const esta = m[3].split('|').includes(valor(m[1]));
+    return m[2] === '=' ? esta : !esta;
+  });
+  const refrescar = () => document.querySelectorAll('[data-si]').forEach(x => { x.hidden = !cumple(x.dataset.si); });
+
+  // Consultorio por franja: aparece apenas hay dos nombres cargados, con esos nombres.
+  const sedes = () => [...document.querySelectorAll('input[name$="_nombre"][name^="sede"]')].map(i => i.value.trim()).filter(Boolean);
+  const refrescarSedes = () => {
+    const lista = sedes();
+    document.querySelectorAll('[data-sede]').forEach(div => {
+      div.hidden = lista.length < 2;
+      const sel = div.querySelector('select'), elegido = sel.value;
+      sel.replaceChildren(new Option('Consultorio…', ''), ...lista.map(n => new Option(n, n, false, n === elegido)));
+    });
+  };
+
+  // «Guardar cambios»: manda sólo los formularios tocados, a sus rutas de siempre.
+  const barra = document.getElementById('barra-guardar');
+  const tocados = new Set();
+  const marcar = form => {
+    tocados.add(form); barra.hidden = false;
+    document.getElementById('barra-texto').textContent = tocados.size === 1 ? 'Tenés cambios sin guardar.' : `Tenés cambios sin guardar en ${tocados.size} lugares.`;
+    pestanias.forEach(p => {
+      const sucia = [...tocados].some(f => deFormulario(f) === p.dataset.pestania);
+      let punto = p.querySelector('.punto');
+      if (sucia && !punto) { punto = document.createElement('span'); punto.className = 'punto'; punto.setAttribute('aria-label', 'con cambios'); p.appendChild(punto); }
+      if (!sucia && punto) punto.remove();
+    });
+  };
+  document.querySelectorAll('form[data-ajuste]').forEach(f => {
+    const tocar = () => marcar(f);
+    f.addEventListener('input', tocar); f.addEventListener('change', tocar);
+    f.addEventListener('submit', () => tocados.delete(f));
+  });
+  document.addEventListener('change', () => { refrescar(); refrescarSedes(); });
+  document.addEventListener('input', e => { if (e.target.name?.startsWith('sede')) refrescarSedes(); });
+  refrescar();
+  if (document.querySelector('[data-sede]')) refrescarSedes();
+
+  document.getElementById('descartar').addEventListener('click', () => { tocados.clear(); location.reload(); });
+  document.getElementById('guardar-todo').addEventListener('click', async e => {
+    const boton = e.target; boton.disabled = true; boton.textContent = 'Guardando…';
+    const orden = [...tocados].sort((a, b) => (b.hasAttribute('data-primero') - a.hasAttribute('data-primero')));
+    for (const f of orden) {
+      if (!f.reportValidity()) { boton.disabled = false; boton.textContent = 'Guardar cambios'; mostrar(deFormulario(f)); return; }
+    }
+    try {
+      for (const f of orden) {
+        const r = await fetch(f.action, {method: 'POST', body: new FormData(f), credentials: 'same-origin', redirect: 'manual'});
+        if (r.type !== 'opaqueredirect' && !r.ok) throw new Error(r.status);
+      }
+      tocados.clear();
+      location.href = location.pathname + '?p=' + (document.querySelector('.ajustes-tab[aria-selected="true"]')?.dataset.pestania || 'agenda');
+    } catch (_) {
+      boton.disabled = false; boton.textContent = 'Guardar cambios';
+      document.getElementById('barra-texto').textContent = 'No se pudo guardar. Revisá la conexión y probá de nuevo.';
+    }
+  });
+  window.addEventListener('beforeunload', e => { if (tocados.size) { e.preventDefault(); e.returnValue = ''; } });
+
+  // «+ otra franja», «+ otro tipo», «+ otro consultorio».
+  document.querySelectorAll('[data-agregar]').forEach(b => {
+    const ocultas = () => [...b.closest('[data-filas]').querySelectorAll('.fila[hidden]')];
+    if (!ocultas().length) b.hidden = true;
+    b.addEventListener('click', () => {
+      const fila = ocultas()[0];
+      if (!fila) return;
+      fila.hidden = false; fila.querySelector('input')?.focus();
+      if (!ocultas().length) b.hidden = true;
+    });
+  });
+})();
+</script>
+{% endblock %}

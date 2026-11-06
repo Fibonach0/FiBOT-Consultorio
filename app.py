@@ -2333,10 +2333,18 @@ def _cuestionarios_de_ficha(filas: list[dict], tz: ZoneInfo, ahora: datetime) ->
             "alerta": any(r.get("alerta") and not r.get("visto") for g in grupos for r in g["respuestas"])}
 
 
+def _a_ajustes(pestania: str | None = None, ancla: str = ""):
+    p = pestania if pestania in dict(AJUSTES_PESTANIAS) else None
+    return redirect(url_for("ajustes", **({"p": p} if p else {})) + (f"#{ancla}" if ancla else ""))
+
+
 def _volver_a_agenda():
     """Después de tocar una sesión, volver a la misma semana que se estaba
     mirando (viene como campo oculto del form). Se reconstruye la URL con
-    url_for en vez de usar el Referer: así nunca redirige afuera del panel."""
+    url_for en vez de usar el Referer: así nunca redirige afuera del panel.
+    Desde la página de ajustes (campo `volver`), vuelve a esa pestaña."""
+    if request.form.get("volver") == "ajustes":
+        return _a_ajustes(request.form.get("pestania"))
     semana = request.form.get("semana") or ""
     try:
         datetime.strptime(semana, "%Y-%m-%d")
@@ -2357,16 +2365,11 @@ def _se_superponen(a: dict, b: dict) -> bool:
     )
 
 
-@app.get("/agenda")
-@login_required
-def agenda():
-    tenant = db.get_tenant_by_id(session["tenant_id"])
-    tz = _tz_de(tenant)
-    ahora = datetime.now(tz)
+def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
+    """Lo que necesitan la agenda y la página de ajustes (los mismos bloques)."""
     pendientes = _con_hora_local(db.pendientes_de_pago(tenant["id"], ahora.astimezone(ZoneInfo("UTC"))), tz)
     fichas = _fichas(tenant, tz, ahora)
     bloqueos = _bloqueos(tenant, fichas, tz, ahora)
-    bloqueado = lambda dia: next((b for b in bloqueos if b["_desde"] <= dia <= b["_hasta"]), None)
     plantillas = db.plantillas_cuestionario(tenant["id"])
     for p in plantillas:
         c = p["contenido"]
@@ -2443,6 +2446,34 @@ def agenda():
         "meses": MESES_LABEL,
         "duracion_default": tenant.get("duracion_turno_minutos") or 50,
     }
+    return comunes
+
+
+AJUSTES_PESTANIAS = [("agenda", "Agenda"), ("pagina", "Mi página"), ("cobros", "Cobros"), ("cancelaciones", "Cancelaciones"),
+                     ("avisos", "Avisos"), ("cuenta", "Cuenta"), ("avanzado", "Avanzado")]
+
+
+@app.get("/ajustes")
+@login_required
+def ajustes():
+    """Todo lo que se configura una vez, en pestañas (antes estaba al fondo
+    de la agenda). Los formularios siguen posteando a las mismas rutas."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    pestania = request.args.get("p") if request.args.get("p") in dict(AJUSTES_PESTANIAS) else "agenda"
+    return render_template("ajustes.html", rubro=rubros.de(tenant), vista="ajustes", pestania=pestania,
+                           pestanias=AJUSTES_PESTANIAS, **_comunes_panel(tenant, tz, datetime.now(tz)))
+
+
+@app.get("/agenda")
+@login_required
+def agenda():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    ahora = datetime.now(tz)
+    comunes = _comunes_panel(tenant, tz, ahora)
+    bloqueos = comunes["bloqueos"]
+    bloqueado = lambda dia: next((b for b in bloqueos if b["_desde"] <= dia <= b["_hasta"]), None)
 
     # El calendario es la vista de entrada; la semana (con las acciones de
     # cada sesión) se abre al tocar un día.
@@ -3995,25 +4026,36 @@ def agenda_pausa():
 @app.post("/agenda/perfil")
 @login_required
 def agenda_perfil():
-    """Lo que ven los pacientes en /turnos y arriba del calendario."""
+    """Lo que ven los pacientes en /turnos y cómo se cancela desde la web. Sólo
+    pisa lo que viene en el formulario: en ajustes estos campos están
+    repartidos entre «Mi página» y «Cancelaciones». Las casillas mandan su
+    nombre en `casillas` (una casilla sin tildar no viaja)."""
     f = request.form
-    modalidades = f.get("modalidades_publicas") if f.get("modalidades_publicas") in MODALIDADES_PUBLICAS else "presencial"
-    tenant = db.get_tenant_by_id(session["tenant_id"])
-    db.guardar_ajustes(session["tenant_id"], {
-        "modalidades_publicas": modalidades,
-        "en_directorio": f.get("en_directorio") == "1",
-        "al_cancelar": "preguntar" if f.get("al_cancelar") == "preguntar" else "liberar",
-        "hueco_vence_horas": int(f.get("hueco_vence_horas")) if (f.get("hueco_vence_horas") or "") in
-        {str(h) for h in HORAS_VENCE_HUECO} else (tenant or {}).get("hueco_vence_horas", 0),
-        "hueco_por_defecto": "tomar" if f.get("hueco_por_defecto") == "tomar" else "liberar",
-        "ofrecer_espera_auto": f.get("ofrecer_espera_auto") == "1",
-        "cancelar_hasta_horas": int(f.get("cancelar_hasta_horas")) if (f.get("cancelar_hasta_horas") or "") in
-        {str(h) for h in HORAS_CANCELAR} else (tenant or {}).get("cancelar_hasta_horas", 24),
-    })
-    if modalidades != "presencial" and not (tenant or {}).get("link_videollamada"):
-        flash("Guardado. Ojo: ofrecés videollamada pero no cargaste el link en Ajustes; el paciente no lo va a recibir.")
+    tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
+    casillas = set(f.get("casillas", "en_directorio,ofrecer_espera_auto").split(","))
+    campos = {}
+    if "modalidades_publicas" in f:
+        campos["modalidades_publicas"] = f["modalidades_publicas"] if f["modalidades_publicas"] in MODALIDADES_PUBLICAS else "presencial"
+    for casilla in ("en_directorio", "ofrecer_espera_auto"):
+        if casilla in casillas:
+            campos[casilla] = f.get(casilla) == "1"
+    if "al_cancelar" in f:
+        campos["al_cancelar"] = "preguntar" if f["al_cancelar"] == "preguntar" else "liberar"
+    if "hueco_vence_horas" in f:
+        campos["hueco_vence_horas"] = int(f["hueco_vence_horas"]) if f["hueco_vence_horas"] in {str(h) for h in HORAS_VENCE_HUECO} \
+            else tenant.get("hueco_vence_horas", 0)
+    if "hueco_por_defecto" in f:
+        campos["hueco_por_defecto"] = "tomar" if f["hueco_por_defecto"] == "tomar" else "liberar"
+    if "cancelar_hasta_horas" in f:
+        campos["cancelar_hasta_horas"] = int(f["cancelar_hasta_horas"]) if f["cancelar_hasta_horas"] in {str(h) for h in HORAS_CANCELAR} \
+            else tenant.get("cancelar_hasta_horas", 24)
+    db.guardar_ajustes(session["tenant_id"], campos)
+    modalidades = campos.get("modalidades_publicas", tenant.get("modalidades_publicas") or "presencial")
+    link = f.get("link_videollamada", tenant.get("link_videollamada"))
+    if "modalidades_publicas" in f and modalidades != "presencial" and not link:
+        flash("Guardado. Ojo: ofrecés videollamada pero no cargaste el link; el paciente no lo va a recibir.")
     else:
-        flash("Listo, guardado: así te ven tus pacientes.")
+        flash("Listo, guardado.")
     return _volver_a_agenda()
 
 
@@ -4094,7 +4136,7 @@ def agenda_presentacion():
         "color_pagina": f.get("color_pagina") if f.get("color_pagina") in COLORES_PAGINA else None,
     })
     flash("Listo, guardado: así te presentás en tu página.")
-    return redirect(url_for("agenda") + "#mi-pagina")
+    return _a_ajustes("pagina", "presentacion")
 
 
 @app.post("/agenda/portada")
@@ -4116,7 +4158,7 @@ def agenda_portada():
         db.guardar_portada(session["tenant_id"], tipo, base64.b64encode(crudo).decode(),
                            int(tenant.get("portada_version") or 0) + 1)
         flash("Se guardó tu portada.")
-    return redirect(url_for("agenda") + "#mi-pagina")
+    return _a_ajustes("pagina", "presentacion")
 
 
 @app.post("/agenda/portada/borrar")
@@ -4124,7 +4166,7 @@ def agenda_portada():
 def agenda_portada_borrar():
     db.borrar_portada(session["tenant_id"])
     flash("Se quitó la portada.")
-    return redirect(url_for("agenda") + "#mi-pagina")
+    return _a_ajustes("pagina", "presentacion")
 
 
 @app.get("/manifest.webmanifest")
@@ -5267,25 +5309,38 @@ DEVOLUCION_HORAS = (0, 12, 24, 48, 72)
 @app.post("/agenda/cobros")
 @login_required
 def agenda_cobros():
+    """Sólo pisa lo que viene: en ajustes el precio va con los tipos de
+    turno y la devolución con las cancelaciones."""
     f = request.form
-    modo = f.get("cobro_web") if f.get("cobro_web") in ("no", "mercadopago", "transferencia", "ambos") else "no"
     numero = lambda clave: int("".join(ch for ch in f.get(clave) or "" if ch.isdigit()) or 0) or None
-    campos = {"cobro_web": modo, "cobro_modo": "sena" if f.get("cobro_modo") == "sena" else "total",
-              "sena_monto": numero("sena_monto"), "precio_sesion": numero("precio_sesion"),
-              "transferencia_datos": (f.get("transferencia_datos") or "").strip()[:300] or None,
-              "devolucion_modo": f.get("devolucion_modo") if f.get("devolucion_modo") in ("todo", "menos_sena", "nada") else "todo",
-              "devolucion_horas": int(f["devolucion_horas"]) if (f.get("devolucion_horas") or "") in
-                                  {str(x) for x in DEVOLUCION_HORAS} else 24}
+    campos = {}
+    if "cobro_web" in f:
+        campos["cobro_web"] = f["cobro_web"] if f["cobro_web"] in ("no", "mercadopago", "transferencia", "ambos") else "no"
+    if "cobro_modo" in f:
+        campos["cobro_modo"] = "sena" if f["cobro_modo"] == "sena" else "total"
+    for clave in ("sena_monto", "precio_sesion"):
+        if clave in f:
+            campos[clave] = numero(clave)
+    if "transferencia_datos" in f:
+        campos["transferencia_datos"] = (f["transferencia_datos"] or "").strip()[:300] or None
+    if "devolucion_modo" in f:
+        campos["devolucion_modo"] = f["devolucion_modo"] if f["devolucion_modo"] in ("todo", "menos_sena", "nada") else "todo"
+    if "devolucion_horas" in f:
+        campos["devolucion_horas"] = int(f["devolucion_horas"]) if f["devolucion_horas"] in {str(x) for x in DEVOLUCION_HORAS} else 24
     db.guardar_ajustes(session["tenant_id"], campos)
     tenant = db.get_tenant_by_id(session["tenant_id"])
-    if modo == "no":
+    modo = tenant.get("cobro_web") or "no"
+    if "cobro_web" not in f:
+        flash("Listo, guardado.")
+    elif modo == "no":
         flash("Listo: las reservas web no se cobran.")
     elif not pagos.activo(tenant):
         flash("Guardado, pero todavía no se cobra: " + (
             "conectá Mercado Pago" if modo == "mercadopago" else "cargá tu alias o CBU" if modo == "transferencia"
             else "conectá Mercado Pago o cargá tu alias/CBU") + ".")
     elif not (tenant.get("precio_sesion") or any(t.get("precio") for t in tipos_de(tenant))):
-        flash("Guardado, pero falta el precio: cargalo acá o en tus tipos de turno. Sin precio, la reserva no se cobra.")
+        flash("Guardado, pero falta el precio: cargalo en Ajustes → Agenda («Precio de la sesión» o tus tipos de turno). "
+              "Sin precio, la reserva no se cobra.")
     else:
         flash("Listo: cada reserva web se acepta cuando se paga.")
     return _volver_a_agenda()
@@ -5301,7 +5356,7 @@ def _tras_conectar_mp(tenant_id: str) -> str:
     if nuevo != modo:
         db.guardar_ajustes(tenant_id, {"cobro_web": nuevo})
     if not (tenant.get("precio_sesion") or any(t.get("precio") for t in tipos_de(tenant))):
-        return ("Conectaste Mercado Pago. Falta un paso: cargá el precio de la sesión acá abajo "
+        return ("Conectaste Mercado Pago. Falta un paso: cargá el precio de la sesión en Ajustes → Agenda "
                 "(o en tus tipos de turno) y las reservas web se empiezan a cobrar.")
     return "Listo, conectaste Mercado Pago: las reservas de tu página se cobran y la plata va a tu cuenta."
 
@@ -5340,7 +5395,7 @@ def mp_vuelta():
     """Vuelta del login de Mercado Pago. El `state` tiene que ser el que se
     guardó en la sesión de ESTE profesional."""
     state = session.pop("mp_state", None)
-    volver = redirect(url_for("agenda") + "#cobros")
+    volver = _a_ajustes("cobros")
     motivo = _codigo_mp(request.args.get("error"))
     if motivo:
         # Mercado Pago vuelve con ?error=… cuando la persona cancela o cuando
@@ -5382,7 +5437,7 @@ def agenda_mp_token_prueba():
     flash(error or _tras_conectar_mp(session["tenant_id"]))
     if not error:
         db.registrar_actividad("profesional", "conectó Mercado Pago (cuenta de prueba)", session["tenant_id"])
-    return redirect(url_for("agenda") + "#cobros")
+    return _a_ajustes("cobros")
 
 
 @app.post("/agenda/mercadopago/desconectar")

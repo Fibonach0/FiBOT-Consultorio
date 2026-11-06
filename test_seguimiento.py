@@ -36,6 +36,12 @@ whatsapp_real.marcar_leido = lambda pid, mid: True  # nunca a Meta desde los tes
 fallos = []
 
 
+
+def _panel(c):
+    """La agenda y la página de ajustes juntas: los ajustes viven en /ajustes."""
+    return c.get("/agenda").data.decode() + c.get("/ajustes").data.decode()
+
+
 def chequear(nombre, ok, detalle=""):
     print(f"  {nombre:.<60} {'OK' if ok else 'FALLO'}{'  ' + str(detalle) if detalle else ''}")
     if not ok:
@@ -532,7 +538,7 @@ chequear("guardar de nuevo la pisa", [p["fecha_nacimiento"] for p in TABLAS["pac
 html = client.post("/agenda/paciente", data={"telefono": "5491100000001", "fecha_nacimiento": "basura"},
                    follow_redirects=True).data.decode()
 chequear("fecha inválida avisa y no guarda", "no es válida" in html and len(TABLAS["pacientes"]) == 1)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el panel muestra las fichas", 'class="ficha"' in html and "1991-05-20" in html)
 chequear("las fichas no muestran otro tenant", "De otra" not in html)
 
@@ -561,7 +567,7 @@ client.post("/agenda/paciente/fecha", data={"telefono": tel, "titulo": "Bisiesto
 chequear("el 29/2 sin importar el año", any(f["titulo"] == "Bisiesto" for f in TABLAS["paciente_fechas"]))
 TABLAS["paciente_fechas"].append({"id": "ajena", "tenant_id": "t2", "paciente_telefono": tel, "titulo": "Secreto ajeno",
                                   "dia": 1, "mes": 1, "anio": None, "animo": None})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el popup trae notas y fechas", "<dialog" in html and "Le cuesta diciembre" in html and "Navidad" in html and "Toby" in html)
 chequear("no muestra fechas de otro tenant", "Secreto ajeno" not in html)
 html = client.get("/agenda?semana=" + ahora.strftime("%Y-%m-%d")).data.decode()
@@ -596,7 +602,7 @@ filas = app._hoy(TENANT, fichas, zona, ahora.astimezone(zona))
 fila_hoy = next(f for f in filas if f["ficha"]["nombre"] == "Hoya")
 chequear("no cuenta horarios libres", all(f["ficha"] for f in filas) and sum(f["ficha"]["nombre"] == "Hoya" for f in filas) == 1)
 chequear("sólo las fechas cercanas", [c["titulo"] for c in fila_hoy["fechas"]] == ["Fecha cerca"])
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el panel abre la ficha desde Hoy", "Retomar lo de la mudanza" in html and f'data-ficha="{fila_hoy["ficha"]["dom"]}"' in html
          and f'id="{fila_hoy["ficha"]["dom"]}"' in html)
 
@@ -631,7 +637,7 @@ chequear("manda el resumen al profesional", len(enviados) == 1 and enviados[0][1
 chequear("no dice nada del paciente", "Secreta" not in enviados[0][2] and "1 fecha importante" in enviados[0][2], enviados)
 scheduler._resumen_diario(t, zona)
 chequear("una sola vez por día", len(enviados) == 1)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el detalle está en el panel", "Fechas de esta semana" in html and "Secreta" in html)
 TABLAS["tenants"][0].update(ultimo_aviso=None)
 TABLAS["paciente_fechas"].clear()
@@ -643,14 +649,14 @@ TABLAS["turnos"].append(turno("serie", "t1", manana, estado="reservado", pacient
 scheduler._resumen_diario(t, zona)
 chequear("cuenta los que hay que renovar", "1 paciente por renovar" in enviados[-1][2] and "Serie Nombre" not in enviados[-1][2], enviados)
 import asistente_profesional as _ap
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 _cod = _ap.codigo_vinculo(TABLAS["tenants"][0])
 chequear("panel: sin vincular muestra el código para mandar por WhatsApp", _cod and f"VINCULAR {_cod}" in html and "✓ Vinculado" not in html)
 TABLAS["tenants"][0]["aviso_verificado"] = "5491177770000"
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("panel: vinculado ya no muestra el código", "✓ Vinculado" in html and f"VINCULAR {_cod}" not in html)
 client.post("/agenda/avisos", data={"telefono": "54 9 11 6666-0000"})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("panel: si cambia el número hay que vincular de nuevo", "✓ Vinculado" not in html
          and f"VINCULAR {_ap.codigo_vinculo(TABLAS['tenants'][0])}" in html and _ap.codigo_vinculo(TABLAS["tenants"][0]) != _cod)
 _plt = []
@@ -682,7 +688,7 @@ chequear("una suelta no se renueva", app.sesiones_que_quedan([turno("s", "t1", m
 chequear("el que se fue hace rato no molesta",
          app.sesiones_que_quedan([turno("v", "t1", ahora - timedelta(days=60), frecuencia="semanal")], ahora) is None)
 chequear("si se le acabó hace poco, sí", app.sesiones_que_quedan([turno("v", "t1", ayer, frecuencia="semanal")], ahora) == 0)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el panel lo muestra", "Por renovar" in html and "le quedan 2 sesiones" in html)
 html = client.post("/agenda/paciente/renovar", data={"telefono": "5491100000006"}, follow_redirects=True).data.decode()
 nuevas = sorted(_norm(f["inicio"]) for f in TABLAS["turnos"] if f["paciente_nombre"] == "Fija")
@@ -725,7 +731,7 @@ chequear("otro mes no suma este", otro["cobrado"] == 0 and otro["a_cobrar"] == 0
 for f in TABLAS["turnos"]:
     if f["id"] in ("c2",):
         f.update(inicio=ayer.isoformat(), fin=(ayer + timedelta(minutes=50)).isoformat())
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el panel muestra los cobros", "Resumen de" in html and "Quién debe" in html)
 html = client.post("/agenda/paciente/recordar-pago", data={"telefono": "1"}, follow_redirects=True).data.decode()
 chequear("recuerda el pago con el monto de la base", len(enviados) == 1 and enviados[0][1] == "1" and "$ 2.000" in enviados[0][2], enviados)
@@ -744,7 +750,7 @@ chequear("el que se fue hace meses no aparece", app.alerta_de_seguimiento([a(200
 reset()
 TABLAS["turnos"].append(turno("lejos", "t1", ahora - timedelta(days=45), estado="reservado", paciente_nombre="Lejana",
                               paciente_telefono="5491100000020"))
-chequear("el panel lo muestra", "Para mirar" in client.get("/agenda").data.decode())
+chequear("el panel lo muestra", "Para mirar" in _panel(client))
 
 print("Lista de espera")
 reset()
@@ -764,7 +770,7 @@ TABLAS["lista_espera"].append({"id": "ajena", "tenant_id": "t2", "nombre": "De l
 client.post("/agenda/espera/ajena/ofrecer")
 client.post("/agenda/espera/ajena/quitar")
 chequear("no toca la lista de otro tenant", len(enviados) == 1 and any(p["id"] == "ajena" for p in TABLAS["lista_espera"]))
-chequear("no muestra la de otro tenant", "De la otra" not in client.get("/agenda").data.decode())
+chequear("no muestra la de otro tenant", "De la otra" not in _panel(client))
 client.post(f"/agenda/espera/{espera['id']}/quitar")
 chequear("se puede quitar", not any(p["id"] == espera["id"] for p in TABLAS["lista_espera"]))
 
@@ -780,7 +786,7 @@ chequear("CUIT: uno con el verificador mal se rechaza", not TABLAS["tenants"][0]
 client.post("/agenda/avisos", data={"recibo_cuit": "20 12345678 6", "recibo_domicilio": "  Av. Ficticia 123, CABA  "})
 chequear("CUIT y domicilio: se guardan prolijos", TABLAS["tenants"][0].get("recibo_cuit") == "20-12345678-6"
          and TABLAS["tenants"][0].get("recibo_domicilio") == "Av. Ficticia 123, CABA")
-chequear("CUIT: el panel lo muestra", 'value="20-12345678-6"' in client.get("/agenda").data.decode())
+chequear("CUIT: el panel lo muestra", 'value="20-12345678-6"' in _panel(client))
 client.post("/agenda/avisos", data={"recibo_cuit": "", "recibo_domicilio": ""})
 client.post("/agenda/avisos", data={"resumen_cobros_form": "1"})
 chequear("resumen: se puede apagar desde el panel", TABLAS["tenants"][0].get("resumen_cobros_mail") is False)
@@ -835,7 +841,7 @@ client.post("/agenda/paciente", data={"telefono": tel, "motivo_consulta": " Ansi
 p = TABLAS["pacientes"][0]
 chequear("guarda motivo, objetivos y cómo viene", (p["motivo_consulta"], p["objetivos"], p["como_viene"]) == ("Ansiedad", "Dormir mejor", "Mejor"))
 chequear("no pisa el nacimiento ni las notas", p["fecha_nacimiento"] == "1990-05-20" and p["notas"] == "Nota general")
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("salen arriba de la ficha", html.index("Ansiedad") < html.index("Fechas importantes"))
 chequear("el resto de los datos no los pierde", client.post("/agenda/paciente", data={"telefono": tel, "fecha_nacimiento": "1990-05-21"}).status_code == 302
          and p["objetivos"] == "Dormir mejor")
@@ -889,7 +895,7 @@ chequear("guarda estado, fecha y motivo", p["estado"] == "pausa" and p["estado_f
 chequear("sin el tilde deja las sesiones", fila("futuro")["estado"] == "reservado")
 ana = next(f for f in app._fichas(TENANT, zona, ahora.astimezone(zona)) if f["nombre"] == "Ana")
 chequear("deja de pedir renovar", ana["quedan"] is None and ana["alerta"] is None)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("la ficha sigue, aparte", "Alta o pausa (1)" in html and "Retomar tratamiento" in html and "Ana" in html)
 chequear("no aparece en fechas de la semana", "Fechas de esta semana" not in html)
 chequear("el resumen no la cuenta", scheduler._partes_del_resumen(TENANT, hoy_arg) == [], scheduler._partes_del_resumen(TENANT, hoy_arg))
@@ -903,7 +909,7 @@ chequear("no libera sesiones de otro tenant con el mismo teléfono", fila("ajena
 reset()
 fila("pasado").update(valor=1000)
 client.post("/agenda/paciente/cerrar", data={"telefono": "5491100000001", "estado": "alta"})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("la deuda sigue a la vista", "Quién debe" in html)
 
 print("Resumen del mes")
@@ -961,7 +967,7 @@ ana = next(f for f in app._fichas(TENANT, zona, ahora.astimezone(zona)) if f["no
 chequear("cuenta sólo los últimos 90 días y este tenant", (ana["faltas_recientes"], ana["canceladas_recientes"]) == (2, 1),
          (ana["faltas_recientes"], ana["canceladas_recientes"]))
 chequear("con 3 entre faltas y cancelaciones avisa", ana["alerta"] == "3 faltas o cancelaciones en 90 días", ana["alerta"])
-chequear("el panel lo muestra", "Últimos 90 días" in client.get("/agenda").data.decode())
+chequear("el panel lo muestra", "Últimos 90 días" in _panel(client))
 
 print("Exportar a Excel")
 reset()
@@ -1036,7 +1042,7 @@ chequear("reservarlo igual se rechaza", db.reservar_turno("t1", "libre-manana", 
 chequear("reprogramar ahí se rechaza", db.reprogramar_turno("t1", "pasado", manana + timedelta(hours=2), 50) == "Ese día está bloqueado.")
 chequear("el otro tenant no se bloquea", db._esta_bloqueado("t2", fila("libre-manana")["inicio"], fila("libre-manana")["fin"]) is False)
 chequear("las sesiones ya reservadas siguen", fila("futuro")["estado"] == "reservado") if _norm(fila("futuro")["inicio"]).astimezone(zona).date() == dia_libre else None
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el panel muestra el bloqueo", "Días bloqueados" in html and "Congreso" in html)
 afectados = app._bloqueos(TENANT, app._fichas(TENANT, zona, ahora.astimezone(zona)), zona, ahora.astimezone(zona))
 chequear("dice a quién avisarle", [a["ficha"]["nombre"] for a in afectados[0]["_afectados"]] == (["Ana"] if _norm(fila("futuro")["inicio"]).astimezone(zona).date() == dia_libre else []), afectados[0]["_afectados"])
@@ -1079,7 +1085,7 @@ _fer = dia_libre + timedelta(days=1)
 TABLAS["bloqueos"].append({"id": "fer", "tenant_id": "t1", "motivo": "Feriado: Prueba",
                            "desde": datetime.combine(_fer, datetime.min.time(), tzinfo=zona).isoformat(),
                            "hasta": datetime.combine(_fer + timedelta(days=1), datetime.min.time(), tzinfo=zona).isoformat()})
-html = client.get("/agenda?vista=mes&semana=" + _fer.isoformat()).data.decode() + client.get("/agenda").data.decode()
+html = client.get("/agenda?vista=mes&semana=" + _fer.isoformat()).data.decode() + _panel(client)
 chequear("el mes pinta distinto los feriados", " bloqueado feriado" in html)
 TABLAS["bloqueos"] = [x for x in TABLAS["bloqueos"] if x["id"] != "fer"]
 # Abrir con horario reducido y avisando a la lista de espera
@@ -1146,7 +1152,7 @@ html = client.post("/agenda/bloqueo", data={"desde": "2030-02-10", "hasta": "203
 chequear("hasta antes que desde se rechaza", "no puede ser anterior" in html and TABLAS["bloqueos"] == [])
 TABLAS["bloqueos"].append({"id": "aj", "tenant_id": "t2", "desde": ahora.isoformat(), "hasta": (ahora + timedelta(days=3)).isoformat(), "motivo": "Ajeno"})
 client.post("/agenda/bloqueo/aj/borrar")
-chequear("no borra el de otro tenant", len(TABLAS["bloqueos"]) == 1 and "Ajeno" not in client.get("/agenda").data.decode())
+chequear("no borra el de otro tenant", len(TABLAS["bloqueos"]) == 1 and "Ajeno" not in _panel(client))
 
 print("Planilla para obra social")
 reset()
@@ -1174,7 +1180,7 @@ chequear("avisa las sin marcar", "1 sesión sin marcar" in html)
 chequear("sin teléfonos, montos ni notas", "777" not in html and "Nota secreta" not in html and ">11<" not in html)
 html = client.get(f"/agenda/obra-social?mes=2001-01&obra_social=OSDE").data.decode()
 chequear("mes vacío lo dice", "No hay sesiones asistidas" in html)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el panel ofrece las obras sin repetir", html.count("<option>OSDE</option>") + html.count("<option>osde</option>") == 1
          and "<option>Swiss</option>" in html)
 
@@ -1190,7 +1196,7 @@ ficha_juan = next(f for f in app._fichas(TENANT, zona, ahora.astimezone(zona)) i
 chequear("la ficha trae la última nota", ficha_juan["ultima_nota"]["nota"] == "Habló de la mudanza")
 TABLAS["turnos"].append(turno("hoy-juan", "t1", ahora.astimezone(zona).replace(hour=12).astimezone(timezone.utc), estado="reservado",
                               paciente_nombre="Juan", paciente_telefono="5491100000001"))
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("se ve en el panel", "Habló de la mudanza" in html)
 chequear("la constancia no la trae", fila("pasado").update(pago="pagado", valor=1) is None and "mudanza" not in client.post(
     "/agenda/paciente/constancia", data={"telefono": "5491100000001", "mes": _norm(fila("pasado")["inicio"]).astimezone(zona).strftime("%Y-%m")}).data.decode())
@@ -1207,7 +1213,7 @@ chequear("vaciarla la borra", fila("pasado")["nota"] is None)
 
 print("Calendario")
 reset()
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("entra por el mes", 'class="cal"' in html and "Ana" in html)
 chequear("el mes no muestra otro tenant", "De otra" not in html)
 chequear("mes inválido cae al actual", client.get("/agenda?mes=basura").status_code == 200)
@@ -1231,13 +1237,13 @@ with client.session_transaction() as s:
     s["csrf_token"] = "tok"
 reset()
 TABLAS["turnos"].append(turno("esc", "t1", manana, estado="reservado", paciente_nombre="Nina", paciente_telefono="549111"))
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("psicología no ve la pestaña Escuela", ">Crisis</button>" in html and 'name="escuela"' not in html)
 TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("psicopedagogía ve Escuela y Familia", ">Escuela</button>" in html and ">Familia</button>" in html and ">Crisis</button>" not in html and 'name="equipo_orientador"' in html)
 client.post("/agenda/paciente", data={"telefono": "549111", "escuela": " Escuela 12 ", "grado": "3°"})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("los datos de la escuela se guardan", 'value="Escuela 12"' in html and 'value="3°"' in html)
 
 # --- Hermanos con el mismo WhatsApp ---
@@ -1251,7 +1257,7 @@ db.reservar_turno("t1", "h3", TEL, "Lola Acosta")
 fila = {t["id"]: t for t in TABLAS["turnos"]}
 chequear("mismo nombre, misma ficha", fila["h1"]["ficha"] == "" and fila["h2"]["ficha"] == "")
 chequear("otro nombre, ficha aparte", fila["h3"]["ficha"] == "lola")
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("salen dos fichas", html.count('class="ficha-dialogo"') == 4 and "Comparte WhatsApp con Lola Acosta" in html and "Comparte WhatsApp con Nina" in html)
 clave_lola = f"{TEL}~lola"
 client.post("/agenda/paciente", data={"telefono": clave_lola, "notas": "Sólo de Lola"})
@@ -1327,7 +1333,7 @@ db.reservar_turno("t1", "v1", TEL3, "Lola Acosta")
 fila = {t["id"]: t for t in TABLAS["turnos"]}
 chequear("el hermano no hereda la ficha vacía", fila["v1"]["ficha"] == "lola")
 chequear("los datos siguen siendo de Nina", db.datos_de_pacientes("t1")[TEL3]["notas"] == "De Nina" and not db.datos_de_pacientes("t1")[f"{TEL3}~lola"].get("notas"))
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 dialogos = html.split('<dialog class="ficha-dialogo"')[1:]
 de_lola = next(d for d in dialogos if "<h4>Lola Acosta</h4>" in d)
 de_nina = next(d for d in dialogos if "<h4>Nina Acosta</h4>" in d)
@@ -1354,10 +1360,10 @@ db.reservar_turno("t1", "m0", TEL4, "Mariana")
 db.guardar_paciente("t1", TEL4, {"notas": "Ficha vieja"})
 db.cancelar_turno("t1", "m0")
 db.reservar_turno("t1", "m1", TEL4, "Mari")
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("la ficha vieja se ofrece como destino", f'<option value="{TEL4}">Mariana</option>' in html)
 client.post("/agenda/sesion/m1/ficha", data={"destino": TEL4})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("pasar la sesión la recupera", html.count("<h4>Mariana</h4>") == 2 and "Ficha vieja" in html)
 chequear("la ficha abierta por error desaparece", "<h4>Mari</h4>" not in html and "Sin sesiones (" not in html)
 
@@ -1416,11 +1422,11 @@ chequear("con ficha clara no se marca", not fila_p("p0")["revisar_ficha"] and no
 db.reservar_turno("t1", "p2", TEL6, "Juan Pérez")
 chequear("con nombre ambiguo reserva y marca", fila_p("p2")["estado"] == "reservado" and fila_p("p2")["revisar_ficha"])
 chequear("un nombre claro no se marca", db.reservar_turno("t1", "p3", TEL6, "Lola") and not fila_p("p3")["revisar_ficha"])
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el panel pide revisar", "Revisar de quién es: 1 sesión" in html and "Es de esta ficha" in html)
 client.post("/agenda/sesion/p2/ficha/confirmar", data={})
 chequear("confirmar saca la marca y no mueve", not fila_p("p2")["revisar_ficha"] and fila_p("p2")["estado"] == "reservado")
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el aviso desaparece", "Revisar de quién es" not in html)
 db.cancelar_turno("t1", "p2")
 db.reservar_turno("t1", "p2", TEL6, "Juan Pérez")
@@ -1460,7 +1466,7 @@ scheduler.whatsapp.enviar_texto = lambda n, tel, texto: envios.append((tel, text
 scheduler.whatsapp.numero_de = lambda t: "num"
 client.post("/marcos/reservar/w0", data={"nombre": "Mora Díaz", "telefono": "54 9 11 2222 3333", "confirmado": "1"})
 chequear("la reserva pública entra en la agenda", fila_w("w0")["estado"] == "reservado" and fila_w("w0")["paciente_telefono"] == "5491122223333")
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("aparece en Reservas nuevas", "Reservas nuevas" in html and "Mora Díaz" in html[html.index("Reservas nuevas"):html.index("<h3>Hoy")])
 semana_w = (manana + timedelta(days=1)).astimezone(zona).date().isoformat()
 chequear("aparece en el calendario", "Mora Díaz" in client.get(f"/agenda?semana={semana_w}").data.decode())
@@ -1470,7 +1476,7 @@ chequear("avisa al profesional sin nombres", len(envios) == 1 and envios[0][0] =
 scheduler._avisar_reservas(tenant_w, zona)
 chequear("no avisa dos veces", len(envios) == 1)
 client.post("/agenda/sesion/w0/vista", data={})
-chequear("Visto la saca de la tarjeta", "Reservas nuevas" not in client.get("/agenda").data.decode() and fila_w("w0")["estado"] == "reservado")
+chequear("Visto la saca de la tarjeta", "Reservas nuevas" not in _panel(client) and fila_w("w0")["estado"] == "reservado")
 client.post("/agenda/agendar/w1", data={"nombre": "Del panel", "telefono": "5491133334444"})
 chequear("lo agendado desde el panel no avisa", not fila_w("w1")["reserva_nueva"] and scheduler.db.reservas_sin_avisar("t1") == [])
 client.post("/marcos/reservar/w2", data={"nombre": "Ida", "telefono": "5491144440000", "confirmado": "1"})
@@ -1504,15 +1510,15 @@ chequear("rangos legibles", tests_sugeridos._rango(6, 13) == "6 a 12 años" and 
 reset()
 TABLAS["turnos"].append(turno("t9", "t1", manana, estado="reservado", paciente_nombre="Nina", paciente_telefono="5491112121212", nota="Se distrae mucho"))
 TABLAS["pacientes"].append({"tenant_id": "t1", "paciente_telefono": "5491112121212", "ficha": "", "motivo_consulta": "Lectura lenta", "fecha_nacimiento": "2017-05-14"})
-chequear("psicología no ve tests", "Tests para considerar" not in client.get("/agenda").data.decode())
+chequear("psicología no ve tests", "Tests para considerar" not in _panel(client))
 TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("psicopedagogía los ve, también por la nota de sesión", "Tests para considerar" in html and "PROLEC-R" in html and "CARAS-R" in html)
 chequear("quedan en la pestaña Trabajo", html.index('data-panel="terapia"') < html.index("Tests para considerar") < html.index('data-panel="sesiones"'))
 
 # --- Cómo se usa ---
 reset()
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el panel enlaza la guía", 'href="/agenda/ayuda"' in html)
 html = client.get("/agenda/ayuda").data.decode()
 chequear("psicología ve sus pestañas", "Terapia:" in html and "Crisis:" in html and "Tests para considerar" not in html)
@@ -1521,7 +1527,7 @@ TABLAS["tenants"][0]["slug"] = "marcos"
 html = client.get("/agenda/ayuda").data.decode()
 chequear("psicopedagogía ve las suyas", "Trabajo:" in html and "Escuela:" in html and "Tests para considerar" in html and "/marcos" in html)
 for texto in ("Generar horarios", "Reservas nuevas", "Es de esta ficha"):
-    chequear(f"la guía nombra lo que existe: {texto}", texto in client.get("/agenda").data.decode() + open("templates/agenda.html", encoding="utf8").read())
+    chequear(f"la guía nombra lo que existe: {texto}", texto in _panel(client) + open("templates/agenda.html", encoding="utf8").read())
 with client.session_transaction() as s:
     s.pop("tenant_id")
 chequear("la guía pide login", client.get("/agenda/ayuda").status_code == 302)
@@ -1550,7 +1556,7 @@ TABLAS["pacientes"] += [{"tenant_id": "t1", "paciente_telefono": TEL7, "ficha": 
 ayer_iso = (datetime.now(zona) - timedelta(days=1)).date().isoformat()
 client.post("/agenda/paciente/test", data={"telefono": TEL7, "test": " PROLEC-R ", "fecha": ayer_iso})
 chequear("se anota en su ficha", len(TABLAS["paciente_tests"]) == 1 and TABLAS["paciente_tests"][0]["test"] == "PROLEC-R" and TABLAS["paciente_tests"][0]["ficha"] == "")
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 de_nina = next(d for d in html.split('<dialog class="ficha-dialogo"')[1:] if "<h4>Nina</h4>" in d)
 de_lola = next(d for d in html.split('<dialog class="ficha-dialogo"')[1:] if "<h4>Lola</h4>" in d)
 sugeridos_nina = de_nina[de_nina.index("Tests para considerar"):de_nina.index("<h5>Tests tomados")]
@@ -1565,7 +1571,7 @@ TABLAS["paciente_tests"].append({"id": "ajeno", "tenant_id": "t2", "paciente_tel
 client.post("/agenda/paciente/test/ajeno/borrar", data={})
 chequear("no borra tests de otro profesional", any(x["id"] == "ajeno" for x in TABLAS["paciente_tests"]))
 client.post(f"/agenda/paciente/test/{TABLAS['paciente_tests'][0]['id']}/borrar", data={})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 de_nina = next(d for d in html.split('<dialog class="ficha-dialogo"')[1:] if "<h4>Nina</h4>" in d)
 chequear("borrar lo vuelve a sugerir", len(TABLAS["paciente_tests"]) == 1
          and "PROLEC-R" in de_nina[de_nina.index("Tests para considerar"):de_nina.index("<h5>Tests tomados")])
@@ -1588,7 +1594,7 @@ chequear("fin de mes sin fechas inválidas", tests_sugeridos._se_puede_repetir(_
 chequear("todos los tests tienen plazo", all(isinstance(m, int) and 0 < m <= tests_sugeridos.MAX_MESES for _, _, _, m, _ in tests_sugeridos.CATALOGO))
 reset()
 TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("Ajustes muestra los plazos", "Plazo para repetir cada test" in html and 'name="meses-WISC-V"' in html and 'placeholder="24"' in html)
 client.post("/agenda/plazos-tests", data={"meses-WISC-V": "12", "meses-PROLEC-R": "6", "meses-D2": ""})
 chequear("guarda sólo lo que cambió", TABLAS["tenants"][0]["plazos_tests"] == {"WISC-V": 12})
@@ -1596,11 +1602,11 @@ html = client.post("/agenda/plazos-tests", data={"meses-D2": "99"}, follow_redir
 chequear("rechaza un plazo absurdo", "entre 0 y 60" in html and TABLAS["tenants"][0]["plazos_tests"] == {"WISC-V": 12})
 html = client.post("/agenda/plazos-tests", data={"meses-D2": "doce"}, follow_redirects=True).data.decode()
 chequear("rechaza texto", "número de meses" in html and TABLAS["tenants"][0]["plazos_tests"] == {"WISC-V": 12})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("muestra el propio y el de fábrica", 'value="12"' in html and "(de fábrica: 24)" in html)
 chequear("otro profesional no se entera", not TABLAS["tenants"][1].get("plazos_tests"))
 TABLAS["tenants"][0]["rubro"] = "psicología"
-chequear("psicología no ve plazos", "Plazo para repetir cada test" not in client.get("/agenda").data.decode())
+chequear("psicología no ve plazos", "Plazo para repetir cada test" not in _panel(client))
 
 # --- Resultados de tests y evolución ---
 import resultados_tests  # noqa: E402
@@ -1650,7 +1656,7 @@ TABLAS["paciente_tests"] += [
     {"id": "w1", "tenant_id": "t1", "paciente_telefono": TEL8, "ficha": "", "test": "WISC-V", "fecha": "2024-10-01"},
     {"id": "w2", "tenant_id": "t1", "paciente_telefono": TEL8, "ficha": "", "test": "WISC-V", "fecha": "2026-10-01"},
     {"id": "otro", "tenant_id": "t2", "paciente_telefono": TEL8, "ficha": "", "test": "WISC-V", "fecha": "2026-10-01"}]
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("ofrece cargar resultados", "Cargar resultados del 01/10/2026" in html and "sin resultados" in html)
 chequear("sugiere las escalas del WISC-V", '<option value="Razonamiento Fluido">' in html)
 client.post("/agenda/paciente/test/w1/resultados", data={"telefono": TEL8, "escala-0": "CI Total", "tipo-0": "compuesto", "puntaje-0": "84", "nivel-0": "Medio bajo"})
@@ -1689,13 +1695,13 @@ reset()
 TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
 TEL9 = "5491114141414"
 TABLAS["turnos"].append(turno("f1", "t1", manana, estado="reservado", paciente_nombre="Mora Díaz", paciente_telefono=TEL9))
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("sin textos pide cargarlos", "cargá un texto en «Ajustes»" in html and "Textos para fluidez lectora (0)" in html)
 client.post("/agenda/textos-lectura", data={"titulo": "La plaza", "texto": "Hoy fuimos a la plaza con mi abuela y vimos patos."})
 client.post("/agenda/textos-lectura", data={"titulo": "", "texto": "algo"})
 chequear("agrega textos con título", [t["titulo"] for t in TABLAS["textos_lectura"]] == ["La plaza"])
 TABLAS["textos_lectura"].append({"id": "ajeno", "tenant_id": "t2", "titulo": "Ajeno", "texto": "uno dos"})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("ofrece tomar lectura con sus textos", "Tomar lectura" in html and "La plaza (11 palabras)" in html and "Ajeno" not in html)
 texto_id = TABLAS["textos_lectura"][0]["id"]
 pantalla = client.post("/agenda/fluidez", data={"telefono": TEL9, "texto_id": texto_id}).data.decode()
@@ -1709,7 +1715,7 @@ chequear("guarda la lectura", guardada.get("palabras_leidas") == 11 and guardada
          and guardada.get("errores_palabras") == ["a", "y"] and guardada.get("paciente_telefono") == TEL9 and guardada.get("texto_titulo") == "La plaza")
 chequear("avisa el resultado", "36 palabras correctas por minuto, 82% de precisión" in html)
 client.post("/agenda/fluidez/guardar", data={"telefono": TEL9, "texto_id": texto_id, "leidas": "11", "errores": "", "segundos": "12"})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("muestra la evolución con gráfico", "grafico-fluidez" in html and "↑ 19" in html and "Errores: a, y" in html)
 n = len(TABLAS["lecturas"])
 client.post("/agenda/fluidez/guardar", data={"telefono": TEL9, "texto_id": texto_id, "leidas": "12", "errores": "", "segundos": "12"})
@@ -1720,7 +1726,7 @@ chequear("no borra lecturas de otro", any(x["id"] == "ajena" for x in TABLAS["le
 client.post(f"/agenda/textos-lectura/{texto_id}/borrar", data={})
 chequear("borrar el texto deja las lecturas", not any(t["id"] == texto_id for t in TABLAS["textos_lectura"]) and len(TABLAS["lecturas"]) == n + 1)
 TABLAS["tenants"][0]["rubro"] = "psicología"
-chequear("psicología no ve fluidez", "Fluidez lectora" not in client.get("/agenda").data.decode())
+chequear("psicología no ve fluidez", "Fluidez lectora" not in _panel(client))
 
 # --- Cuestionarios por link ---
 import cuestionarios  # noqa: E402
@@ -1740,13 +1746,13 @@ chequear("tokens distintos y largos", len({cuestionarios.nuevo_token() for _ in 
 reset()
 TELC = "5491115151515"
 TABLAS["turnos"].append(turno("q1", "t1", manana, estado="reservado", paciente_nombre="Carla Gómez", paciente_telefono=TELC))
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("psicología ofrece cuestionarios", "Generar link" in html and "PHQ-9 (depresión)" in html)
 client.post("/agenda/cuestionario", data={"telefono": TELC, "instrumento": "phq9"})
 client.post("/agenda/cuestionario", data={"telefono": TELC, "instrumento": "snap"})
 chequear("crea el link", len(TABLAS["cuestionarios"]) == 1 and TABLAS["cuestionarios"][0]["instrumento"] == "phq9")
 token = TABLAS["cuestionarios"][0]["token"]
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("la ficha muestra el link", f"/cuestionario/{token}" in html and "sin responder" in html)
 publica = client.get(f"/cuestionario/{token}").data.decode()
 chequear("el paciente ve el cuestionario sin login", "Poco interés o placer en hacer cosas" in publica and "Carla" not in publica and TELC not in publica)
@@ -1759,28 +1765,28 @@ chequear("guarda corregido", guardado["puntaje"] == 17 and guardado["severidad"]
 chequear("con la 9 le da teléfonos de ayuda", "135" in fin and "911" in fin)
 otra = client.post(f"/cuestionario/{token}", data=todo(9, 0)).data.decode()
 chequear("un link sirve una vez", "ya se respondió" in otra and TABLAS["cuestionarios"][0]["puntaje"] == 17)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("aviso en el panel y en la ficha", "Cuestionarios respondidos" in html and "marcó ideas de hacerse daño" in html and "pregunta 9: varios días" in html)
 TABLAS["cuestionarios"].append({"id": "viejo", "tenant_id": "t1", "paciente_telefono": TELC, "ficha": "", "instrumento": "phq9", "token": "tv",
                                 "vence": "2026-01-01T00:00:00+00:00", "respondido_at": "2026-01-02T12:00:00+00:00", "puntaje": 22,
                                 "severidad": "severa", "alerta": False, "respuestas": [2] * 9, "visto": True, "created_at": "00000000"})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("evolución contra la anterior", "↓ 5" in html and "grafico-fluidez" in html)
 client.post(f"/agenda/cuestionario/{guardado['id']}/visto", data={})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("visto saca el aviso", "Cuestionarios respondidos" not in html and "sin ver marcó ideas" not in html)
 TABLAS["cuestionarios"].append({"id": "venc", "tenant_id": "t1", "paciente_telefono": TELC, "ficha": "", "instrumento": "gad7", "token": "tvenc",
                                 "vence": "2026-01-01T00:00:00+00:00", "created_at": "00000001"})
 chequear("link vencido avisa", "venció" in client.get("/cuestionario/tvenc").data.decode())
-chequear("vencido no se muestra como pendiente", "/cuestionario/tvenc" not in client.get("/agenda").data.decode())
+chequear("vencido no se muestra como pendiente", "/cuestionario/tvenc" not in _panel(client))
 TABLAS["cuestionarios"].append({"id": "ajeno", "tenant_id": "t2", "paciente_telefono": TELC, "ficha": "", "instrumento": "gad7", "token": "taj",
                                 "vence": "2099-01-01T00:00:00+00:00", "created_at": "00000002"})
 client.post("/agenda/cuestionario/ajeno/borrar", data={})
 client.post("/agenda/cuestionario/ajeno/visto", data={})
 chequear("no toca cuestionarios de otro", any(c["id"] == "ajeno" and not c.get("visto") for c in TABLAS["cuestionarios"]))
-chequear("ni lo muestra", "/cuestionario/taj" not in client.get("/agenda").data.decode())
+chequear("ni lo muestra", "/cuestionario/taj" not in _panel(client))
 TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("psicopedagogía ofrece entrevista y docente, no PHQ-9", "Entrevista inicial (para la familia)" in html and "Cuestionario para el docente" in html and "PHQ-9 (depresión)" not in html)
 n = len(TABLAS["cuestionarios"])
 client.post("/agenda/cuestionario", data={"telefono": TELC, "instrumento": "gad7"})
@@ -1808,12 +1814,12 @@ chequear("pide al menos una respuesta", res.status_code == 400 and "al menos una
 client.post(f"/cuestionario/{doc['token']}", data={"pregunta-1": "Lee silabeando.", "pregunta-7": "Se frustra rápido."})
 doc = TABLAS["cuestionarios"][0]
 chequear("guarda las respuestas abiertas", doc.get("respondido_at") and doc["respuestas"][1] == "Lee silabeando." and doc.get("puntaje") is None)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("se lee en la ficha con su pregunta", "Lee silabeando." in html and "¿Cómo es su lectura en voz alta" in html and "Cuestionario para el docente" in html)
 chequear("y aparece como respondido", "Cuestionario para el docente respondido" in html)
 chequear("no repite preguntas sin respuesta", "¿Cómo le va en matemática" not in html.split("Lee silabeando.")[1].split("Borrar respuestas")[0])
 TABLAS["tenants"][0]["rubro"] = "psicología"
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("psicología ofrece entrevista de adultos", "Antes de la primera sesión (entrevista inicial)" in html)
 
 # --- Hoja de registro ---
@@ -1823,7 +1829,7 @@ TELR = "5491117171717"
 TABLAS["turnos"].append(turno("h1", "t1", manana, estado="reservado", paciente_nombre="Sol Ríos", paciente_telefono=TELR))
 TABLAS["paciente_tests"].append({"id": "hr", "tenant_id": "t1", "paciente_telefono": TELR, "ficha": "", "test": "WISC-V", "fecha": "2026-10-20",
                                  "resultados": [{"escala": "CI Total", "tipo": "compuesto", "puntaje": 95, "nivel": ""}]})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("ofrece la hoja de registro", "Hoja de registro" in html)
 hoja = client.post("/agenda/registro", data={"telefono": TELR, "test_id": "hr"}).data.decode()
 chequear("abre la hoja con lo que ya tenía", "Hoja de registro · WISC-V · Sol Ríos" in hoja and '"CI Total"' in hoja
@@ -1887,12 +1893,12 @@ hoy_local = datetime.now(zona).date()
 fecha_vieja = (hoy_local.replace(day=1) - timedelta(days=200)).isoformat()
 TABLAS["paciente_tests"].append({"id": "rt", "tenant_id": "t1", "paciente_telefono": TELT, "ficha": "", "test": "TEDE", "fecha": fecha_vieja})
 vence = tests_sugeridos._vence(_date.fromisoformat(fecha_vieja), 6)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 en_ventana = 0 <= (hoy_local - vence).days < 30
 chequear("tarjeta de tests para repetir", ("Tests que ya se pueden repetir" in html) == en_ventana, (fecha_vieja, vence))
 TABLAS["paciente_tests"][0]["fecha"] = _date(hoy_local.year - 1, hoy_local.month, min(hoy_local.day, 28)).isoformat() if hoy_local.day <= 28 else TABLAS["paciente_tests"][0]["fecha"]
 TABLAS["paciente_tests"][0]["test"] = "D2"  # 12 meses: vence hoy si el día existe
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("aparece el día que vence", hoy_local.day > 28 or ("Tests que ya se pueden repetir" in html and "Teresa Gil" in html and "D2" in html))
 partes = scheduler._partes_del_resumen(TABLAS["tenants"][0], hoy_local)
 chequear("el resumen cuenta los de hoy sin nombres", hoy_local.day > 28 or ("1 test que hoy se puede repetir" in ", ".join(partes) and "Teresa" not in ", ".join(partes)))
@@ -1917,7 +1923,7 @@ contenido = lambda texto: json.dumps({"titulo": "Informe psicopedagógico", "dat
 html = client.post("/agenda/paciente/informe/guardar", data={"telefono": TELV, "contenido": contenido("Primera versión.")}, follow_redirects=True).data.decode()
 client.post("/agenda/paciente/informe/guardar", data={"telefono": TELV, "contenido": contenido("Segunda versión.")})
 chequear("guarda versiones sin pisar", "Se guardó el informe" in html and [i["contenido"]["secciones"][0]["texto"] for i in TABLAS["informes"]] == ["Primera versión.", "Segunda versión."])
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("la ficha lista las versiones", "Versión 1 · Informe psicopedagógico" in html and "Versión 2 · Informe psicopedagógico" in html
          and html.index("Versión 2") < html.index("Versión 1"))
 primera = TABLAS["informes"][0]["id"]
@@ -1958,7 +1964,8 @@ reset()
 TABLAS["tenants"][0]["rubro"] = "psicopedagogía"
 TELS = "5491112345678"
 TABLAS["turnos"].append(turno("s1", "t1", manana, estado="reservado", paciente_nombre="Santi Rey", paciente_telefono=TELS))
-html = client.post("/agenda/plantillas", data={"modelo": "scared_chico"}, follow_redirects=True).data.decode()
+html = client.post("/agenda/plantillas", data={"modelo": "scared_chico", "volver": "ajustes", "pestania": "avanzado"},
+                   follow_redirects=True).data.decode()
 chequear("crea el SCARED vacío", len(TABLAS["plantillas_cuestionario"]) == 1 and "faltan 41: todavía no se puede mandar" in html and "Falta pegar las 41 preguntas" in html)
 chequear("no se ofrece incompleto", "SCARED · Chico/a (ansiedad infantil)" not in html)
 pid = TABLAS["plantillas_cuestionario"][0]["id"]
@@ -1972,7 +1979,7 @@ editar = {"nombre": "SCARED", "version": "Chico/a", "que_mide": "ansiedad infant
 html = client.post(f"/agenda/plantillas/{pid}", data={**editar, "items": "solo una"}, follow_redirects=True).data.decode()
 chequear("si faltan renglones avisa y no guarda", "¿Faltan renglones" in html and not cuestionarios.completa(TABLAS["plantillas_cuestionario"][0]["contenido"]))
 client.post(f"/agenda/plantillas/{pid}", data=editar)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("completo se ofrece en la ficha", f'value="propio:{pid}"' in html and "SCARED · Chico/a (ansiedad infantil)" in html)
 client.post("/agenda/cuestionario", data={"telefono": TELS, "instrumento": f"propio:{pid}"})
 q = TABLAS["cuestionarios"][-1]
@@ -1986,7 +1993,7 @@ q = TABLAS["cuestionarios"][-1]
 chequear("corrige el SCARED", q["puntaje"] == 74 and q["severidad"] == "sobre el corte"
          and [d["sobre_corte"] for d in q["detalle"]] == [True, True, True, True, False])
 TABLAS["plantillas_cuestionario"][0]["contenido"]["items"][0] = "Cambiada después"
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("la ficha muestra subescalas", "Evitación escolar: 0/3" in html and "Ansiedad social: 14/8" in html and "74</strong> sobre el corte" in html)
 chequear("editar la plantilla no toca lo mandado", q["plantilla"]["items"][0] == "Pregunta de prueba 1")
 TABLAS["plantillas_cuestionario"].append({"id": "ajena", "tenant_id": "t2", "contenido": dict(editar, items=["a"], opciones=[{"texto": "x", "valor": 0}, {"texto": "y", "valor": 1}], subescalas=[], corte_total=None)})
@@ -1997,7 +2004,7 @@ client.post("/agenda/plantillas/ajena", data=editar)
 client.post("/agenda/plantillas/ajena/borrar", data={})
 chequear("ni las edita ni las borra", any(p["id"] == "ajena" and p["contenido"]["items"] == ["a"] for p in TABLAS["plantillas_cuestionario"]))
 TABLAS["tenants"][0]["rubro"] = "psicología"
-chequear("psicología también tiene propios", "Cuestionarios propios" in client.get("/agenda").data.decode())
+chequear("psicología también tiene propios", "Cuestionarios propios" in _panel(client))
 
 # --- Exportar e importar cuestionarios, versiones lado a lado ---
 exp = cuestionarios.exportar({**M, "version": "Padres"})
@@ -2043,7 +2050,7 @@ for n in M["subescalas"][3]["items"] + M["subescalas"][4]["items"]:  # social y 
     chico[n - 1] = 2
 responder("Chico/a", chico)
 responder("Padres", [1] * 41)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("compara las versiones lado a lado", "SCARED: versiones lado a lado" in html and "Chico/a" in html and "Padres" in html)
 tabla = html.split("SCARED: versiones lado a lado")[1].split("</table>")[0]
 fila_social = tabla.split("Ansiedad social")[1].split("</tr>")[0]
@@ -2069,7 +2076,7 @@ TABLAS["cuestionarios"].append({"id": "fca", "tenant_id": "t1", "paciente_telefo
                                 "respuestas": ["", "Lee silabeando."], "created_at": "1"})
 TABLAS["informes"].append({"id": "fci", "tenant_id": "t1", "paciente_telefono": TELF, "ficha": "", "created_at": "2",
                            "contenido": {"titulo": "Informe psicopedagógico", "datos": [], "secciones": [{"titulo": "Conclusiones", "texto": "Avanza bien."}]}})
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("ofrece la ficha completa", "Ficha completa en PDF" in html)
 pagina = client.post("/agenda/paciente/ficha-completa", data={"telefono": TELF}).data.decode()
 for texto in ("Ficha de Fede Gil", "Deriva la escuela por lectura.", "Nota privada de prueba.", "Escuela 9", "Ana", "Madre",
@@ -2083,7 +2090,7 @@ html = client.post("/agenda/plantillas-informe", data={"nombre": "Para la escuel
 chequear("guarda la plantilla de informe", "Se guardó la plantilla «Para la escuela»" in html
          and TABLAS["plantillas_informe"][0]["contenido"] == {"nombre": "Para la escuela", "secciones": ["Motivo de derivación", "Lo que observamos", "Objetivos"]})
 chequear("plantilla sin secciones", "no tiene secciones" in client.post("/agenda/plantillas-informe", data={"nombre": "x", "secciones": "[]"}, follow_redirects=True).data.decode())
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("se elige al armar el informe", '<option value="">Estándar</option>' in html and ">Para la escuela</option>" in html)
 pid = TABLAS["plantillas_informe"][0]["id"]
 borr = client.post("/agenda/paciente/informe", data={"telefono": TELF, "plantilla_id": pid}).data.decode()
@@ -2116,7 +2123,7 @@ TABLAS["turnos"].append(turno("w1", "t1", manana, estado="reservado", paciente_n
 for v in ("Chico/a", "Padres"):
     client.post("/agenda/plantillas", data=completo(v))
 client.post("/agenda/plantillas", data={"modelo": "scared_padres"})  # una tercera, incompleta: no cuenta
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("ofrece todas las versiones juntas", 'value="todas:scared"' in html and "SCARED · todas las versiones (Chico/a, Padres)" in html)
 html = client.post("/agenda/cuestionario", data={"telefono": TELW, "instrumento": "todas:scared", "para": "J. R."}, follow_redirects=True).data.decode()
 mandados = [c for c in TABLAS["cuestionarios"] if c["instrumento"] == "propio"]
@@ -2142,7 +2149,7 @@ for n_ in M["subescalas"][3]["items"]:
     alto[n_ - 1] = 2
 for c in nuevos:
     responder_link(c, alto if c["plantilla"]["version"] == "Chico/a" else [0] * 41)
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 tabla = html.split("SCARED: versiones lado a lado")[1].split("</table>")[0]
 social = tabla.split("Ansiedad social")[1].split("</tr>")[0]
 chequear("muestra la toma anterior de cada versión", "antes 0 (↑ 14)" in social and "antes 0" in social and "· antes" in tabla)
@@ -2170,7 +2177,7 @@ chequear("no comparte lo que no existe", len(TABLAS["biblioteca_cuestionarios"])
 with client.session_transaction() as ses:
     ses["tenant_id"] = "t2"
     ses["sesion_id"] = _sesion_de("t2")
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("la otra profesional ve la biblioteca", "Biblioteca compartida (2)" in html and "compartido por Lic. Marcos" in html and ">Retirar<" not in html)
 entrada = TABLAS["biblioteca_cuestionarios"][0]["id"]
 antes_t2 = sum(p["tenant_id"] == "t2" for p in TABLAS["plantillas_cuestionario"])
@@ -2207,7 +2214,7 @@ chequear("con POST muestra la copia guardada", "Nota de la sesión." in doc.data
          and TABLAS["entregas"][0].get("abierta_at") and doc.headers.get("X-Robots-Tag") == "noindex")
 chequear("una sola vez", "ya se abrió" in client.post(f"/entrega/{ent['token']}").data.decode()
          and "ya se abrió" in client.get(f"/entrega/{ent['token']}").data.decode())
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("la ficha dice que se abrió", "abierto el" in html)
 chequear("link inventado", client.get("/entrega/nada").status_code == 404 and client.post("/entrega/nada").status_code == 404)
 TABLAS["entregas"].append({"id": "venc", "tenant_id": "t1", "paciente_telefono": TELN, "ficha": "", "token": "tv2", "html": "secreto",
@@ -2217,7 +2224,7 @@ TABLAS["entregas"].append({"id": "ajena", "tenant_id": "t2", "paciente_telefono"
                            "vence": "2099-01-01T00:00:00+00:00", "created_at": "y"})
 client.post("/agenda/entrega/ajena/borrar", data={})
 chequear("no anula links de otro", any(e["id"] == "ajena" for e in TABLAS["entregas"]))
-chequear("ni los muestra", "/entrega/ta\"" not in client.get("/agenda").data.decode())
+chequear("ni los muestra", "/entrega/ta\"" not in _panel(client))
 client.post("/agenda/entrega/venc/borrar", data={})
 chequear("anula los propios", not any(e["id"] == "venc" for e in TABLAS["entregas"]))
 chequear("ficha ajena no genera link", "No se encontró la ficha" in client.post("/agenda/paciente/ficha-completa/link", data={"telefono": "nada"}, follow_redirects=True).data.decode())
@@ -2235,21 +2242,21 @@ TABLAS["biblioteca_cuestionarios"] += [
 r = client.post("/agenda/biblioteca/b1/moderar/ocultar", data={})
 chequear("sin ser moderador no oculta", r.status_code == 403 and not TABLAS["biblioteca_cuestionarios"][0]["oculto"])
 TABLAS["tenants"][0]["moderador"] = True
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el moderador ve el botón", ">Ocultar</button>" in html)
 client.post("/agenda/biblioteca/b1/moderar/ocultar", data={})
 chequear("oculta y guarda quién", TABLAS["biblioteca_cuestionarios"][0]["oculto"] and TABLAS["biblioteca_cuestionarios"][0]["oculto_por"] == "Lic. Marcos")
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("el moderador lo sigue viendo marcado", "oculto por moderación (Lic. Marcos)" in html and ">Mostrar</button>" in html)
 TABLAS["tenants"][0]["moderador"] = False
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("los demás no lo ven", "Biblioteca compartida (0)" in html)
 html = client.post("/agenda/biblioteca/b1/agregar", data={}, follow_redirects=True).data.decode()
 chequear("ni lo pueden agregar", "ya no está en la biblioteca" in html)
 with client.session_transaction() as ses:
     ses["tenant_id"] = "t2"
     ses["sesion_id"] = _sesion_de("t2")
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("la autora lo ve marcado", "oculto por moderación" in html and "(Lic. Marcos)" not in html)
 with client.session_transaction() as ses:
     ses["tenant_id"] = "t1"
@@ -2420,7 +2427,7 @@ for _ in range(5):
 chequear("a los 5 intentos se bloquea", "se bloqueó" in r and TABLAS["entregas"][1]["intentos"] == 5)
 r = _post_sin_token(f"/entrega/{e2['token']}", data={"dni": "22333444"}).data.decode()
 chequear("bloqueado no abre ni con el DNI correcto", "se bloqueó" in r and "Ficha de Dani" not in r)
-chequear("la ficha lo muestra bloqueado", "bloqueado por DNI equivocado" in client.get("/agenda").data.decode())
+chequear("la ficha lo muestra bloqueado", "bloqueado por DNI equivocado" in _panel(client))
 client.post("/agenda/paciente/ficha-completa/link", data={"telefono": TELD})
 chequear("sin DNI abre directo", "Ficha de Dani Vera" in _post_sin_token(f"/entrega/{TABLAS['entregas'][2]['token']}", data={}).data.decode())
 
@@ -2542,7 +2549,7 @@ with client.session_transaction() as ses:
     ses["tenant_id"] = "t1"
     ses["sesion_id"] = _sesion_de("t1")
     ses["csrf_token"] = "tok"
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("Ajustes ofrece cambiar la clave", "Cambiar la clave" in html)
 for datos, motivo in [({"actual": "mala", "nueva": "clave-nueva-1", "repetir": "clave-nueva-1"}, "no es correcta"),
                       ({"actual": "clave-vieja-1", "nueva": "corta", "repetir": "corta"}, "al menos 10"),
@@ -2560,12 +2567,12 @@ for _ in range(5):
 html = client.post("/agenda/clave", data={"actual": "clave-nueva-1", "nueva": "clave-nueva-2", "repetir": "clave-nueva-2"}, follow_redirects=True).data.decode()
 chequear("la clave actual tiene el mismo límite de intentos", "Demasiados intentos" in html)
 chequear("y el bloqueo se avisa", TABLAS["tenants"][0].get("ultimo_bloqueo"))
-html = client.get("/agenda").data.decode()
+html = _panel(client)
 chequear("aviso de bloqueo en el panel", "tu cuenta se bloqueó 15 minutos" in html)
 partes = ", ".join(scheduler._partes_del_resumen(TABLAS["tenants"][0], datetime.now(zona).date()))
 chequear("y en el resumen, sin IP ni detalles", "tu cuenta se bloqueó por claves equivocadas" in partes)
 TABLAS["tenants"][0]["ultimo_bloqueo"] = (datetime.now(timezone.utc) - timedelta(days=8)).isoformat()
-chequear("un bloqueo viejo ya no se muestra", "tu cuenta se bloqueó" not in client.get("/agenda").data.decode())
+chequear("un bloqueo viejo ya no se muestra", "tu cuenta se bloqueó" not in _panel(client))
 TABLAS["login_intentos"] = []
 for _ in range(5):
     _post_sin_token("/login", data={"usuario": "marcos", "clave": "mala"})
@@ -2626,7 +2633,7 @@ chequear("y queda en la actividad", sum("entró al panel" in a["accion"] for a i
 with compu.session_transaction() as ses:
     ses["csrf_token"] = "tok"
     sid_compu = ses["sesion_id"]
-html = compu.get("/agenda").data.decode()
+html = _panel(compu)
 chequear("Ajustes lista las sesiones", "Tus sesiones abiertas (2)" in html and "Safari en iPhone" in html and "Chrome en Windows" in html and ">esta<" in html)
 sid_celu = next(x["id"] for x in TABLAS["sesiones"] if x["id"] != sid_compu)
 compu.post(f"/agenda/sesiones/{sid_celu}/cerrar", data={"csrf_token": "tok"})
@@ -2833,7 +2840,7 @@ app.webauthn.verify_registration_response = lambda **k: (_ for _ in ()).throw(Va
 celu.post("/agenda/llaves/opciones", data={"csrf_token": "tok"})
 chequear("registro inválido no guarda", celu.post("/agenda/llaves/registrar", data={"csrf_token": "tok", "credencial": "{}"}).status_code == 400
          and len(TABLAS["llaves_acceso"]) == 1)
-chequear("Ajustes lista la llave", "Llaves de acceso (1)" in celu.get("/agenda").data.decode())
+chequear("Ajustes lista la llave", "Llaves de acceso (1)" in _panel(celu))
 llave_id = TABLAS["llaves_acceso"][0]["id"]
 compu = app.app.test_client()
 o = compu.post("/login/llave/opciones").get_json()
@@ -3198,12 +3205,12 @@ with panel_t1.session_transaction() as ses:
     ses["tenant_id"] = "t1"
     ses["sesion_id"] = _sesion_de("t1")
     ses["csrf_token"] = "tok"
-html = panel_t1.get("/agenda").data.decode()
+html = _panel(panel_t1)
 chequear("panel: muestra su página de turnos para compartir", "Tu página de turnos" in html and "/marcos" in html and "wa.me" in html)
 r = panel_t1.get("/agenda/mi-pagina-qr.svg")
 chequear("panel: QR de su página", r.status_code == 200 and r.mimetype == "image/svg+xml" and b"<svg" in r.data)
 TABLAS["tenants"][0]["slug"] = None
-chequear("panel: sin página, no hay tarjeta ni QR", "Tu página de turnos" not in panel_t1.get("/agenda").data.decode()
+chequear("panel: sin página, no hay tarjeta ni QR", "Tu página de turnos" not in _panel(panel_t1)
          and panel_t1.get("/agenda/mi-pagina-qr.svg").status_code == 404)
 db.get_tenant_by_phone_number_id, db.tenant_por_paciente = _viejo_por_numero, _viejo_por_paciente
 
@@ -3282,7 +3289,7 @@ TABLAS["mensajes_pacientes"] = [
      "creado": _hace(hours=30), "leido": False},
     {"id": "mp3", "tenant_id": "t2", "telefono": "5491100008888", "tipo": "texto", "texto": "Mensaje de otra cuenta",
      "creado": _hace(minutes=1), "leido": False}]
-html = panel_c.get("/agenda").data.decode()
+html = _panel(panel_c)
 chequear("bandeja: el panel muestra los mensajes de esta cuenta", 'id="mensajes"' in html and "Llego 10 minutos tarde" in html
          and "Mandó un audio" in html and "Mensaje de otra cuenta" not in html)
 chequear("bandeja: sólo se contesta dentro de las 24 h", html.count('name="respuesta"') == 1)
@@ -3370,8 +3377,8 @@ chequear("portada: rechaza la muy pesada", t1.get("portada_version") == 1)
 panel_c.post("/agenda/portada/borrar", data={"csrf_token": "tok"})
 chequear("portada: se quita", t1.get("portada_version") == 0
          and app.app.test_client().get(f"/{t1['slug']}/portada").status_code == 404)
-chequear("perfil: avisa si ofrece videollamada sin link", "no cargaste el link" in panel_c.get("/agenda").data.decode())
-chequear("panel: elegir foto y portada sube sola, sin botón aparte", 'class="btn chico secundario elegir-archivo"' in panel_c.get("/agenda").data.decode())
+chequear("perfil: avisa si ofrece videollamada sin link", "no cargaste el link" in _panel(panel_c))
+chequear("panel: elegir foto y portada sube sola, sin botón aparte", 'class="btn chico secundario elegir-archivo"' in _panel(panel_c))
 # vista guardada en la cuenta y color de la página
 _ck = app.app.test_client()
 _ck.set_cookie("tema", "claro"); _ck.set_cookie("letra", "enorme")
@@ -3382,7 +3389,7 @@ panel_c.post("/agenda/vista", data={"csrf_token": "tok", "letra": "grande"})
 panel_c.post("/agenda/vista", data={"csrf_token": "tok", "tema": "rosa", "letra": "gigante"})
 chequear("vista: el panel la guarda en la cuenta y descarta valores raros", t1.get("preferencias_vista") == {"tema": "noche", "letra": "grande"})
 panel_c.set_cookie("tema", "claro")
-_html_p = panel_c.get("/agenda").data.decode()
+_html_p = _panel(panel_c)
 chequear("vista: con sesión manda la de la cuenta (te sigue a otro dispositivo)",
          'data-tema="noche"' in _html_p and 'data-letra="grande"' in _html_p and 'name="csrf"' in _html_p)
 chequear("vista: sin CSRF no se guarda", panel_c.post("/agenda/vista", data={"tema": "oscuro"}).status_code in (400, 403)
@@ -3399,7 +3406,7 @@ panel_c.post("/agenda/vista", data={"csrf_token": "tok", "noche": "19-7"})
 panel_c.post("/agenda/vista", data={"csrf_token": "tok", "noche": "8-8"})
 panel_c.post("/agenda/vista", data={"csrf_token": "tok", "noche": "25-3"})
 chequear("noche: guarda el horario elegido y descarta los inválidos", t1["preferencias_vista"].get("noche") == "19-7"
-         and 'data-noche="19-7"' in panel_c.get("/agenda").data.decode())
+         and 'data-noche="19-7"' in _panel(panel_c))
 _cn = app.app.test_client(); _cn.set_cookie("noche", "x-y")
 chequear("noche: sin elegir va de 20 a 8", 'data-noche="20-8"' in _cn.get(f"/{t1['slug']}").data.decode())
 # vista previa al compartir
@@ -3424,8 +3431,8 @@ chequear("app: el service worker no guarda páginas, sólo la de sin conexión",
          and "csrf" not in app.app.test_client().get("/sin-conexion").data.decode())
 chequear("app: íconos servidos", app.app.test_client().get("/static/icono-512.png").status_code == 200)
 chequear("app: el panel ofrece instalarlo y todas las páginas traen el manifest",
-         'id="instalar-boton"' in panel_c.get("/agenda").data.decode() and 'rel="manifest"' in _og)
-_hp = panel_c.get("/agenda").data.decode()
+         'id="instalar-boton"' in _panel(panel_c) and 'rel="manifest"' in _og)
+_hp = _panel(panel_c)
 chequear("panel: recorte de foto y colores para elegir", all(x in _hp for x in ('id="recorte"', 'name="color_pagina" value="azul"', "Usar este recorte"))
          and _hp.index('id="recorte"') < _hp.index("se elige el recorte"))
 
@@ -3522,7 +3529,7 @@ html = web2.post("/marcos/lista-espera", data={"nombre": "Nora", "telefono": "54
 chequear("espera web: no se duplica", "Ya estabas anotado" in html and len(TABLAS["lista_espera"]) == 1 and len(_avisos_prof) == 1)
 r = web2.post("/marcos/lista-espera", data={"nombre": "X", "telefono": "123"})
 chequear("espera web: teléfono incompleto vuelve", r.status_code == 302 and len(TABLAS["lista_espera"]) == 1)
-chequear("espera web: el panel la marca", "se anotó en la web" in panel_c.get("/agenda").data.decode())
+chequear("espera web: el panel la marca", "se anotó en la web" in _panel(panel_c))
 
 _ahora = datetime.now(timezone.utc).replace(second=0, microsecond=0)
 TABLAS["turnos"] = [turno("p1", "t1", _ahora + timedelta(hours=5), estado="reservado", paciente_telefono="5491166667777",
@@ -3577,7 +3584,7 @@ chequear("preguntar: nadie lo ve", not any(t["id"] == "h1" for t in db.turnos_li
 chequear("preguntar: tampoco reservándolo por id", web3.post("/marcos/reservar/h1", data={
     "nombre": "X", "telefono": "5491100002222", "confirmado": "1"}).status_code == 302 and h1["estado"] == "libre")
 chequear("preguntar: le avisa al profesional cómo decidir", _avisos_p and "LIBERAR" in _avisos_p[-1] and "ME LO TOMO" in _avisos_p[-1])
-html = panel_c.get("/agenda").data.decode()
+html = _panel(panel_c)
 chequear("preguntar: el panel lo muestra para decidir", "Horarios que te cancelaron" in html and "esperando que decidas" in html)
 
 # el profesional contesta por WhatsApp: sólo con el número vinculado
@@ -3615,7 +3622,7 @@ TABLAS["eventos_pagina"] = []
 web3.get("/marcos")
 web3.get("/marcos", headers={"User-Agent": "Googlebot/2.1"})
 web3.post("/marcos/lista-espera", data={"nombre": "Ana", "telefono": "5491177776666"})
-html = panel_c.get("/agenda").data.decode()
+html = _panel(panel_c)
 chequear("estadísticas: cuenta visitas (sin bots) y anotados", "</strong> 1 visita\n" in html and "1 a lista de espera" in html)
 panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "presencial", "al_cancelar": "preguntar",
                                      "ofrecer_espera_auto": "1", "cancelar_hasta_horas": "24"})
@@ -3663,7 +3670,7 @@ panel_c.post("/agenda/bloqueo", data={"csrf_token": "tok", "desde": _dia.isoform
                                       "motivo": "trámite"})
 _libres = {t["id"] for t in db.turnos_libres("t1", datetime.now(timezone.utc), limite=50)}
 chequear("bloqueo por horas: saca sólo ese rato", _libres == {"b13", "b16"})
-html = panel_c.get("/agenda").data.decode()
+html = _panel(panel_c)
 chequear("bloqueo por horas: se ve con las horas", "de 14:00 a 16:00" in html)
 panel_c.post("/agenda/bloqueo", data={"csrf_token": "tok", "desde": _dia.isoformat(), "hora_desde": "16:00", "hora_hasta": "15:00"})
 chequear("bloqueo por horas: al revés no", len(TABLAS["bloqueos"]) == 1)
@@ -3735,7 +3742,7 @@ chequear("horario: genera las franjas de los lunes", _horas == ["09:00", "09:50"
          and len(_lunes) in (5, 6, 7, 8, 9))
 _antes = len(TABLAS["turnos"])
 chequear("horario: generar de nuevo no duplica", scheduler.generar_desde_horario(dict(_t1)) == 0 and len(TABLAS["turnos"]) == _antes)
-chequear("horario: el panel lo muestra", 'value="09:00"' in panel_c.get("/agenda").data.decode())
+chequear("horario: el panel lo muestra", 'value="09:00"' in _panel(panel_c))
 _tz_ar = app.ZoneInfo(TZ)
 _hora = lambda t: datetime.fromisoformat(t["inicio"]).astimezone(_tz_ar).strftime("%H:%M")
 _lunes = sorted([t for t in TABLAS["turnos"] if t["id"] not in _previos], key=lambda t: _norm(t["inicio"]))
@@ -3893,7 +3900,7 @@ chequear("cobro: guarda el email y cuándo subió el comprobante", pago.get("pac
          and pago.get("comprobante_at"))
 chequear("cobro: recibe el comprobante y avisa", pago["estado"] == "comprobante" and p1["pago_web"] == "comprobante"
          and "comprobante" in _avp[-1])
-html = panel_c.get("/agenda").data.decode()
+html = _panel(panel_c)
 chequear("cobro: el panel lo muestra para validar", "Pagos para revisar" in html and "Ver comprobante" in html)
 r = panel_c.get(f"/agenda/pago-web/{pago['id']}/comprobante")
 chequear("cobro: el comprobante se ve", r.status_code == 200 and r.mimetype == "application/pdf")
@@ -3906,7 +3913,7 @@ w.post("/marcos/reservar/p2", data={"nombre": "Beto", "telefono": "5491100004444
 pago2 = TABLAS["pagos"][-1]
 w.post(f"/pago/{pago2['token']}/comprobante", data={"comprobante": (_io2.BytesIO(b"\x89PNG\r\n\x1a\n00"), "c.png"), "email": "beto@ejemplo.com"},
        content_type="multipart/form-data")
-chequear("cobro: el panel ofrece motivos de rechazo", "El monto no coincide" in panel_c.get("/agenda").data.decode())
+chequear("cobro: el panel ofrece motivos de rechazo", "El monto no coincide" in _panel(panel_c))
 _rz_llamadas = []
 _rz_ar, _rz_aw = _pg.avisar_rechazo, _pg.avisar_rechazo_whatsapp
 _pg.avisar_rechazo = lambda tenant, pago, motivo=None: _rz_llamadas.append(("mail", pago.get("paciente_email"), motivo)) or True
@@ -4060,7 +4067,7 @@ pago4["devuelto"] = (pago4.get("devuelto") or 0) + 1
 _v3 = client.get("/agenda/novedades").get_json()["v"]
 pago4["devuelto"] -= 1
 chequear("novedades: misma firma si no cambió nada y otra si cambió un pago", _v1 and _v1 == _v2 and _v3 != _v1)
-_html = client.get("/agenda").data.decode()
+_html = _panel(client)
 chequear("novedades: el panel trae el aviso y su versión", 'id="novedades"' in _html and _v1 in _html)
 chequear("novedades: sin sesión no responde", app.app.test_client().get("/agenda/novedades").status_code in (302, 401, 403))
 
@@ -4124,7 +4131,7 @@ _pg.preferencia(_t1, pago6, "x", "http://x")
 chequear("caída: se marca y avisa una sola vez", _t1.get("mp_caido_at") and len(_avs_mp) == 1 and "Conectar Mercado Pago" in _avs_mp[0])
 chequear("caída: administración también se entera", len(_avs_adm) == 1 and _t1["nombre"] in _avs_adm[0])
 chequear("caída: deja de ofrecer Mercado Pago", "mercadopago" not in _pg.metodos(_t1))
-chequear("caída: el panel pide reconectar", "Se cortó la conexión con Mercado Pago" in panel_c.get("/agenda").data.decode())
+chequear("caída: el panel pide reconectar", "Se cortó la conexión con Mercado Pago" in _panel(panel_c))
 _pg._guardar_tokens("t1", {"access_token": "TEST-token-del-profesional", "user_id": 99})
 chequear("caída: reconectar la limpia", not _t1.get("mp_caido_at") and "mercadopago" in _pg.metodos(_t1))
 _get_prev2 = _pg.requests.get
@@ -4415,7 +4422,7 @@ chequear("excel: baja los pagos web del mes sin nombres", _xl.status_code == 200
          and "Ana Recibo" not in str(_filas), _filas[:3])
 _filas_n = [[c.value for c in f] for f in _lw(io.BytesIO(panel_c.get("/agenda/pagos-web.xlsx?nombres=1").data))["Pagos web"].iter_rows()]
 chequear("excel: con nombres si se piden", "Paciente" in _filas_n[0] and "Ana Recibo" in str(_filas_n))
-chequear("excel: el panel ofrece bajarlo", "pagos-web.xlsx" in panel_c.get("/agenda").data.decode())
+chequear("excel: el panel ofrece bajarlo", "pagos-web.xlsx" in _panel(panel_c))
 _n = len(_reint)
 _tk = TABLAS["turnos"][2]["token_calendario"]
 chequear("cancelar tarde: avisa que no se devuelve", "no se devuelve" in wd.get(f"/agendar/{_tk}/cancelar").data.decode())
@@ -4430,7 +4437,7 @@ _td2 = TABLAS["turnos"][1]
 chequear("menos la seña: calcula la parte", _pg.cuanto_devolver(dict(_t1), dict(_td2))[1] == 15000)
 wd.post(f"/agendar/{_td2['token_calendario']}/cancelar")
 chequear("transferencia: queda anotado para devolver y avisa", pd2["a_devolver"] == 15000 and any("devolvéselos" in x for x in _avd))
-html = panel_c.get("/agenda").data.decode()
+html = _panel(panel_c)
 chequear("panel: lo muestra en «Pagos para revisar»", "hay que devolverle" in html and "Ya lo devolví" in html)
 panel_c.post(f"/agenda/pago-web/{pd2['id']}/devuelto", data={"csrf_token": "tok"})
 chequear("panel: «Ya lo devolví» lo anota", pd2["a_devolver"] == 0 and pd2["devuelto"] == 15000 and pd2["estado"] == "aprobado")
@@ -4449,7 +4456,7 @@ chequear("panel: no se devuelve dos veces", len(_reint) == _n + 1)
 chequear("política nada: lo dice", _pg.politica(dict(_t1)) == "Si cancelás, lo pagado no se devuelve.")
 
 # resumen web del mes
-html = panel_c.get("/agenda").data.decode()
+html = _panel(panel_c)
 chequear("resumen web: separa Mercado Pago y transferencias", "Lo que entró por la web" in html and "Transferencias" in html
          and "Devuelto" in html and "Recibo" in html)
 _cw = app._cobros_web(dict(_t1), datetime.now(app.ZoneInfo(TZ)).date().replace(day=1), app.ZoneInfo(TZ), [])
@@ -4502,8 +4509,39 @@ panel_c.post("/agenda/horario", data={"csrf_token": "tok", "dia0_desde1": "08:00
                                       "dia0_desde2": "09:30", "dia0_hasta2": "11:00", "horario_semanas": "1"})
 chequear("horario: franjas que se pisan no se guardan", _t1["horario_semanal"] == _antes)
 html = panel_c.get("/agenda").data.decode()
-chequear("panel: secciones plegables agrupadas", html.count("data-plegable") >= 9 and "Tu agenda" in html
-         and "+ otra franja" in html and "+ otro consultorio" in html and "Sede 1, Sede 2" in html)
+_aj = panel_c.get("/ajustes").data.decode()
+chequear("panel: secciones plegables agrupadas", html.count("data-plegable") >= 5 and "Tu agenda" in html and "Vacaciones y días bloqueados" in html
+         and 'href="/ajustes"' in html and "+ otra franja" in _aj and "+ otro consultorio" in _aj and 'value="Sede 2"' in _aj)
+
+# --- página de ajustes: pestañas, guardado parcial y volver a la pestaña ---
+_aj = panel_c.get("/ajustes?p=cobros").data.decode()
+chequear("ajustes: siete pestañas, abre la pedida", _aj.count('role="tab"') == 7 and 'id="tab-cobros" aria-controls="p-cobros" data-pestania="cobros"\n            aria-selected="true"' in _aj
+         and 'data-panel="agenda" hidden' in _aj and 'data-panel="cobros">' in _aj)
+chequear("ajustes: pestaña inexistente abre Agenda", 'data-panel="agenda">' in panel_c.get("/ajustes?p=nada").data.decode())
+chequear("ajustes: un solo «Guardar cambios» y campos que dependen de otros",
+         'id="guardar-todo"' in _aj and _aj.count("data-ajuste") >= 10 and 'data-si="cobro_web!=no;cobro_modo=sena"' in _aj
+         and 'data-si="al_cancelar=preguntar"' in _aj and 'data-si="modalidades_publicas!=presencial"' in _aj and "data-sede" in _aj)
+_t1.update({"al_cancelar": "preguntar", "en_directorio": True, "ofrecer_espera_auto": True, "cobro_web": "transferencia",
+            "modalidades_publicas": "presencial", "devolucion_modo": "nada"})
+r = panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "ambas", "casillas": "en_directorio",
+                                         "volver": "ajustes", "pestania": "pagina"})
+chequear("ajustes: Mi página guarda sólo lo suyo", _t1["modalidades_publicas"] == "ambas" and _t1["en_directorio"] is False
+         and _t1["al_cancelar"] == "preguntar" and _t1["ofrecer_espera_auto"] is True)
+chequear("ajustes: vuelve a la pestaña de donde vino", r.status_code == 302 and r.headers["Location"].endswith("/ajustes?p=pagina"))
+panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "al_cancelar": "liberar", "cancelar_hasta_horas": "12", "casillas": "ofrecer_espera_auto"})
+chequear("ajustes: Cancelaciones guarda sólo lo suyo", _t1["al_cancelar"] == "liberar" and _t1["cancelar_hasta_horas"] == 12
+         and _t1["ofrecer_espera_auto"] is False and _t1["modalidades_publicas"] == "ambas" and _t1["en_directorio"] is False)
+panel_c.post("/agenda/perfil", data={"csrf_token": "tok", "modalidades_publicas": "presencial"})
+chequear("ajustes: un form viejo sin «casillas» sigue destildando las dos", _t1["en_directorio"] is False and _t1["ofrecer_espera_auto"] is False)
+panel_c.post("/agenda/cobros", data={"csrf_token": "tok", "precio_sesion": "$ 31.000"})
+chequear("ajustes: el precio se guarda sin tocar cómo se cobra", _t1["precio_sesion"] == 31000 and _t1["cobro_web"] == "transferencia"
+         and _t1["devolucion_modo"] == "nada")
+panel_c.post("/agenda/cobros", data={"csrf_token": "tok", "devolucion_modo": "todo", "devolucion_horas": "48"})
+chequear("ajustes: la devolución se guarda sin tocar el precio", _t1["devolucion_modo"] == "todo" and _t1["devolucion_horas"] == 48
+         and _t1["precio_sesion"] == 31000 and _t1["cobro_web"] == "transferencia")
+panel_c.post("/agenda/avisos", data={"csrf_token": "tok", "matricula": "MN 999"})
+chequear("ajustes: Tus datos no toca los avisos", _t1["matricula"] == "MN 999" and _t1.get("resumen_noche") is not False)
+chequear("agenda: las anclas viejas llevan a ajustes", "'mi-pagina': 'pagina'" in panel_c.get("/agenda").data.decode())
 
 # --- Listas de WhatsApp, reprogramar y «¿con quién es?» ---
 import conversation as _conv  # noqa: E402
