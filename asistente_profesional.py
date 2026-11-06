@@ -1,10 +1,18 @@
 """Lo que le contesta el bot al PROFESIONAL cuando le escribe desde su
 WhatsApp de avisos (`tenants.aviso_telefono`): su agenda de hoy, mañana o la
-semana, pagos para revisar, lo que le deben, mensajes sin leer y el link de su
-página.
+semana con nombres, pagos para revisar, quién le debe, los mensajes sin leer,
+los datos de un paciente y el link de su página.
 
-Mismo criterio que el resumen diario: por WhatsApp no sale ningún nombre ni
-dato de un paciente (horas, cantidades y montos; el detalle está en el panel).
+Es SU asistente: le muestra todo lo que necesita. Lo que se cuida es quién
+pregunta y de qué cuenta:
+- Sólo contesta si el WhatsApp está VINCULADO: el profesional manda desde ese
+  número el código que ve en su panel (`VINCULAR 123456`). Así nadie que no
+  sea él (un número mal cargado, alguien que cambió de celular) ve datos de
+  pacientes. Si después cambia el número en el panel, se desvincula solo.
+- Cada respuesta sale de UNA cuenta (`tenant["id"]` en cada consulta); con el
+  mismo número en varias cuentas, contesta por cada una vinculada, por
+  separado y con el nombre arriba.
+
 Sólo lee: las acciones siguen en el panel, salvo LIBERAR / ME LO TOMO, que ya
 existían (`cancelaciones.respuesta_del_profesional`).
 
@@ -12,6 +20,8 @@ Reglas locales, sin servicios externos, como `conversation.py`. Si el texto no
 es un pedido del profesional, devuelve None y el mensaje sigue como el de
 cualquier paciente (así el profesional puede probar su propio bot reservando).
 """
+import hashlib
+import hmac
 import logging
 import re
 from datetime import datetime, timedelta, timezone
@@ -24,20 +34,46 @@ logger = logging.getLogger("asistente_profesional")
 
 DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
 
-_HOY = re.compile(r"^(que tengo )?(para )?hoy\??$|^agenda( de)? hoy$|^mi agenda$|^agenda$|^sesiones( de)? hoy$")
-_MANANA = re.compile(r"^(que tengo )?(para )?manana\??$|^agenda( de)? manana$|^sesiones( de)? manana$")
-_SEMANA = re.compile(r"^(esta |la )?semana$|^agenda( de la)? semana$|^que tengo (esta|la) semana$")
-_PAGOS = re.compile(r"^pagos?( para revisar| pendientes)?$|^comprobantes?$|^cobros?( de la web| web)?$")
+# Sobre el texto ya normalizado (minúsculas, sin tildes ni signos). «Ver hoy»,
+# «Pagos» y «Mensajes» son también los botones del resumen de la mañana.
+_HOY = re.compile(r"^(ver )?(que tengo )?(para )?hoy$|^agenda( de)? hoy$|^mi agenda$|^agenda$|^sesiones( de)? hoy$")
+_MANANA = re.compile(r"^(ver )?(que tengo )?(para )?manana$|^agenda( de)? manana$|^sesiones( de)? manana$")
+_SEMANA = re.compile(r"^(ver )?(esta |la )?semana$|^agenda( de la)? semana$|^que tengo (esta|la) semana$")
+_PAGOS = re.compile(r"^(ver )?pagos?( para revisar| pendientes)?$|^comprobantes?$|^cobros?( de la web| web)?$")
 _DEUDA = re.compile(r"^(quien|quienes) (me )?debe[n]?$|^deudas?$|^me deben$|^pendientes? de cobro$|^que me deben$")
-_MENSAJES = re.compile(r"^mensajes?( sin leer| nuevos)?$|^bandeja$")
+_MENSAJES = re.compile(r"^(ver )?mensajes?( sin leer| nuevos)?$|^bandeja$")
 _LIBRES = re.compile(r"^(horarios? )?libres?$|^que tengo libre$|^huecos$")
 _LINK = re.compile(r"^(mi )?(link|pagina|enlace)( de turnos| de reservas)?$")
-_AYUDA = re.compile(r"^(ayuda|menu|opciones|comandos|hola|holis|buenas|buen dia|que podes hacer|\?)$")
+_AYUDA = re.compile(r"^(ayuda|menu|opciones|comandos|hola|holis|buenas|buen dia|que podes hacer)$")
+_PACIENTE = re.compile(r"^(paciente|buscar|busca|ficha|datos de|telefono de|cuando viene) ([a-zñ ]{2,40})$")
+_VINCULAR = re.compile(r"^vincular (\d{6})$")
+
+# Botones que van debajo de cada respuesta (ids «prof:…», ver app._interactivo).
+BOTONES = [("prof:hoy", "Hoy"), ("prof:mañana", "Mañana"), ("prof:pagos", "Pagos")]
 
 
 def _normal(texto: str) -> str:
     import conversation
     return conversation._normal(texto)
+
+
+def _diez(numero: str | None) -> str:
+    return "".join(ch for ch in numero or "" if ch.isdigit())[-10:]
+
+
+def codigo_vinculo(tenant: dict) -> str | None:
+    """Seis dígitos que dependen de la cuenta y del número cargado: si cambia
+    el número, cambia el código. No se guarda: se recalcula."""
+    numero = _diez(tenant.get("aviso_telefono"))
+    if len(numero) < 10 or not tenant.get("id"):
+        return None
+    firma = hmac.new(config.FLASK_SECRET_KEY.encode(), f"vincular:{tenant['id']}:{numero}".encode(), hashlib.sha256)
+    return f"{int(firma.hexdigest(), 16) % 1_000_000:06d}"
+
+
+def vinculado(tenant: dict) -> bool:
+    numero = _diez(tenant.get("aviso_telefono"))
+    return len(numero) == 10 and _diez(tenant.get("aviso_verificado")) == numero
 
 
 def _tz(tenant: dict) -> ZoneInfo:
@@ -52,21 +88,34 @@ def _panel() -> str:
     return f"https://{config.DOMINIO_PRINCIPAL}/agenda" if config.DOMINIO_PRINCIPAL else "el panel"
 
 
+def _cuando(inicio: str, tz: ZoneInfo, con_dia: bool = True) -> str:
+    dt = datetime.fromisoformat(inicio).astimezone(tz)
+    return (f"{DIAS[dt.weekday()][:3]} {dt.day:02d}/{dt.month:02d} " if con_dia else "") + f"{dt:%H:%M}"
+
+
+def _tel(numero: str | None) -> str:
+    return f"+{numero}" if numero else "sin teléfono"
+
+
 def menu(tenant: dict) -> str:
-    return (f"Hola, *{tenant['nombre']}*. Soy tu asistente de FiBOT Consultorio. Desde este WhatsApp podés preguntarme:\n\n"
-            "• *hoy* / *mañana* / *semana* — tus sesiones (sin nombres)\n"
+    return (f"Hola, *{tenant['nombre']}*. Soy tu asistente de {config.PLATAFORMA_NOMBRE}. Preguntame:\n\n"
+            "• *hoy* / *mañana* / *semana* — tus sesiones\n"
             "• *libres* — tus próximos horarios libres\n"
             "• *pagos* — comprobantes y devoluciones para revisar\n"
-            "• *deudas* — cuánto te deben de sesiones pasadas\n"
-            "• *mensajes* — mensajes de pacientes sin leer\n"
+            "• *deudas* — quién te debe y cuánto\n"
+            "• *mensajes* — lo que te escribieron los pacientes\n"
+            "• *paciente Juan* — teléfono, próximas sesiones y deuda\n"
             "• *link* — tu página de turnos para compartir\n\n"
-            "También te aviso por acá de reservas, cancelaciones y pagos. "
-            f"Los nombres y el detalle están en {_panel()}.")
+            "También te aviso por acá de reservas, cancelaciones y pagos.")
+
+
+def sin_vincular() -> str:
+    """Lo único que ve un número de avisos sin vincular: ni el nombre de la cuenta."""
+    return ("Para consultar tu agenda por acá, primero vinculá este WhatsApp: entrá a tu panel, en "
+            "«Tu WhatsApp para avisos» está el código, y mandalo a este chat (por ejemplo *VINCULAR 123456*).")
 
 
 def _linea_sesion(t: dict, tz: ZoneInfo, con_dia: bool = False) -> str:
-    dt = datetime.fromisoformat(t["inicio"]).astimezone(tz)
-    texto = (f"{DIAS[dt.weekday()][:3]} {dt.day:02d}/{dt.month:02d} " if con_dia else "") + f"{dt:%H:%M}"
     extras = []
     if t.get("modalidad") == "virtual":
         extras.append("virtual")
@@ -78,7 +127,10 @@ def _linea_sesion(t: dict, tz: ZoneInfo, con_dia: bool = False) -> str:
         extras.append("pago web sin confirmar")
     elif t.get("pago") == "pagado" or t.get("pago_web") == "aprobado":
         extras.append("pagada")
-    return "• " + texto + (f" ({', '.join(extras)})" if extras else "")
+    if t.get("confirmado_at"):
+        extras.append("confirmó")
+    nombre = f" {t['paciente_nombre']}" if t.get("paciente_nombre") else ""
+    return "• " + _cuando(t["inicio"], tz, con_dia) + nombre + (f" ({', '.join(extras)})" if extras else "")
 
 
 def _sesiones(tenant: dict, desde: datetime, hasta: datetime, titulo: str, con_dia: bool = False) -> str:
@@ -92,8 +144,8 @@ def _sesiones(tenant: dict, desde: datetime, hasta: datetime, titulo: str, con_d
         texto = (f"{titulo}: {len(turnos)} sesi{'ón' if len(turnos) == 1 else 'ones'}.\n\n"
                  + "\n".join(_linea_sesion(t, tz, con_dia) for t in turnos))
     if libres:
-        texto += f"\n\nHorarios libres: {len(libres)}."
-    return texto + f"\n\nCon nombres, en {_panel()}."
+        texto += f"\n\nHorarios libres: {len(libres)} ({', '.join(_cuando(t['inicio'], tz, con_dia) for t in libres[:6])})."
+    return texto
 
 
 def _dia(tenant: dict, offset: int, titulo: str) -> str:
@@ -118,22 +170,26 @@ def _libres(tenant: dict) -> str:
     return texto + ("\n\nTu página no está mostrando horarios: está en pausa." if tenant.get("pausado") else "")
 
 
+def _de_quien(tenant: dict, pago: dict, tz: ZoneInfo) -> str:
+    turnos = [t for t in (db.turno_por_id(tenant["id"], tid) for tid in pago.get("turnos") or []) if t]
+    quien = next((t.get("paciente_nombre") for t in turnos if t.get("paciente_nombre")), None) or pago.get("paciente_nombre") or "Sin nombre"
+    cuando = ", ".join(_cuando(t["inicio"], tz) for t in sorted(turnos, key=lambda t: t["inicio"]))
+    return quien + (f" ({cuando})" if cuando else "")
+
+
 def _pagos(tenant: dict) -> str:
+    tz = _tz(tenant)
     pendientes = db.pagos_para_revisar(tenant["id"])
-    comprobantes = [p for p in pendientes if p.get("estado") == "comprobante"]
-    tarde = [p for p in pendientes if p.get("estado") == "aprobado_tarde"]
-    devolver = [p for p in pendientes if (p.get("a_devolver") or 0) > 0]
     partes = []
-    if comprobantes:
-        partes.append(f"• {len(comprobantes)} comprobante{'s' if len(comprobantes) > 1 else ''} de transferencia para validar "
-                      f"({_pesos(sum(p.get('monto') or 0 for p in comprobantes))})")
-    if tarde:
-        partes.append(f"• {len(tarde)} pago{'s' if len(tarde) > 1 else ''} que llegó tarde (el horario ya se había liberado)")
-    if devolver:
-        partes.append(f"• {_pesos(sum(p['a_devolver'] for p in devolver))} para devolver a mano")
-    esperando = db.pagos_esperando(tenant["id"])
-    if esperando:
-        partes.append(f"• {len(esperando)} reserva{'s' if len(esperando) > 1 else ''} esperando el pago")
+    for p in pendientes:
+        if p.get("estado") == "comprobante":
+            partes.append(f"• Comprobante de {_de_quien(tenant, p, tz)}: {_pesos(p.get('monto'))}, para validar")
+        elif p.get("estado") == "aprobado_tarde":
+            partes.append(f"• Pago de {_de_quien(tenant, p, tz)} que llegó tarde (el horario ya se había liberado)")
+        if (p.get("a_devolver") or 0) > 0:
+            partes.append(f"• Devolverle {_pesos(p['a_devolver'])} a {_de_quien(tenant, p, tz)}")
+    for p in db.pagos_esperando(tenant["id"]):
+        partes.append(f"• {_de_quien(tenant, p, tz)}: reservó y todavía no pagó")
     if not partes:
         return "No tenés pagos para revisar."
     return "Pagos:\n\n" + "\n".join(partes) + f"\n\nSe resuelven en {_panel()}, en «Pagos para revisar»."
@@ -141,22 +197,77 @@ def _pagos(tenant: dict) -> str:
 
 def _deudas(tenant: dict) -> str:
     sin_pagar = db.pendientes_de_pago(tenant["id"], datetime.now(timezone.utc), limite=500)
-    con_valor = [t for t in sin_pagar if t.get("valor")]
     if not sin_pagar:
         return "No te deben sesiones: todas las pasadas están cobradas o marcadas «no cobra»."
-    pacientes = len({(t.get("paciente_telefono"), t.get("ficha")) for t in sin_pagar})
-    texto = (f"Te deben {_pesos(sum(t['valor'] for t in con_valor))} de {len(sin_pagar)} "
-             f"sesi{'ón' if len(sin_pagar) == 1 else 'ones'} pasadas, de {pacientes} paciente{'s' if pacientes > 1 else ''}.")
-    if len(con_valor) < len(sin_pagar):
-        texto += f" {len(sin_pagar) - len(con_valor)} no tienen valor cargado."
-    return texto + f"\n\nQuién debe y el botón para recordarle, en {_panel()} → «Quién debe»."
+    por_paciente: dict[tuple, dict] = {}
+    for t in sin_pagar:
+        d = por_paciente.setdefault((t.get("paciente_telefono"), t.get("ficha") or ""),
+                                    {"nombre": t.get("paciente_nombre") or "Sin nombre", "tel": t.get("paciente_telefono"),
+                                     "sesiones": 0, "total": 0, "sin_valor": 0})
+        d["sesiones"] += 1
+        d["total"] += t.get("valor") or 0
+        d["sin_valor"] += 0 if t.get("valor") else 1
+    total = sum(d["total"] for d in por_paciente.values())
+    lineas = []
+    for d in sorted(por_paciente.values(), key=lambda d: -d["total"])[:15]:
+        detalle = f"{d['sesiones']} sesi{'ón' if d['sesiones'] == 1 else 'ones'}" + (f", {d['sin_valor']} sin valor" if d["sin_valor"] else "")
+        lineas.append(f"• {d['nombre']}: {_pesos(d['total'])} ({detalle}) — {_tel(d['tel'])}")
+    otros = len(por_paciente) - len(lineas)
+    return (f"Te deben {_pesos(total)} de {len(sin_pagar)} sesi{'ón' if len(sin_pagar) == 1 else 'ones'} pasadas:\n\n"
+            + "\n".join(lineas) + (f"\n• y {otros} más" if otros > 0 else "")
+            + f"\n\nEl botón para recordarles está en {_panel()} → «Quién debe».")
+
+
+def _nombre_del_telefono(tenant: dict, telefono: str) -> str:
+    try:
+        return next((f.get("paciente_nombre") for f in db.fichas_del_telefono(tenant["id"], telefono) if f.get("paciente_nombre")),
+                    None) or _tel(telefono)
+    except Exception:
+        return _tel(telefono)
 
 
 def _mensajes(tenant: dict) -> str:
-    n = db.mensajes_sin_leer(tenant["id"])
-    if not n:
+    tz = _tz(tenant)
+    nuevos = [m for m in db.mensajes_pacientes(tenant["id"]) if not m.get("leido")]
+    if not nuevos:
         return "No tenés mensajes de pacientes sin leer."
-    return f"Tenés {n} mensaje{'s' if n > 1 else ''} de pacientes sin leer. Los leés y contestás en {_panel()}, en «Mensajes»."
+    lineas = []
+    for m in nuevos[:6]:
+        cuando = datetime.fromisoformat(str(m["creado"])).astimezone(tz).strftime("%d/%m %H:%M")
+        texto = (m.get("texto") or f"[{m.get('tipo') or 'archivo'}]")[:160]
+        lineas.append(f"• {_nombre_del_telefono(tenant, m['telefono'])} ({cuando}, {_tel(m['telefono'])}): «{texto}»")
+    mas = f"\n• y {len(nuevos) - 6} más" if len(nuevos) > 6 else ""
+    return (f"Mensajes sin leer ({len(nuevos)}):\n\n" + "\n".join(lineas) + mas
+            + f"\n\nLos contestás desde {_panel()}, en «Mensajes», o escribiéndoles directo.")
+
+
+def _paciente(tenant: dict, buscado: str) -> str:
+    tz = _tz(tenant)
+    ahora = datetime.now(timezone.utc)
+    palabras = _normal(buscado).split()
+    turnos = [t for t in db.turnos_de_paciente_por_nombre(tenant["id"], buscado)
+              if all(p in _normal(t.get("paciente_nombre") or "") for p in palabras)]
+    if not turnos:
+        return f"No encontré a ningún paciente que se llame «{buscado}». Probá con el apellido o parte del nombre."
+    fichas: dict[tuple, list[dict]] = {}
+    for t in turnos:
+        fichas.setdefault((t.get("paciente_telefono"), t.get("ficha") or ""), []).append(t)
+    bloques = []
+    for sesiones in list(fichas.values())[:3]:
+        sesiones.sort(key=lambda t: t["inicio"])
+        primero = sesiones[-1]
+        futuras = [t for t in sesiones if datetime.fromisoformat(t["inicio"]) > ahora]
+        pasadas = [t for t in sesiones if datetime.fromisoformat(t["inicio"]) <= ahora]
+        debe = [t for t in pasadas if t.get("pago") == "pendiente"]
+        lineas = [f"*{primero.get('paciente_nombre') or 'Sin nombre'}* — {_tel(primero.get('paciente_telefono'))}"]
+        lineas.append("Próximas: " + (", ".join(_cuando(t["inicio"], tz) for t in futuras[:4]) if futuras else "ninguna"))
+        if pasadas:
+            lineas.append(f"Última: {_cuando(pasadas[-1]['inicio'], tz)} ({len(pasadas)} en total)")
+        if debe:
+            lineas.append(f"Debe {_pesos(sum(t.get('valor') or 0 for t in debe))} de {len(debe)} sesi{'ón' if len(debe) == 1 else 'ones'}")
+        bloques.append("\n".join(lineas))
+    otros = len(fichas) - len(bloques)
+    return "\n\n".join(bloques) + (f"\n\nHay {otros} más con ese nombre: buscá con el apellido." if otros > 0 else "")
 
 
 def _link(tenant: dict) -> str:
@@ -165,34 +276,74 @@ def _link(tenant: dict) -> str:
     return f"Tu página de turnos: https://{config.DOMINIO_PRINCIPAL}/{tenant['slug']}\n\nReenviá este mensaje a quien quieras."
 
 
-def responder(tenant: dict, texto: str) -> str | None:
-    """None si no es un pedido del profesional (el mensaje sigue su camino)."""
+def _pedido(texto: str):
+    """La función que contesta este texto, o None si no es un pedido del profesional."""
     n = _normal(texto)
-    for regla, funcion in ((_AYUDA, menu), (_HOY, lambda t: _dia(t, 0, "Hoy")), (_MANANA, lambda t: _dia(t, 1, "Mañana")),
-                           (_SEMANA, _semana), (_LIBRES, _libres), (_PAGOS, _pagos), (_DEUDA, _deudas),
-                           (_MENSAJES, _mensajes), (_LINK, _link)):
+    reglas = ((_AYUDA, menu), (_HOY, lambda t: _dia(t, 0, "Hoy")), (_MANANA, lambda t: _dia(t, 1, "Mañana")),
+              (_SEMANA, _semana), (_LIBRES, _libres), (_PAGOS, _pagos), (_DEUDA, _deudas),
+              (_MENSAJES, _mensajes), (_LINK, _link))
+    for regla, funcion in reglas:
         if regla.search(n):
-            try:
-                return funcion(tenant)
-            except Exception:
-                logger.exception("Falló el asistente del profesional (%s)", tenant.get("id"))
-                return "Uh, no pude buscar eso. Probá de nuevo en un rato o mirá el panel."
+            return funcion
+    m = _PACIENTE.search(n)
+    if m:
+        return lambda t: _paciente(t, m.group(2).strip())
     return None
 
 
-def responder_a(tenants: list[dict], texto: str) -> str | None:
-    """Con el mismo WhatsApp de avisos en más de una cuenta, contesta por
-    cada una (con el nombre arriba)."""
-    respuestas = []
+def responder(tenant: dict, texto: str) -> str | None:
+    """Para UNA cuenta. None si no es un pedido del profesional (el mensaje
+    sigue su camino). Sin vincular, nunca devuelve datos."""
+    funcion = _pedido(texto)
+    if funcion is None:
+        return None
+    if not vinculado(tenant):
+        return sin_vincular()
+    try:
+        return funcion(tenant)
+    except Exception:
+        logger.exception("Falló el asistente del profesional (%s)", tenant.get("id"))
+        return "Uh, no pude buscar eso. Probá de nuevo en un rato o mirá el panel."
+
+
+def _vincular(tenants: list[dict], codigo: str, telefono: str) -> str:
+    """Vincula las cuentas de este número cuyo código coincide. Compara
+    contra el número que escribe, no contra el cargado: si no son el mismo,
+    no hay nada que vincular."""
+    hechas = []
     for t in tenants:
-        r = responder(t, texto)
-        if r is None:
-            return None
-        respuestas.append(r if len(tenants) == 1 else f"*{t['nombre']}*\n{r}")
-    return "\n\n———\n\n".join(respuestas) if respuestas else None
+        esperado = codigo_vinculo(t)
+        if esperado and hmac.compare_digest(esperado, codigo) and _diez(telefono) == _diez(t.get("aviso_telefono")):
+            db.vincular_aviso(t["id"], t["aviso_telefono"])
+            hechas.append(t)
+    if not hechas:
+        return "Ese código no corresponde a este WhatsApp. Copialo de tu panel, en «Tu WhatsApp para avisos»."
+    return (f"Listo: este WhatsApp quedó vinculado a *{', '.join(t['nombre'] for t in hechas)}*. "
+            "Desde ahora te contesto con todos los datos.\n\n" + menu(hechas[0]))
+
+
+def responder_a(tenants: list[dict], texto: str, telefono: str = ""):
+    """Con el mismo WhatsApp de avisos en más de una cuenta, contesta por
+    cada una vinculada (con el nombre arriba), nunca mezclando datos. Devuelve
+    texto con botones (`conversation.Respuesta`) o None."""
+    import conversation
+    m = _VINCULAR.search(_normal(texto))
+    if m:
+        return _vincular(tenants, m.group(1), telefono)
+    if _pedido(texto) is None:
+        return None
+    propias = [t for t in tenants if vinculado(t)]
+    if not propias:
+        return sin_vincular()
+    respuestas = [r if len(propias) == 1 else f"*{t['nombre']}*\n{r}" for t in propias if (r := responder(t, texto))]
+    texto_final = "\n\n———\n\n".join(respuestas)
+    if len(texto_final) > 1024:  # el cuerpo de un mensaje con botones no puede ser más largo
+        return texto_final
+    return conversation.Respuesta.con(texto_final, {"tipo": "botones", "cuerpo": texto_final, "botones": BOTONES})
 
 
 def bienvenida(tenant: dict) -> str:
     """Lo que sale al dar de alta (con la plantilla de avisos)."""
     return ("te dimos de alta. Este es tu WhatsApp de avisos: te escribimos por acá cuando hay reservas, "
-            "cancelaciones o pagos. Escribí *ayuda* a este número para ver qué podés consultar")
+            "cancelaciones o pagos. Para consultarme tu agenda por acá, mandá a este chat el código de vinculación "
+            "que está en tu panel")

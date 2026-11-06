@@ -117,12 +117,20 @@ compartido, si el paciente tiene turnos con más de un profesional
 `app.whatsapp_de_alta`: 10 dígitos → 549…) y le manda la bienvenida con
 `scheduler.avisar_profesional`. Cuando escribe desde ese número, el webhook
 (`app._respuesta_al_profesional`, después de LIBERAR / ME LO TOMO) le contesta
-«hoy», «mañana», «semana», «libres», «pagos», «deudas», «mensajes», «link» y
-«ayuda»: sólo horas, cantidades y montos, nunca nombres ni teléfonos de pacientes.
-Sólo lee. Si el texto no es un pedido suyo devuelve None y sigue como paciente
-(así prueba su propio bot). `db.tenants_por_aviso` no recibe tenant_id (lo
-averigua, como `tenant_por_paciente`); con el mismo número en varias cuentas
-contesta por cada una; con número propio, sólo esa cuenta.
+«hoy», «mañana», «semana», «libres», «pagos», «deudas», «mensajes», «paciente
+Juan», «link» y «ayuda», CON nombres, teléfonos y montos (es su asistente), y
+botones «Hoy / Mañana / Pagos» (ids `prof:…`, `app._interactivo`). Candado: sólo
+contesta datos si el número está VINCULADO (`tenants.aviso_verificado`, migración
+071): el profesional manda desde ese WhatsApp `VINCULAR <código>`, código que
+ve en el panel (`codigo_vinculo`: HMAC de tenant + número, no se guarda). Si
+cambia `aviso_telefono`, queda desvinculado solo. Sin vincular, a un pedido
+suyo sólo le dice cómo vincular (ni el nombre de la cuenta). Sólo lee. Si el
+texto no es un pedido suyo devuelve None y sigue como paciente (así prueba su
+propio bot). `db.tenants_por_aviso` no recibe tenant_id (lo averigua, como
+`tenant_por_paciente`); con el mismo número en varias cuentas contesta por
+cada una vinculada, por separado; con número propio, sólo esa cuenta. El
+resumen de la mañana sale con `RESUMEN_TEMPLATE` (botones «Ver hoy», «Pagos»,
+«Mensajes», `plantillas.QUE_HACE_PROFESIONAL`) si está cargada.
 
 **Plantillas y sus botones (`plantillas.py`)**: `CATALOGO` tiene texto, categoría,
 {{n}}, botones y nombre sugerido de cada plantilla; /admin/whatsapp lo muestra («Cómo

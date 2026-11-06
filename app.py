@@ -301,7 +301,7 @@ def webhook_receive():
                 # ¿El profesional preguntando por su agenda desde su WhatsApp de avisos?
                 para_profesional = _respuesta_al_profesional(tenant_del_numero, telefono, texto)
                 if para_profesional:
-                    whatsapp.enviar_texto(phone_number_id, telefono, para_profesional)
+                    whatsapp.enviar_respuesta(phone_number_id, telefono, para_profesional)
                     continue
                 tenant, resuelto = _tenant_del_mensaje(tenant_del_numero, telefono, phone_number_id, texto)
                 if resuelto:
@@ -314,15 +314,16 @@ def webhook_receive():
     return jsonify(ok=True), 200
 
 
-def _respuesta_al_profesional(tenant_del_numero: dict | None, telefono: str, texto: str) -> str | None:
+def _respuesta_al_profesional(tenant_del_numero: dict | None, telefono: str, texto: str):
     """Si escribe un profesional desde su WhatsApp de avisos y es un pedido
-    suyo («hoy», «pagos»…), la respuesta. Con número propio, sólo esa cuenta.
-    None: el mensaje sigue como el de un paciente."""
+    suyo («hoy», «pagos», «VINCULAR 123456»…), la respuesta. Con número
+    propio, sólo esa cuenta. Los datos salen sólo si ese WhatsApp está
+    vinculado (asistente_profesional). None: sigue como el de un paciente."""
     try:
         cuentas = db.tenants_por_aviso(telefono)
         if tenant_del_numero:
             cuentas = [t for t in cuentas if t["id"] == tenant_del_numero["id"]]
-        return asistente_profesional.responder_a(cuentas, texto) if cuentas else None
+        return asistente_profesional.responder_a(cuentas, texto, telefono) if cuentas else None
     except Exception:
         logger.exception("Falló el asistente del profesional (…%s)", (telefono or "")[-4:])
         return None
@@ -400,6 +401,13 @@ def _interactivo(msg: dict, phone_number_id: str, tenant_del_numero: dict | None
     datos = msg.get("interactive") or {}
     elegido = datos.get("list_reply") or datos.get("button_reply") or {}
     ident, titulo = str(elegido.get("id") or ""), elegido.get("title") or ""
+    if ident.startswith("prof:"):
+        # Botones debajo de las respuestas del asistente del profesional: se
+        # vuelve a revisar que escriba desde un WhatsApp de avisos vinculado.
+        respuesta = _respuesta_al_profesional(tenant_del_numero, telefono, ident[len("prof:"):])
+        if respuesta:
+            whatsapp.enviar_respuesta(phone_number_id, telefono, respuesta)
+            return
     if ident.startswith("con:"):
         candidatos = {t["id"]: t for t in db.tenants_de_paciente(telefono)}
         tenant = candidatos.get(ident[4:])
@@ -1384,7 +1392,7 @@ def admin_whatsapp():
                      boton_activo=bool(p.get("url") and getattr(config, p["url"]["variable"], False)))
                 for p in catalogo_plantillas.CATALOGO]
     return render_template("admin_whatsapp.html", pasos=pasos, plantillas=plantillas, avisos=avisos, ajustes=ajustes,
-                           catalogo=catalogo, que_hace=catalogo_plantillas.QUE_HACE,
+                           catalogo=catalogo, que_hace={**catalogo_plantillas.QUE_HACE, **catalogo_plantillas.QUE_HACE_PROFESIONAL},
                            bandeja=bandeja, cuentas=cuentas, simulacion=simulacion, simulado=SIMULADO[-4:],
                            respuesta_sin_destino=_respuesta_sin_destino(), por_defecto=RESPUESTA_SIN_DESTINO,
                            vista=session.pop("vista_previa", None),
@@ -1603,7 +1611,7 @@ def admin_alta():
         logger.warning("No salió la bienvenida por WhatsApp", exc_info=True)
         saludo = False
     flash(f"Se creó la cuenta de {nombre}. Pasale el usuario y la clave por un canal seguro. "
-          + ("Le mandamos la bienvenida a su WhatsApp: desde ahí puede escribirle «ayuda» al asistente."
+          + ("Le mandamos la bienvenida a su WhatsApp. Para usar el asistente, que mande desde ahí el código de vinculación que ve en su panel."
              if saludo else "La bienvenida por WhatsApp no salió (¿falta la plantilla de avisos o el número de la plataforma?)."))
     return redirect(url_for("admin_panel"))
 
@@ -2416,6 +2424,8 @@ def agenda():
         "pagos_revisar": (revisar := _pagos_para_revisar(tenant, tz)),
         "motivos_rechazo": pagos.MOTIVOS_RECHAZO,
         "mensajes": _mensajes_pacientes(tenant, tz),
+        "aviso_vinculado": asistente_profesional.vinculado(tenant),
+        "codigo_vinculo": asistente_profesional.codigo_vinculo(tenant),
         "cobros_web": _cobros_web(tenant, _mes_de(request.args.get("mes") or request.args.get("semana", "")[:7], ahora.date()),
                                   tz, revisar),
         "devolucion_horas": DEVOLUCION_HORAS,

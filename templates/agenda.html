@@ -1003,7 +1003,13 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% if vista == 'semana' %}<input type="hidden" name="semana" value="{{ semana }}">{% endif %}
       <div><label>Tu WhatsApp para avisos</label><input type="text" name="telefono" placeholder="54 9 11 2345 6789" value="{{ tenant.aviso_telefono or '' }}">
-        <span class="tenue" style="display:block;font-size:.85em">Desde este número escribile «ayuda» al WhatsApp de turnos: te dice tu agenda, pagos y mensajes.</span></div>
+        {% if aviso_vinculado %}
+        <span class="tenue" style="display:block;font-size:.85em">✓ Vinculado. Desde este número escribile «ayuda» al WhatsApp de turnos: te dice tu agenda, pagos, deudas y mensajes, con nombres.</span>
+        {% elif codigo_vinculo %}
+        <span class="tenue" id="vincular-whatsapp" style="display:block;font-size:.85em">Para que tu asistente te pase la agenda con nombres, mandá <strong>VINCULAR {{ codigo_vinculo }}</strong> desde este número al WhatsApp de turnos (el mismo que te manda los avisos). Si cambiás el número, hay que vincularlo de nuevo.</span>
+        {% else %}
+        <span class="tenue" style="display:block;font-size:.85em">Cargá tu número: te llegan los avisos y, una vez vinculado, podés preguntarle tu agenda al asistente.</span>
+        {% endif %}</div>
       <div><label>Link de videollamada</label><input type="text" name="link_videollamada" placeholder="https://meet.google.com/..." value="{{ tenant.link_videollamada or '' }}"></div>
       <div><label>Matrícula</label><input type="text" name="matricula" value="{{ tenant.matricula or '' }}"></div>
       <div><label>CUIT (opcional, sale en el recibo)</label><input type="text" name="recibo_cuit" inputmode="numeric" placeholder="20-12345678-3" value="{{ tenant.recibo_cuit or '' }}"></div>

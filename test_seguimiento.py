@@ -642,6 +642,29 @@ TABLAS["turnos"].append(turno("serie", "t1", manana, estado="reservado", pacient
                               paciente_telefono="5491100000008", frecuencia="semanal"))
 scheduler._resumen_diario(t, zona)
 chequear("cuenta los que hay que renovar", "1 paciente por renovar" in enviados[-1][2] and "Serie Nombre" not in enviados[-1][2], enviados)
+import asistente_profesional as _ap
+html = client.get("/agenda").data.decode()
+_cod = _ap.codigo_vinculo(TABLAS["tenants"][0])
+chequear("panel: sin vincular muestra el código para mandar por WhatsApp", _cod and f"VINCULAR {_cod}" in html and "✓ Vinculado" not in html)
+TABLAS["tenants"][0]["aviso_verificado"] = "5491177770000"
+html = client.get("/agenda").data.decode()
+chequear("panel: vinculado ya no muestra el código", "✓ Vinculado" in html and f"VINCULAR {_cod}" not in html)
+client.post("/agenda/avisos", data={"telefono": "54 9 11 6666-0000"})
+html = client.get("/agenda").data.decode()
+chequear("panel: si cambia el número hay que vincular de nuevo", "✓ Vinculado" not in html
+         and f"VINCULAR {_ap.codigo_vinculo(TABLAS['tenants'][0])}" in html and _ap.codigo_vinculo(TABLAS["tenants"][0]) != _cod)
+_plt = []
+_ept, _rt, _at = scheduler.whatsapp.enviar_plantilla, scheduler.config.RESUMEN_TEMPLATE, scheduler.config.AVISO_TEMPLATE
+scheduler.whatsapp.enviar_plantilla = lambda n, to, tpl, lang, params: _plt.append((to, tpl, params)) or True
+scheduler.config.AVISO_TEMPLATE, scheduler.config.RESUMEN_TEMPLATE = "aviso_profesional", "resumen_manana"
+TABLAS["tenants"][0].update(ultimo_aviso=None)
+scheduler._resumen_diario(t, zona)
+chequear("resumen de la mañana: con RESUMEN_TEMPLATE sale la plantilla de botones", _plt and _plt[-1][1] == "resumen_manana", _plt)
+scheduler.config.RESUMEN_TEMPLATE = ""
+TABLAS["tenants"][0].update(ultimo_aviso=None)
+scheduler._resumen_diario(t, zona)
+chequear("resumen de la mañana: sin ella, la de avisos de siempre", len(_plt) == 2 and _plt[-1][1] == "aviso_profesional", _plt)
+scheduler.whatsapp.enviar_plantilla, scheduler.config.RESUMEN_TEMPLATE, scheduler.config.AVISO_TEMPLATE = _ept, _rt, _at
 client.post("/agenda/avisos", data={"telefono": ""})
 chequear("se puede apagar", TABLAS["tenants"][0]["aviso_telefono"] is None)
 scheduler.datetime = app.datetime
@@ -2327,7 +2350,7 @@ chequear("da de alta", "Se creó la cuenta de Lic. Nueva" in html and nueva and 
          and _bcrypt.checkpw(b"una-clave-larga", nueva["panel_pass_hash"].encode()) and "una-clave-larga" not in str(nueva))
 chequear("alta: guarda su WhatsApp de avisos y le manda la bienvenida", nueva["aviso_telefono"] == "5491123456789"
          and len(_bienvenidas) == 1 and _bienvenidas[0][0]["aviso_telefono"] == "5491123456789"
-         and "panel_pass_hash" not in _bienvenidas[0][0] and "*ayuda*" in _bienvenidas[0][1] and "bienvenida a su WhatsApp" in html)
+         and "panel_pass_hash" not in _bienvenidas[0][0] and "código de vinculación" in _bienvenidas[0][1] and "bienvenida a su WhatsApp" in html)
 html = client.post("/admin/profesionales", data={"nombre": "Lic. Sin", "rubro": "psicología", "panel_user": "sinwa",
                                                  "clave": "una-clave-larga", "telefono": "123"}, follow_redirects=True).data.decode()
 chequear("alta: sin WhatsApp válido no se crea", "Falta el WhatsApp" in html and not any(t.get("panel_user") == "sinwa" for t in TABLAS["tenants"]))
