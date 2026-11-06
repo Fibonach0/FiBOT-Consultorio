@@ -148,7 +148,14 @@ avisarle» / «Sí, sin avisarle» = `prof:sin avisar` / «No»). Sumar acepta s
 `cancelaciones.ofrecer_horario`. Cuando un paciente cancela y hay lista de
 espera, `cancelaciones.tras_cancelar` llama a `propuesta_tras_cancelar`: deja
 una acción «ofrecer» con `vence_min` = 180 (no pisa una pendiente) y el aviso
-dice «respondé SÍ y se lo ofrezco a …». Con el número en varias cuentas, no
+dice «respondé SÍ y se lo ofrezco a …». LIBERAR (y el vencimiento que
+libera solo) hace lo mismo (`cancelaciones._proponer_a_espera`). «Renová a
+Juana», «cortá la serie de Juana desde diciembre» y «cambiá el valor de Juana
+a 30000» (sólo sesiones próximas con pago pendiente). Fin de serie:
+`scheduler._series_por_terminar` (una vuelta por día desde las 10) llama a
+`series_por_terminar`: a quien le quedan 1-2 sesiones fijas, un aviso por
+serie (`pacientes.aviso_fin_serie`, migración 073) y la renovación preparada
+(«sí»), sin pisar una acción pendiente. Con el número en varias cuentas, no
 actúa (al panel). El mensaje al paciente usa `MENSAJE_PROFESIONAL_TEMPLATE` si
 está (si no, texto libre: sólo llega dentro de las 24 h). Con el número
 vinculado, `scheduler.avisar_profesional(…, paciente=, con_nombre=)` pone el

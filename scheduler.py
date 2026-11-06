@@ -198,6 +198,20 @@ def _resumen_noche(tenant: dict, tz: ZoneInfo) -> None:
         logger.error("No se pudo mandar el resumen de la noche del tenant %s", tenant["id"])
 
 
+HORA_SERIES = 10
+_series_revisadas: dict[str, str] = {}  # tenant -> día: una vuelta por día (el aviso en sí se marca por paciente)
+
+
+def _series_por_terminar(tenant: dict, tz: ZoneInfo) -> None:
+    ahora = datetime.now(tz)
+    hoy = ahora.date().isoformat()
+    if ahora.hour < HORA_SERIES or _series_revisadas.get(tenant["id"]) == hoy or not _vinculado(tenant):
+        return
+    _series_revisadas[tenant["id"]] = hoy
+    import asistente_profesional
+    asistente_profesional.series_por_terminar(tenant)
+
+
 _ultima_limpieza = None
 
 
@@ -235,6 +249,10 @@ def _tick() -> None:
             _resumen_noche(tenant, tz)
         except Exception:
             logger.exception("Fallo el resumen de la noche de tenant %s", tenant["id"])
+        try:
+            _series_por_terminar(tenant, tz)
+        except Exception:
+            logger.exception("Fallo avisando series por terminar de tenant %s", tenant["id"])
         try:
             _avisar_reservas(tenant, tz)
         except Exception:
