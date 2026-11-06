@@ -476,4 +476,82 @@ assert ap.responder_a([ANA], "agregá a Juana a la lista de espera", TEL) == ap.
 assert ap.responder_a([ANA], "lista de espera", TEL) == ap.sin_vincular()
 assert "varias cuentas" in ap.responder_a([A, vinculada(BETO)], f"sumá a tomás el {dia_de(5)} a las 10", TEL)
 print("lista de espera: ver, anotar (paciente conocido o nuevo con número), sacar; con el mismo candado OK")
+
+# --- serie, paciente nuevo, ofrecer, oferta tras una cancelación ---
+HECHO.clear(); AL_TEL.clear(); PEND.clear()
+SERIE = []
+app._agendar_serie = lambda t, base, dur, pasos, tel, nombre, valor, frec, mod=None, ficha=None: \
+    SERIE.append((base, dur, list(pasos), tel, nombre, valor, frec, mod, ficha)) or []
+r = ap.responder_a([A], "Sumá a Tomás todos los martes a las 18 por 4 semanas", TEL)
+assert "¿Le agendo a Tomás Ruiz 4 sesiones los martes a las 18:00" in r and "virtual, $ 20.000" in r, r
+ap.responder_a([A], "si", TEL)
+base, dur, pasos, tel, nombre, valor, frec, mod, ficha = SERIE[-1]
+assert base.weekday() == 1 and base.hour == 18 and base > datetime.now(TZ) and pasos == [0, 1, 2, 3] \
+    and (tel, nombre, valor, frec, mod) == ("5491100000041", "Tomás Ruiz", 20000, "semanal", "virtual"), SERIE
+assert "Te agendé 4 sesiones cada semana" in AL_TEL[-1][1], AL_TEL
+r = ap.responder_a([A], "agendá a tomás cada jueves por medio a las 9", TEL)
+assert "8 sesiones los jueves cada 15 días a las 09:00" in r, r
+_jue = datetime.combine(ap._dia_proximo("jueves", datetime.now(TZ).date()), datetime.min.time(), TZ) + timedelta(hours=9)
+if _jue <= datetime.now(TZ):
+    _jue += timedelta(days=7)
+OCUPADO.append((_jue.astimezone(timezone.utc).isoformat(), (_jue + timedelta(minutes=50)).astimezone(timezone.utc).isoformat()))
+r = ap.responder_a([A], "agendá a tomás cada jueves por medio a las 9", TEL)
+assert "Quedarían sin agendar" in r, r
+OCUPADO.clear()
+ap.responder_a([A], "sin avisar", TEL)
+assert SERIE[-1][6] == "quincenal" and len(SERIE[-1][2]) == 8 and not AL_TEL[1:], SERIE
+print("serie: «sumá a Tomás todos los martes a las 18 por 4 semanas» y «cada jueves por medio» OK")
+
+db.fichas_del_telefono = lambda tid, tel: []
+db.ficha_para = lambda tid, tel, nombre: ("", False)
+HECHO.clear(); AL_TEL.clear()
+r = ap.responder_a([A], f"Sumá a Martín Gómez 11 5566-7788 el {dia_de(5)} a las 9", TEL)
+assert "¿Le agendo a Martín Gómez (+1155667788) una sesión el" in r and "paciente nuevo" in r, r
+ap.responder_a([A], "si", TEL)
+assert HECHO[-1][4:7] == ("1155667788", "Martín Gómez", None), HECHO
+assert "Si es nuevo, mandame también su WhatsApp" in ap.responder_a([A], f"sumá a Zoe el {dia_de(5)} a las 10", TEL)
+print("paciente nuevo: «sumá a Martín Gómez 1155667788 el viernes a las 9» OK")
+
+ESPERA[:] = [{"id": "e1", "tenant_id": "t1", "nombre": "Juana Pérez", "telefono": "549110000004"},
+             {"id": "e2", "tenant_id": "t1", "nombre": "Zoe Paz", "telefono": "5491177770000"}]
+OFRECIDOS = []
+db.marcar_ofrecido = lambda tid, x, dia: OFRECIDOS.append(("marcado", x))
+import cancelaciones  # noqa: E402
+cancelaciones.ofrecer_horario = lambda t, tel, cuando, link: OFRECIDOS.append((tel, cuando, link)) or True
+LIBRE = TURNOS["t1"][3]
+r = ap.responder_a([A], "ofrecele un horario a zoe", TEL)
+assert "¿Le ofrezco a Zoe Paz el" in r and "12:00" in r, r
+ap.responder_a([A], "si", TEL)
+assert OFRECIDOS[0] == ("marcado", "e2") and OFRECIDOS[1][0] == "5491177770000" and OFRECIDOS[1][2].endswith("/ana"), OFRECIDOS
+assert "no está libre" in ap.responder_a([A], f"ofrecele a juana el {dia_de(1)} a las 15", TEL)
+r = ap.responder_a([A], f"ofrecele a juana el {dia_de(1)} a las 12", TEL)
+assert "¿Le ofrezco a Juana Pérez" in r, r
+ap.responder_a([A], "no", TEL)
+ESPERA[1]["ofrecido_en"] = datetime.now(TZ).date().isoformat()
+assert "ya se le ofreció un horario hoy" in ap.responder_a([A], "ofrecele un horario a zoe", TEL)
+print("ofrecer: «ofrecele un horario a Zoe» (el próximo libre) o uno puntual, con el link OK")
+
+# un paciente cancela y hay lista de espera: el aviso trae la oferta, y «sí» la manda
+OFRECIDOS.clear(); PEND.clear()
+AVISOS = []
+scheduler.avisar_profesional = lambda t, texto, paciente=None, con_nombre=None: AVISOS.append(texto) or True
+cancelaciones.ofrecer_a_espera = lambda t, turno: None
+cancelaciones.tras_cancelar(A, dict(LIBRE), "WhatsApp")
+assert "respondé SÍ y se lo ofrezco a Juana Pérez" in AVISOS[-1], AVISOS
+assert PEND[ap._diez(TEL)]["accion"]["vence_min"] == ap.VENCE_OFRECER_MIN
+PEND[ap._diez(TEL)]["creado"] = (datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()
+r = ap.responder_a([A], "sí", TEL)
+assert OFRECIDOS[-1][0] == "549110000004" and "se lo ofrecí a Juana Pérez" in r, (OFRECIDOS, r)
+cancelaciones.tras_cancelar(ANA, dict(LIBRE), "WhatsApp")
+assert "respondé SÍ" not in AVISOS[-1] and not PEND, "sin vincular no se prepara nada"
+ap.responder_a([A], "pausar", TEL)
+cancelaciones.tras_cancelar(A, dict(LIBRE), "WhatsApp")
+assert PEND[ap._diez(TEL)]["accion"]["tipo"] == "pausar", "no pisa una acción a medio confirmar"
+PEND.clear()
+print("cancelación de un paciente con lista de espera: el aviso propone ofrecérselo y «sí» lo manda OK")
+ESPERA[1].pop("ofrecido_en")
+r = ap.responder_a([A], "cancelá la sesión de juana", TEL)
+r = ap.responder_a([A], "sin avisar", TEL)
+assert "¿Le ofrezco este horario a" in r and r.interactivo["botones"] == ap.BOTONES_CONFIRMAR, r
+print("cancelar desde WhatsApp con lista de espera: ofrece el horario con botones OK")
 print("\nTODOS LOS TESTS DEL ASISTENTE DEL PROFESIONAL PASARON")

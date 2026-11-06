@@ -141,7 +141,14 @@ guarda en `acciones_profesional` (migración 072, una por número, vence en 10
 min) y `_ejecutar` la hace recién con «sí» / botón `prof:si`, revisando otra vez
 que el número siga vinculado a esa cuenta. Sumar, pasar y cancelar, si el
 paciente tiene WhatsApp, guardan `avisar` y ofrecen `BOTONES_AVISAR` («Sí y
-avisarle» / «Sí, sin avisarle» = `prof:sin avisar` / «No»). Con el número en varias cuentas, no
+avisarle» / «Sí, sin avisarle» = `prof:sin avisar` / «No»). Sumar acepta serie
+(«todos los jueves», «cada jueves por medio», «por N semanas»; usa
+`app._agendar_serie`) y paciente nuevo con su WhatsApp en el mensaje (ficha con
+`db.ficha_para` al ejecutar). «Ofrecele a Juana…» usa
+`cancelaciones.ofrecer_horario`. Cuando un paciente cancela y hay lista de
+espera, `cancelaciones.tras_cancelar` llama a `propuesta_tras_cancelar`: deja
+una acción «ofrecer» con `vence_min` = 180 (no pisa una pendiente) y el aviso
+dice «respondé SÍ y se lo ofrezco a …». Con el número en varias cuentas, no
 actúa (al panel). El mensaje al paciente usa `MENSAJE_PROFESIONAL_TEMPLATE` si
 está (si no, texto libre: sólo llega dentro de las 24 h). Con el número
 vinculado, `scheduler.avisar_profesional(…, paciente=, con_nombre=)` pone el

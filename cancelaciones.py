@@ -10,14 +10,19 @@ Un solo lugar para las dos puertas de entrada, así se comportan igual:
   desde el panel o contestando por WhatsApp «liberar» / «me lo tomo».
   «Me lo tomo» lo deja en `'propio'` (sigue sin ofrecerse).
 
-Los avisos al profesional nunca llevan nombres de pacientes.
+Los avisos al profesional llevan el nombre del paciente sólo si su WhatsApp
+de avisos está vinculado (asistente_profesional). Si hay lista de espera, el
+aviso deja preparada la oferta al primero: el profesional responde «sí».
 """
+import logging
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import config
 import db
 import scheduler
+
+logger = logging.getLogger(__name__)
 import whatsapp
 
 LIBERAR = {"liberar", "liberalo", "liberarlo", "libre", "dejalo libre", "ofrecer", "ofrecelo"}
@@ -111,6 +116,14 @@ def tras_cancelar(tenant: dict, turno: dict, por: str) -> None:
         texto += "; se lo ofrecimos al primero de tu lista de espera"
     elif esperando:
         texto += f"; tenés {esperando} en lista de espera"
+        try:
+            import asistente_profesional
+            propuesta = asistente_profesional.propuesta_tras_cancelar(tenant, turno)
+        except Exception:
+            logger.exception("No se pudo preparar la oferta a la lista de espera (%s)", tenant.get("id"))
+            propuesta = None
+        if propuesta:
+            texto += f": respondé SÍ y se lo ofrezco a {propuesta}"
     scheduler.avisar_profesional(tenant, texto, paciente=turno.get("paciente_nombre"))
 
 

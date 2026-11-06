@@ -119,7 +119,9 @@ def menu(tenant: dict) -> str:
             "• *pausar hasta el lunes* / *pausar* / *reactivar*\n"
             "• *avisale a Juan que llego 10 minutos tarde*\n"
             "• *contestale: …* (al último mensaje que te llegó) / *contestale a Juana: …*\n"
-            "• *sumá a Juana el jueves a las 10*\n"
+            "• *sumá a Juana el jueves a las 10* / *sumá a Juana todos los jueves a las 10*\n"
+            "• *sumá a Martín Gómez 1155667788 el viernes a las 9* (paciente nuevo)\n"
+            "• *ofrecele a Juana el jueves 10* (o *ofrecele un horario a Juana*: el próximo libre)\n"
             "• *pasá a Juana del jueves al viernes 10:00*\n"
             "• *cancelá la sesión de Juana del jueves*\n"
             "• *marcá pagada la de hoy de Tomás*\n"
@@ -420,9 +422,40 @@ _RECORDAR = re.compile(r"^(?:recordale|recorda|recordarle|reclamale|cobrale)(?: 
 _CONTESTAR = re.compile(r"^\s*(?:contest[aá]le|respond[eé]le)(?:\s+a\s+(.{2,60}?))?\s*:\s*(.{2,600})$", re.IGNORECASE | re.DOTALL)
 
 
-_SUMAR = re.compile(r"^(?:suma|sumale|sumar|agenda|agendale|agendar|agendame|dale|anota|anotale|anotame)"
-                    r"(?: una sesion| un turno| sesion| turno)?(?: a| para)? " + _NOMBRE +
-                    r"(?: (?:el|para el|para))? (?P<dia>" + _DIA + r")(?: a las| a la)? (?P<h>\d{1,2})(?: (?P<m>\d{2}))?(?: hs| horas)?$")
+# «sumá a Juana el jueves a las 10», «agendá a Martín Gómez 1155667788 el
+# viernes 10», «sumá a Juana todos los jueves a las 10 por 8 semanas». El verbo
+# va sobre el texto ORIGINAL (las tildes del nombre); el resto, normalizado.
+_SUMAR_VERBO = re.compile(r"^\s*(?:sum[aá](?:le|r)?|agend[aá](?:le|me|r)?|anot[aá](?:le|me|r)?|dale)"
+                          r"(?:\s+(?:una\s+sesi[oó]n|un\s+turno|sesiones|turnos|sesi[oó]n|turno))?(?:\s+(?:a|para))?\s+(?P<resto>.+)$",
+                          re.IGNORECASE | re.DOTALL)
+_TEL = r"(?: (?P<tel>\d[\d ]{6,20}\d))?"
+_HORA = r"(?: a las| a la)? (?P<h>\d{1,2})(?: (?P<m>\d{2}))?(?: hs| horas)?"
+_SUMAR_UNO = re.compile(r"^" + _NOMBRE + _TEL + r"(?: (?:el|para el|para))? (?P<dia>" + _DIA + r")" + _HORA + r"$")
+_SUMAR_SERIE = re.compile(r"^" + _NOMBRE + _TEL + r" (?:todos los|cada) (?P<dsem>lunes|martes|miercoles|jueves|viernes|sabado|domingo)"
+                          r"(?P<medio> por medio)?" + _HORA +
+                          r"(?: (?:por|durante) (?P<n>\d{1,2}) (?:semanas|sesiones|veces)| (?P<n2>\d{1,2}) (?:sesiones|veces))?$")
+SESIONES_SERIE = 8      # como «renovar» del panel
+MAX_SESIONES_SERIE = 26
+_OFRECER = re.compile(r"^(?:ofrecele|ofrece|ofrecer|ofrecerle)(?: un horario| el horario| el turno| un turno| el hueco| un hueco)?(?: a)? "
+                      + _NOMBRE + r"(?: (?:el horario |el turno |el hueco )?(?:del |de el |el |para el )?(?P<dia>" + _DIA + r")"
+                      + _HORA + r")?$")
+VENCE_OFRECER_MIN = 180  # la propuesta que llega con el aviso de cancelación
+
+
+def _sumar_match(texto: str):
+    """(match, nombre con tildes, es_serie) o None."""
+    m = _SUMAR_VERBO.search(texto or "")
+    if not m:
+        return None
+    resto = _normal(m.group("resto"))
+    for regla, serie in ((_SUMAR_SERIE, True), (_SUMAR_UNO, False)):
+        x = regla.search(resto)
+        if x:
+            palabras = [w.strip(",.;:") for w in m.group("resto").split()][:len(x.group("nombre").split())]
+            return x, " ".join(palabras), serie
+    return None
+
+
 # Sobre el texto ORIGINAL, para no perder las tildes del nombre ni la preferencia.
 _ESPERA_SUMAR = re.compile(r"^\s*(?:agreg[aá](?:le|r)?|sum[aá](?:le|r)?|anot[aá](?:le|r)?|pon[eé](?:le|r)?)\s+(?:a\s+)?"
                            r"(?P<nombre>[^\d,:+]{2,60}?)\s*(?P<tel>\+?\d[\d\s-]{6,20}\d)?\s*,?\s+(?:a|en)\s+(?:la\s+|mi\s+)?lista\s+de\s+espera"
@@ -664,9 +697,12 @@ def _preparar(tenant: dict, texto: str) -> tuple[dict, str] | str | None:
             return f"A {nombre} ya se le recordó hoy."
         return ({"tipo": "recordar", "clave": clave, "nombre": nombre, "monto": total},
                 f"¿Le recuerdo a {nombre} que tiene {_pesos(total)} pendientes ({len(deuda)} sesi{'ón' if len(deuda) == 1 else 'ones'})?")
-    m = _SUMAR.search(n)
+    sumar = _sumar_match(texto)
+    if sumar:
+        return _preparar_sumar(tenant, *sumar, hoy)
+    m = _OFRECER.search(n)
     if m:
-        return _preparar_sumar(tenant, m, hoy)
+        return _preparar_ofrecer(tenant, m)
     m = _ESPERA_SUMAR.search(texto or "")
     if m:
         return _preparar_espera(tenant, m)
@@ -724,36 +760,141 @@ def _preparar(tenant: dict, texto: str) -> tuple[dict, str] | str | None:
     return None
 
 
-def _preparar_sumar(tenant: dict, m: re.Match, hoy: date) -> tuple[dict, str] | str:
-    """Una sesión suelta para un paciente que ya existe, con su valor,
-    modalidad y ficha de la última sesión (como agendarlo desde el panel)."""
-    tz = _tz(tenant)
-    encontrado = _paciente_unico(tenant, m.group("nombre"))
+def _quien_para_sumar(tenant: dict, nombre: str, telefono: str) -> dict | str:
+    """De dónde salen los datos de la sesión nueva: con WhatsApp en el mensaje,
+    ese número (paciente nuevo, o el que ya lo usa); si no, el paciente que se
+    llama así, con valor, modalidad y ficha de su última sesión."""
+    if telefono:
+        if len(telefono) < 8:
+            return "Ese WhatsApp parece incompleto. Mandalo con característica, por ejemplo 1155667788."
+        previas = [t for t in db.fichas_del_telefono(tenant["id"], telefono) if t.get("inicio")]
+        ultima = previas[0] if previas else {}
+        return {"telefono": telefono, "nombre": nombre[:1].upper() + nombre[1:], "valor": ultima.get("valor"),
+                "modalidad": ultima.get("modalidad"), "ficha": None, "nuevo": not previas}
+    encontrado = _paciente_unico(tenant, nombre)
     if isinstance(encontrado, str):
-        return encontrado + (" Si es nuevo, agendalo desde el panel." if encontrado.startswith("No encontré") else "")
+        if encontrado.startswith("No encontré"):
+            return (f"No encontré a ningún paciente que se llame «{nombre}». Si es nuevo, mandame también su WhatsApp: "
+                    f"*sumá a {nombre} 1155667788 el jueves a las 10*.")
+        return encontrado
     sesiones, nombre = encontrado
     base = sesiones[-1]
-    dia = _dia_proximo(m.group("dia"), hoy)
+    return {"telefono": base.get("paciente_telefono"), "nombre": nombre, "valor": base.get("valor"),
+            "modalidad": base.get("modalidad"), "ficha": base.get("ficha") or "", "nuevo": False}
+
+
+def _preparar_sumar(tenant: dict, m: re.Match, nombre: str, serie: bool, hoy: date) -> tuple[dict, str] | str:
+    """Una sesión suelta, o una serie semanal / quincenal (como agendar desde el panel)."""
+    tz = _tz(tenant)
+    quien = _quien_para_sumar(tenant, nombre, "".join(ch for ch in m.group("tel") or "" if ch.isdigit()))
+    if isinstance(quien, str):
+        return quien
     hora, minutos = int(m.group("h")), int(m.group("m") or 0)
+    dia = _dia_proximo(m.group("dsem") if serie else m.group("dia"), hoy)
     if not dia or hora > 23 or minutos > 59:
         return "No entendí el día o la hora. Probá con *sumá a Juana el jueves a las 10*."
     inicio = datetime.combine(dia, dtime(hora, minutos), tzinfo=tz)
+    if serie and inicio <= datetime.now(tz):
+        inicio += timedelta(days=7)
     if inicio <= datetime.now(tz):
         return "Ese horario ya pasó."
     duracion = tenant.get("duracion_turno_minutos") or 50
-    fin = inicio + timedelta(minutes=duracion)
-    ini_utc, fin_utc = inicio.astimezone(timezone.utc).isoformat(), fin.astimezone(timezone.utc).isoformat()
-    if db.horario_ocupado(tenant["id"], ini_utc, fin_utc):
-        return f"El {_cuando(inicio.isoformat(), tz)} ya tenés otra sesión."
-    bloqueado = " Ojo: ese día está bloqueado; la agendo igual." if db.bloqueo_en(tenant["id"], ini_utc, fin_utc) else ""
-    avisa = db.tiene_whatsapp(base.get("paciente_telefono"))
-    detalle = [x for x in (base.get("modalidad"), _pesos(base["valor"]) if base.get("valor") else None) if x]
-    return ({"tipo": "sumar", "inicio": inicio.isoformat(), "duracion": duracion, "telefono": base.get("paciente_telefono"),
-             "nombre": nombre, "valor": base.get("valor"), "modalidad": base.get("modalidad"), "ficha": base.get("ficha") or "",
-             "avisar": avisa},
-            f"¿Le agendo a {nombre} una sesión el {_cuando(inicio.isoformat(), tz)}"
-            + (f" ({', '.join(detalle)}, como la última)" if detalle else "") + f"?{bloqueado}"
-            + (" ¿Le aviso por WhatsApp?" if avisa else " (No tiene WhatsApp: avisale vos.)"))
+    avisa = db.tiene_whatsapp(quien["telefono"])
+    detalle = [x for x in (quien.get("modalidad"), _pesos(quien["valor"]) if quien.get("valor") else None) if x]
+    datos = (f" ({', '.join(detalle)}, como la última)" if detalle
+             else " (paciente nuevo, sin valor: cargalo después desde el panel)" if quien["nuevo"] else "")
+    pregunta_aviso = " ¿Le aviso por WhatsApp?" if avisa else " (No tiene WhatsApp: avisale vos.)"
+    accion = {"tipo": "sumar", "inicio": inicio.isoformat(), "duracion": duracion, "telefono": quien["telefono"],
+              "nombre": quien["nombre"], "valor": quien.get("valor"), "modalidad": quien.get("modalidad"),
+              "ficha": quien.get("ficha"), "avisar": avisa}
+    if not serie:
+        ini_utc = inicio.astimezone(timezone.utc).isoformat()
+        fin_utc = (inicio + timedelta(minutes=duracion)).astimezone(timezone.utc).isoformat()
+        if db.horario_ocupado(tenant["id"], ini_utc, fin_utc):
+            return f"El {_cuando(inicio.isoformat(), tz)} ya tenés otra sesión."
+        bloqueado = " Ojo: ese día está bloqueado; la agendo igual." if db.bloqueo_en(tenant["id"], ini_utc, fin_utc) else ""
+        return (accion, f"¿Le agendo a {quien['nombre']} (+{quien['telefono']}) una sesión el {_cuando(inicio.isoformat(), tz)}"
+                        f"{datos}?{bloqueado}{pregunta_aviso}" if quien["nuevo"] else
+                        f"¿Le agendo a {quien['nombre']} una sesión el {_cuando(inicio.isoformat(), tz)}{datos}?{bloqueado}{pregunta_aviso}")
+    cantidad = min(int(m.group("n") or m.group("n2") or SESIONES_SERIE), MAX_SESIONES_SERIE)
+    frecuencia = "quincenal" if m.group("medio") else "semanal"
+    paso = timedelta(days=14 if frecuencia == "quincenal" else 7)
+    salteadas = []
+    for i in range(cantidad):
+        ini = inicio + paso * i
+        a, b = ini.astimezone(timezone.utc).isoformat(), (ini + timedelta(minutes=duracion)).astimezone(timezone.utc).isoformat()
+        if db.horario_ocupado(tenant["id"], a, b) or db.bloqueo_en(tenant["id"], a, b):
+            salteadas.append(f"{ini.day}/{ini.month:02d}")
+    if len(salteadas) == cantidad:
+        return "Todas esas fechas están ocupadas o bloqueadas: no hay nada para agendar."
+    accion.update(serie=True, cantidad=cantidad, frecuencia=frecuencia)
+    ultima = inicio + paso * (cantidad - 1)
+    cada = f"los {DIAS[inicio.weekday()]}" + (" cada 15 días" if frecuencia == "quincenal" else "")
+    return (accion, f"¿Le agendo a {quien['nombre']}" + (f" (+{quien['telefono']})" if quien["nuevo"] else "")
+            + f" {cantidad} sesiones {cada} a las {inicio:%H:%M}, del {_dia_corto(inicio.date())} al {_dia_corto(ultima.date())}"
+            + f"{datos}?" + (f" Quedarían sin agendar (ocupadas o bloqueadas): {', '.join(salteadas)}." if salteadas else "")
+            + pregunta_aviso)
+
+
+def _preparar_ofrecer(tenant: dict, m: re.Match) -> tuple[dict, str] | str:
+    """Ofrecerle un horario libre (el que diga, o el próximo) a alguien de la
+    lista de espera —o a un paciente con WhatsApp— con el link para reservarlo."""
+    tz = _tz(tenant)
+    if not tenant.get("slug"):
+        return "Falta tu página de turnos para mandarle el link. Pedila a administración."
+    palabras = m.group("nombre").split()
+    lista = [p for p in db.lista_de_espera(tenant["id"]) if all(w in _normal(p.get("nombre") or "") for w in palabras)]
+    if len(lista) > 1:
+        return ("Hay más de uno con ese nombre en la lista de espera: decime cuál, con el apellido.\n\n"
+                + "\n".join(f"• {p.get('nombre')}" for p in lista[:8]))
+    if lista:
+        persona = {"espera": lista[0]["id"], "telefono": lista[0].get("telefono"), "nombre": lista[0].get("nombre"),
+                   "ofrecido_en": lista[0].get("ofrecido_en")}
+    else:
+        encontrado = _paciente_unico(tenant, m.group("nombre"))
+        if isinstance(encontrado, str):
+            return encontrado
+        sesiones, nombre = encontrado
+        persona = {"espera": None, "telefono": sesiones[-1].get("paciente_telefono"), "nombre": nombre}
+    if not db.tiene_whatsapp(persona["telefono"]):
+        return f"{persona['nombre']} no tiene WhatsApp cargado."
+    if persona.get("ofrecido_en") == datetime.now(tz).date().isoformat():
+        return f"A {persona['nombre']} ya se le ofreció un horario hoy."
+    libres = db.turnos_libres(tenant["id"], datetime.now(timezone.utc), limite=60)
+    if m.group("dia"):
+        dia = _dia_proximo(m.group("dia"), datetime.now(tz).date())
+        buscado = datetime.combine(dia, dtime(int(m.group("h")), int(m.group("m") or 0)), tzinfo=tz) if dia else None
+        libres = [t for t in libres if buscado and datetime.fromisoformat(t["inicio"]) == buscado]
+        if not libres:
+            return "Ese horario no está libre en tu agenda. Escribí *libres* para ver los que tenés."
+    if not libres:
+        return "No tenés ningún horario libre para ofrecer."
+    turno = libres[0]
+    return ({"tipo": "ofrecer", **persona, "turno": turno["id"], "cuando": scheduler_cuando(tenant, turno)},
+            f"¿Le ofrezco a {persona['nombre']} el {_cuando(turno['inicio'], tz)}? Le mandamos el link para que lo reserve "
+            "(si otro lo toma antes, se lo pierde).")
+
+
+def propuesta_tras_cancelar(tenant: dict, turno: dict) -> str | None:
+    """Cuando un paciente cancela y hay lista de espera: deja preparada la
+    oferta al primero que hoy no recibió otra (vale unas horas) y devuelve su
+    nombre. Sólo con el WhatsApp vinculado, y sin pisar una
+    acción que el profesional tenga a medio confirmar."""
+    if not vinculado(tenant) or not tenant.get("slug"):
+        return None
+    hoy = datetime.now(_tz(tenant)).date().isoformat()
+    persona = next((p for p in db.lista_de_espera(tenant["id"])
+                    if p.get("ofrecido_en") != hoy and db.tiene_whatsapp(p.get("telefono"))), None)
+    if not persona:
+        return None
+    clave = _diez(tenant.get("aviso_telefono"))
+    previa = db.accion_profesional(clave)
+    if previa and datetime.now(timezone.utc) - datetime.fromisoformat(str(previa["creado"])) < VENCE_ACCION:
+        return None
+    db.guardar_accion_profesional(clave, tenant["id"], {
+        "tipo": "ofrecer", "espera": persona["id"], "telefono": persona["telefono"], "nombre": persona.get("nombre"),
+        "turno": turno["id"], "cuando": scheduler_cuando(tenant, turno), "vence_min": VENCE_OFRECER_MIN})
+    return persona.get("nombre") or "el primero de la lista"
 
 
 def _preparar_espera(tenant: dict, m: re.Match) -> tuple[dict, str] | str:
@@ -862,22 +1003,60 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
                 extra = f" Estaba pagada: quedó en «Pagos para revisar» para devolverle {_pesos(monto)}."
         cuando = scheduler_cuando(tenant, {"inicio": turno["inicio"]})
         aviso = _resultado_aviso(tenant, accion, turno.get("paciente_telefono"), f"Tu sesión del {cuando} quedó cancelada.")
+        listo = f"Listo, cancelada; el horario quedó libre.{extra}{aviso}"
         esperando = len(db.lista_de_espera(tenant["id"]))
-        espera = (f" Tenés {esperando} en lista de espera: escribí *lista de espera* para verlos." if esperando else "")
-        return f"Listo, cancelada; el horario quedó libre.{extra}{aviso}{espera}"
+        if not esperando:
+            return listo
+        libre = db.turno_por_id(tenant["id"], turno["id"]) or turno
+        primero = propuesta_tras_cancelar(tenant, {**libre, "estado": "libre"})
+        if primero:
+            return _con_confirmar(f"{listo}\n\nTenés {esperando} en lista de espera. ¿Le ofrezco este horario a {primero}? "
+                                  "Le mandamos el link para que lo reserve.")
+        return f"{listo} Tenés {esperando} en lista de espera: escribí *lista de espera* para verlos."
     if tipo == "sumar":
         tz = _tz(tenant)
         inicio = datetime.fromisoformat(accion["inicio"])
         if inicio <= datetime.now(tz):
             return "Ese horario ya pasó."
+        ficha = accion.get("ficha")
+        if ficha is None:  # paciente con el WhatsApp del mensaje: la ficha se decide como en el panel
+            ficha = db.ficha_para(tenant["id"], accion["telefono"], accion.get("nombre"))[0] \
+                if db.tiene_whatsapp(accion["telefono"]) else ""
+        cuando = scheduler_cuando(tenant, {"inicio": inicio.isoformat(), "modalidad": accion.get("modalidad")})
+        if accion.get("serie"):
+            import app as _app
+            salteadas = _app._agendar_serie(tenant, inicio, accion["duracion"], range(0, accion["cantidad"]), accion["telefono"],
+                                            accion.get("nombre"), accion.get("valor"), accion["frecuencia"],
+                                            accion.get("modalidad"), ficha)
+            hechas = accion["cantidad"] - len(salteadas)
+            if not hechas:
+                return "No pude agendar ninguna: todas esas fechas ya estaban ocupadas o bloqueadas."
+            db.registrar_actividad("profesional (WhatsApp)", f"agendó {hechas} sesiones ({accion['frecuencia']})", tenant["id"])
+            cada = "cada semana" if accion["frecuencia"] == "semanal" else "cada 15 días"
+            aviso = _resultado_aviso(tenant, accion, accion["telefono"],
+                                     f"Te agendé {hechas} sesiones {cada}, desde el {cuando}.")
+            return (f"Listo, a {accion.get('nombre')} le agendé {hechas} sesiones ({accion['frecuencia']}) desde el "
+                    f"{_cuando(inicio.isoformat(), tz)}." + (f" Sin agendar por ocupadas: {', '.join(salteadas)}." if salteadas else "")
+                    + aviso)
         if not db.reservar_en_horario(tenant["id"], inicio.astimezone(timezone.utc), accion["duracion"], accion["telefono"],
                                       accion.get("nombre"), accion.get("valor"), None, accion.get("modalidad"),
-                                      accion.get("ficha") or "", ignorar_bloqueo=True):
+                                      ficha, ignorar_bloqueo=True):
             return "No la pude agendar: ese horario ya está ocupado."
         db.registrar_actividad("profesional (WhatsApp)", "agendó una sesión", tenant["id"])
-        cuando = scheduler_cuando(tenant, {"inicio": inicio.isoformat(), "modalidad": accion.get("modalidad")})
         aviso = _resultado_aviso(tenant, accion, accion["telefono"], f"Te agendé una sesión el {cuando}.")
         return f"Listo, {accion.get('nombre')} quedó agendada el {_cuando(inicio.isoformat(), tz)}.{aviso}"
+    if tipo == "ofrecer":
+        import cancelaciones
+        turno = db.turno_por_id(tenant["id"], accion["turno"])
+        if not turno or turno.get("estado") != "libre":
+            return "Ese horario ya no está libre (alguien lo tomó)."
+        if accion.get("espera"):
+            db.marcar_ofrecido(tenant["id"], accion["espera"], datetime.now(_tz(tenant)).date().isoformat())
+        ok = cancelaciones.ofrecer_horario(tenant, accion["telefono"], accion["cuando"],
+                                           f"{cancelaciones.base_url()}/{tenant['slug']}")
+        db.registrar_actividad("profesional (WhatsApp)", "le ofreció un horario a la lista de espera", tenant["id"])
+        return (f"Listo, se lo ofrecí a {accion.get('nombre')}. Si lo reserva, te llega el aviso." if ok
+                else f"No se pudo escribirle a {accion.get('nombre')}. Probá desde el panel.")
     if tipo == "espera_sumar":
         if not db.agregar_a_espera(tenant["id"], accion["nombre"], accion["telefono"], accion.get("preferencia")):
             return f"{accion['nombre']} ya estaba en tu lista de espera."
@@ -989,8 +1168,10 @@ def _accion(propias: list[dict], texto: str, telefono: str):
         if _NO.search(n):
             return "Listo, no hice nada."
         creado = datetime.fromisoformat(str(pendiente["creado"]))
-        if datetime.now(timezone.utc) - creado > VENCE_ACCION:
-            return "Pasaron más de 10 minutos: por las dudas no lo hice. Pedímelo de nuevo."
+        vence = timedelta(minutes=(pendiente.get("accion") or {}).get("vence_min") or VENCE_ACCION.total_seconds() / 60)
+        if datetime.now(timezone.utc) - creado > vence:
+            return (f"Pasaron más de {'10 minutos' if vence == VENCE_ACCION else 'unas horas'}: "
+                    "por las dudas no lo hice. Pedímelo de nuevo.")
         tenant = next((t for t in propias if t["id"] == pendiente["tenant_id"] and _diez(t.get("aviso_telefono")) == clave), None)
         if not tenant or len(propias) != 1:  # el número ya no está vinculado a esa cuenta (o está en varias)
             return "No lo hice: este WhatsApp ya no está vinculado a esa cuenta."
@@ -1028,7 +1209,7 @@ def _preparar_es_accion(texto: str) -> bool:
     n = _normal(texto)
     return bool(_COMPROBANTE.search(n) or _BLOQUEAR.search(n) or _PAUSAR.search(n) or _REACTIVAR.search(n)
                 or _REPROGRAMAR.search(n) or _CANCELAR.search(n) or _PAGADA.search(n) or _RECORDAR.search(n)
-                or _SUMAR.search(n) or _ESPERA_SACAR.search(n) or _ESPERA_SUMAR.search(texto or "")
+                or _sumar_match(texto) or _OFRECER.search(n) or _ESPERA_SACAR.search(n) or _ESPERA_SUMAR.search(texto or "")
                 or _AVISAR.search(texto or "") or _CONTESTAR.search(texto or ""))
 
 
