@@ -112,6 +112,18 @@ compartido, si el paciente tiene turnos con más de un profesional
 `elecciones_whatsapp` y lo contesta al elegir; la elección dura 2 h desde el
 último mensaje.
 
+**Asistente del profesional (`asistente_profesional.py`)**: el alta (admin y
+`scripts/crear_tenant.py`) pide el WhatsApp del profesional (`aviso_telefono`,
+`app.whatsapp_de_alta`: 10 dígitos → 549…) y le manda la bienvenida con
+`scheduler.avisar_profesional`. Cuando escribe desde ese número, el webhook
+(`app._respuesta_al_profesional`, después de LIBERAR / ME LO TOMO) le contesta
+«hoy», «mañana», «semana», «libres», «pagos», «deudas», «mensajes», «link» y
+«ayuda»: sólo horas, cantidades y montos, nunca nombres ni teléfonos de pacientes.
+Sólo lee. Si el texto no es un pedido suyo devuelve None y sigue como paciente
+(así prueba su propio bot). `db.tenants_por_aviso` no recibe tenant_id (lo
+averigua, como `tenant_por_paciente`); con el mismo número en varias cuentas
+contesta por cada una; con número propio, sólo esa cuenta.
+
 **Plantillas y sus botones (`plantillas.py`)**: `CATALOGO` tiene texto, categoría,
 {{n}}, botones y nombre sugerido de cada plantilla; /admin/whatsapp lo muestra («Cómo
 crear cada plantilla») y `test_conversation.py` manda cada botón al bot y revisa que

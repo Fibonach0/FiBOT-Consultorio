@@ -2317,15 +2317,28 @@ chequear("admin: mail de prueba inválido", "Escribí un mail válido" in html)
 _mail_adm.disponible, _mail_adm.enviar_detalle = _mad, _med
 chequear("no muestra pacientes", "Paciente Secreto" not in html and "5491100000001" not in html)
 chequear("el admin no entra al panel de un profesional", client.get("/agenda").status_code == 302)
+_bienvenidas = []
+_av_alta = app.scheduler.avisar_profesional
+app.scheduler.avisar_profesional = lambda t, texto: _bienvenidas.append((t, texto)) or True
 html = client.post("/admin/profesionales", data={"nombre": "Lic. Nueva", "rubro": "psicopedagogía", "slug": "nueva", "panel_user": "nueva",
-                                                 "clave": "una-clave-larga"}, follow_redirects=True).data.decode()
+                                                 "clave": "una-clave-larga", "telefono": "11 2345-6789"}, follow_redirects=True).data.decode()
 nueva = next((t for t in TABLAS["tenants"] if t.get("panel_user") == "nueva"), None)
 chequear("da de alta", "Se creó la cuenta de Lic. Nueva" in html and nueva and nueva["rubro"] == "psicopedagogía"
          and _bcrypt.checkpw(b"una-clave-larga", nueva["panel_pass_hash"].encode()) and "una-clave-larga" not in str(nueva))
+chequear("alta: guarda su WhatsApp de avisos y le manda la bienvenida", nueva["aviso_telefono"] == "5491123456789"
+         and len(_bienvenidas) == 1 and _bienvenidas[0][0]["aviso_telefono"] == "5491123456789"
+         and "panel_pass_hash" not in _bienvenidas[0][0] and "*ayuda*" in _bienvenidas[0][1] and "bienvenida a su WhatsApp" in html)
+html = client.post("/admin/profesionales", data={"nombre": "Lic. Sin", "rubro": "psicología", "panel_user": "sinwa",
+                                                 "clave": "una-clave-larga", "telefono": "123"}, follow_redirects=True).data.decode()
+chequear("alta: sin WhatsApp válido no se crea", "Falta el WhatsApp" in html and not any(t.get("panel_user") == "sinwa" for t in TABLAS["tenants"]))
+app.scheduler.avisar_profesional = _av_alta
+chequear("alta: el WhatsApp acepta +54 9, 0 11 y 549…", app.whatsapp_de_alta("+54 9 11 2345-6789") == "5491123456789"
+         and app.whatsapp_de_alta("011 2345 6789") == "5491123456789" and app.whatsapp_de_alta("5493515550000") == "5493515550000")
 for datos, motivo in [({"slug": "admin"}, "ruta del sistema"), ({"slug": "Con Espacios"}, "ruta del sistema"),
                       ({"panel_user": "nueva", "slug": "otra-cosa"}, "Ya existe"), ({"clave": "corta"}, "al menos 10"),
                       ({"rubro": "astrología"}, "obligatorios")]:
-    base = {"nombre": "X", "rubro": "psicología", "slug": "", "panel_user": "x" + str(len(TABLAS["tenants"])), "clave": "otra-clave-larga"}
+    base = {"nombre": "X", "rubro": "psicología", "slug": "", "panel_user": "x" + str(len(TABLAS["tenants"])), "clave": "otra-clave-larga",
+            "telefono": "1123456789"}
     html = client.post("/admin/profesionales", data={**base, **datos}, follow_redirects=True).data.decode()
     chequear(f"alta rechazada: {motivo}", motivo in html)
 r = _post_sin_token("/admin/profesionales", data={"nombre": "Y", "rubro": "psicología", "panel_user": "y", "clave": "otra-clave-larga"})

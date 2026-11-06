@@ -174,12 +174,13 @@
       <div><label>Nombre para mostrar</label><input type="text" name="nombre" placeholder="Lic. Ana Pérez" required></div>
       <div><label>Rubro</label><select name="rubro">{% for r in rubros %}<option>{{ r }}</option>{% endfor %}</select></div>
       <div><label>Página pública (opcional)</label><input type="text" name="slug" placeholder="anaperez" pattern="[a-z0-9][a-z0-9-]*"></div>
+      <div><label>Su WhatsApp (avisos y asistente)</label><input type="tel" name="telefono" placeholder="11 2345 6789" autocomplete="off" required></div>
       <div><label>Mail (opcional, para recuperar la clave)</label><input type="email" name="email" autocomplete="off"></div>
       <div><label>Usuario</label><input type="text" name="panel_user" autocomplete="off" required></div>
       <div><label>Clave inicial (mínimo 10)</label><input type="password" name="clave" autocomplete="new-password" minlength="10" required></div>
       <div class="al-pie"><button class="btn" type="submit">Crear cuenta</button></div>
     </form>
-    <div class="tenue" style="margin-top:6px">Sale por el número de WhatsApp compartido de la plataforma, con turnos de 50 minutos y recordatorio 24 horas antes; la profesional ajusta el resto desde su panel.</div>
+    <div class="tenue" style="margin-top:6px">Sale por el número de WhatsApp compartido de la plataforma, con turnos de 50 minutos y recordatorio 24 horas antes; la profesional ajusta el resto desde su panel. A su WhatsApp le llegan los avisos (reservas, cancelaciones, pagos) y desde ahí le puede preguntar al asistente «hoy», «pagos», «deudas»… Al crear la cuenta le mandamos la bienvenida.</div>
   </div>
 
   <details class="card" {% if filtro %}open{% endif %}>
