@@ -132,7 +132,9 @@ cada una vinculada, por separado; con número propio, sólo esa cuenta. El
 resumen de la mañana sale con `RESUMEN_TEMPLATE` (botones «Ver hoy», «Pagos»,
 «Mensajes», `plantillas.QUE_HACE_PROFESIONAL`) si está cargada.
 Acciones por WhatsApp (aceptar/rechazar comprobante, bloquear días, pausar,
-reactivar, «avisale a Juan que…»): `_preparar` arma la acción y pregunta; se
+reactivar, «avisale a Juan que…», «contestale: …» a la bandeja, reprogramar,
+cancelar y marcar pagada una sesión, recordar la deuda; las de sesiones
+reusan `app._avisar_cambio` / `app._recordar_pago` y lo mismo que el panel): `_preparar` arma la acción y pregunta; se
 guarda en `acciones_profesional` (migración 072, una por número, vence en 10
 min) y `_ejecutar` la hace recién con «sí» / botón `prof:si`, revisando otra vez
 que el número siga vinculado a esa cuenta. Con el número en varias cuentas, no
