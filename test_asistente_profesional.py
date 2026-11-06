@@ -357,6 +357,7 @@ AL_TEL.clear()
 dia_de = lambda d: ap._DIAS_SIN_TILDE[(hoy + timedelta(days=d)).weekday()]
 
 r = ap.responder_a([A], f"Pasá a Juana del {dia_de(3)} al {dia_de(4)} 11:30", TEL)
+assert r.interactivo["botones"] == ap.BOTONES_AVISAR, r
 assert "¿Paso la sesión de Juana Pérez del" in r and "11:30" in r and "Le aviso" in r and not HECHO, r
 ap.responder_a([A], "sí", TEL)
 assert HECHO[0][:3] == ("reprogramar", "t1", "s40") and HECHO[0][3].astimezone(TZ) == (hoy + timedelta(days=4)).replace(hour=11, minute=30) \
@@ -365,11 +366,26 @@ assert "No encontré una sesión próxima de Juana Pérez ese día" in ap.respon
 assert "más de un paciente" in ap.responder_a([A], "pasa a paciente al lunes 10", TEL)
 print("reprogramar: «pasá a Juana del jueves al viernes 11:30», con aviso al paciente OK")
 HECHO.clear()
+ESPERA = []
+db.lista_de_espera = lambda tid: [p for p in ESPERA if p["tenant_id"] == tid]
 r = ap.responder_a([A], "cancelá la sesión de juana", TEL)
-assert "¿Cancelo la sesión de Juana Pérez del" in r, r
+assert "¿Cancelo la sesión de Juana Pérez del" in r and "¿Le aviso" in r and r.interactivo["botones"] == ap.BOTONES_AVISAR, r
+AL_TEL.clear()
 r = ap.responder_a([A], "si", TEL)
-assert HECHO == [("cancelar", "t1", "s40", "profesional")] and "avisale a Juana" in r, (HECHO, r)
-print("cancelar: «cancelá la sesión de Juana», como desde el panel OK")
+assert HECHO == [("cancelar", "t1", "s40", "profesional")] and "Le avisamos al paciente" in r, (HECHO, r)
+assert AL_TEL and AL_TEL[0][0] == "549110000004" and "quedó cancelada" in AL_TEL[0][1], AL_TEL
+print("cancelar: «cancelá la sesión de Juana», como desde el panel, y con «sí» le avisa OK")
+HECHO.clear(); AL_TEL.clear()
+ESPERA.append({"id": "e0", "tenant_id": "t1", "nombre": "Zoe", "telefono": "5491177770000"})
+ap.responder_a([A], "cancelá la sesión de juana", TEL)
+r = ap.responder_a([A], "sin avisar", TEL)
+assert HECHO == [("cancelar", "t1", "s40", "profesional")] and not AL_TEL and "No le avisé" in r and "avisale a Juana" in r \
+    and "1 en lista de espera" in r, (HECHO, AL_TEL, r)
+ap.responder_a([A], "cancelá la sesión de juana", TEL)
+postear(TEL, boton={"id": "prof:sin avisar", "title": "Sí, sin avisarle"})
+assert HECHO[-1] == ("cancelar", "t1", "s40", "profesional") and not AL_TEL, (HECHO, AL_TEL)
+ESPERA.clear()
+print("cancelar sin avisar: «sin avisar» o el botón, y recuerda la lista de espera OK")
 HECHO.clear()
 r = ap.responder_a([A], "marcá pagada la de hoy de tomás", TEL)
 assert "¿Marco pagada la sesión de Tomás Ruiz del" in r and "$ 20.000" in r, r
@@ -398,4 +414,66 @@ print("contestar la bandeja: «contestale: …» al último mensaje y queda cont
 assert "varias cuentas" in ap.responder_a([A, vinculada(BETO)], "recordale a juana lo que debe", TEL)
 assert ap.responder_a([ANA], "cancelá la sesión de juana", TEL) == ap.sin_vincular()
 print("las acciones nuevas tienen el mismo candado OK")
+
+# --- sumar una sesión, lista de espera ---
+HECHO.clear(); AL_TEL.clear()
+OCUPADO = []
+db.horario_ocupado = lambda tid, ini, fin: any(ini < f and fin > i for i, f in OCUPADO)
+BLOQUEADO = []
+db.bloqueo_en = lambda tid, ini, fin: BLOQUEADO[0] if BLOQUEADO else None
+db.reservar_en_horario = lambda tid, ini, dur, tel, nombre, valor, frec, mod=None, ficha=None, ignorar_bloqueo=False: \
+    HECHO.append(("reservar", tid, ini, dur, tel, nombre, valor, frec, mod, ignorar_bloqueo)) or True
+TURNOS["t1"].append(turno(42, 2, 9, paciente_nombre="Tomás Ruiz", paciente_telefono="5491100000041", valor=20000, modalidad="virtual"))
+r = ap.responder_a([A], f"Sumá a Tomás el {dia_de(5)} a las 10", TEL)
+assert "¿Le agendo a Tomás Ruiz una sesión el" in r and "10:00" in r and "virtual, $ 20.000" in r \
+    and r.interactivo["botones"] == ap.BOTONES_AVISAR and not HECHO, r
+r = ap.responder_a([A], "si", TEL)
+cuando = (hoy + timedelta(days=5)).replace(hour=10)
+assert HECHO == [("reservar", "t1", cuando.astimezone(timezone.utc), 50, "5491100000041", "Tomás Ruiz", 20000, None, "virtual", True)], HECHO
+assert "quedó agendada" in r and "Le avisamos" in r and AL_TEL[-1][0] == "5491100000041" and "Te agendé una sesión" in AL_TEL[-1][1], (r, AL_TEL)
+print("sumar: «sumá a Tomás el viernes a las 10», con valor y modalidad de la última, y le avisa OK")
+HECHO.clear(); AL_TEL.clear()
+ap.responder_a([A], f"agendá a tomas ruiz el {dia_de(5)} 10:30", TEL)
+r = ap.responder_a([A], "si pero no le avises", TEL)
+assert HECHO and not AL_TEL and "No le avisé" in r, (HECHO, AL_TEL, r)
+OCUPADO.append(((cuando + timedelta(minutes=20)).astimezone(timezone.utc).isoformat(),
+                (cuando + timedelta(minutes=70)).astimezone(timezone.utc).isoformat()))
+assert "ya tenés otra sesión" in ap.responder_a([A], f"sumá a tomás el {dia_de(5)} a las 10", TEL)
+OCUPADO.clear()
+BLOQUEADO.append({"id": "b1"})
+assert "está bloqueado" in ap.responder_a([A], f"sumá a tomás el {dia_de(5)} a las 10", TEL)
+ap.responder_a([A], "no", TEL)
+BLOQUEADO.clear()
+assert "No encontré" in ap.responder_a([A], f"sumá a Zoe el {dia_de(5)} a las 10", TEL)
+assert "más de un paciente" in ap.responder_a([A], f"sumá a paciente el {dia_de(5)} a las 10", TEL)
+print("sumar: «sin avisar», horario ocupado, día bloqueado y paciente desconocido OK")
+
+db.agregar_a_espera = lambda tid, nombre, tel, pref, origen="panel": ESPERA.append(
+    {"id": f"e{len(ESPERA) + 1}", "tenant_id": tid, "nombre": nombre, "telefono": tel, "preferencia": pref,
+     "created_at": datetime.now(timezone.utc).isoformat()}) or True
+db.quitar_de_espera = lambda tid, x: HECHO.append(("quitar", tid, x))
+assert "No tenés a nadie en lista de espera" in ap.responder(A, "lista de espera")
+r = ap.responder_a([A], "Agregá a Juana a la lista de espera, prefiere martes a la tarde", TEL)
+assert "¿Anoto a Juana Pérez (+549110000004) en tu lista de espera (prefiere martes a la tarde)?" in r, r
+ap.responder_a([A], "si", TEL)
+assert ESPERA[-1]["nombre"] == "Juana Pérez" and ESPERA[-1]["telefono"] == "549110000004" \
+    and ESPERA[-1]["preferencia"] == "martes a la tarde", ESPERA
+assert "ya está en tu lista de espera" in ap.responder_a([A], "anotá a juana pérez en la lista de espera", TEL)
+r = ap.responder_a([A], "agregá a Martín Gómez 11 5566-7788 a la lista de espera", TEL)
+assert "¿Anoto a Martín Gómez (+1155667788)" in r, r
+ap.responder_a([A], "dale", TEL)
+assert ESPERA[-1]["nombre"] == "Martín Gómez" and ESPERA[-1]["preferencia"] is None, ESPERA
+assert "Si es nuevo, mandame también su WhatsApp" in ap.responder_a([A], "agregá a Zoe a la lista de espera", TEL)
+r = ap.responder(A, "¿Quién está en espera?")
+assert "Lista de espera (2)" in r and "Juana Pérez (+549110000004) — prefiere martes a la tarde" in r and "Martín Gómez (+1155667788)" in r, r
+assert ap.responder(vinculada(BETO), "lista de espera").startswith("No tenés a nadie"), "cada cuenta ve su lista"
+r = ap.responder_a([A], "sacá a martin de la lista de espera", TEL)
+assert "¿Saco a Martín Gómez (+1155667788)" in r, r
+ap.responder_a([A], "si", TEL)
+assert HECHO[-1] == ("quitar", "t1", "e2"), HECHO
+assert "No hay nadie que se llame «zoe»" in ap.responder_a([A], "sacá a zoe de la lista de espera", TEL)
+assert ap.responder_a([ANA], "agregá a Juana a la lista de espera", TEL) == ap.sin_vincular()
+assert ap.responder_a([ANA], "lista de espera", TEL) == ap.sin_vincular()
+assert "varias cuentas" in ap.responder_a([A, vinculada(BETO)], f"sumá a tomás el {dia_de(5)} a las 10", TEL)
+print("lista de espera: ver, anotar (paciente conocido o nuevo con número), sacar; con el mismo candado OK")
 print("\nTODOS LOS TESTS DEL ASISTENTE DEL PROFESIONAL PASARON")

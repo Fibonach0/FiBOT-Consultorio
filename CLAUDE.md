@@ -133,11 +133,15 @@ resumen de la mañana sale con `RESUMEN_TEMPLATE` (botones «Ver hoy», «Pagos�
 «Mensajes», `plantillas.QUE_HACE_PROFESIONAL`) si está cargada.
 Acciones por WhatsApp (aceptar/rechazar comprobante, bloquear días, pausar,
 reactivar, «avisale a Juan que…», «contestale: …» a la bandeja, reprogramar,
-cancelar y marcar pagada una sesión, recordar la deuda; las de sesiones
-reusan `app._avisar_cambio` / `app._recordar_pago` y lo mismo que el panel): `_preparar` arma la acción y pregunta; se
+cancelar, sumar (`db.reservar_en_horario`, con valor/modalidad/ficha de la
+última sesión) y marcar pagada una sesión, recordar la deuda, anotar / sacar
+de la lista de espera; las de sesiones reusan `app._avisar_cambio` /
+`app._recordar_pago` y lo mismo que el panel): `_preparar` arma la acción y pregunta; se
 guarda en `acciones_profesional` (migración 072, una por número, vence en 10
 min) y `_ejecutar` la hace recién con «sí» / botón `prof:si`, revisando otra vez
-que el número siga vinculado a esa cuenta. Con el número en varias cuentas, no
+que el número siga vinculado a esa cuenta. Sumar, pasar y cancelar, si el
+paciente tiene WhatsApp, guardan `avisar` y ofrecen `BOTONES_AVISAR` («Sí y
+avisarle» / «Sí, sin avisarle» = `prof:sin avisar` / «No»). Con el número en varias cuentas, no
 actúa (al panel). El mensaje al paciente usa `MENSAJE_PROFESIONAL_TEMPLATE` si
 está (si no, texto libre: sólo llega dentro de las 24 h). Con el número
 vinculado, `scheduler.avisar_profesional(…, paciente=, con_nombre=)` pone el

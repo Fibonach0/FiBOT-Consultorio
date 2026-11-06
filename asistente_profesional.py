@@ -48,6 +48,7 @@ _PAGOS = re.compile(r"^(ver )?pagos?( para revisar| pendientes)?$|^comprobantes?
 _DEUDA = re.compile(r"^(quien|quienes) (me )?debe[n]?$|^deudas?$|^me deben$|^pendientes? de cobro$|^que me deben$")
 _MENSAJES = re.compile(r"^(ver )?mensajes?( sin leer| nuevos)?$|^bandeja$")
 _LIBRES = re.compile(r"^(horarios? )?libres?$|^que tengo libre$|^huecos$")
+_ESPERA = re.compile(r"^(ver )?(la |mi )?lista de espera$|^(quien|quienes) (esta|estan|hay) en (la lista de )?espera$|^(en )?espera$")
 _LINK = re.compile(r"^(mi )?(link|pagina|enlace)( de turnos| de reservas)?$")
 _AYUDA = re.compile(r"^(ayuda|menu|opciones|comandos|hola|holis|buenas|buen dia|que podes hacer)$")
 _PACIENTE = re.compile(r"^(paciente|buscar|busca|ficha|datos de|telefono de|cuando viene) ([a-zñ ]{2,40})$")
@@ -110,6 +111,7 @@ def menu(tenant: dict) -> str:
             "• *deudas* — quién te debe y cuánto\n"
             "• *mensajes* — lo que te escribieron los pacientes\n"
             "• *paciente Juan* — teléfono, próximas sesiones y deuda\n"
+            "• *lista de espera* — quién espera un horario\n"
             "• *link* — tu página de turnos para compartir\n\n"
             "Y puedo hacer (siempre te pregunto antes):\n"
             "• *aceptar comprobante de Juana* / *rechazar comprobante de Juana*\n"
@@ -117,10 +119,12 @@ def menu(tenant: dict) -> str:
             "• *pausar hasta el lunes* / *pausar* / *reactivar*\n"
             "• *avisale a Juan que llego 10 minutos tarde*\n"
             "• *contestale: …* (al último mensaje que te llegó) / *contestale a Juana: …*\n"
+            "• *sumá a Juana el jueves a las 10*\n"
             "• *pasá a Juana del jueves al viernes 10:00*\n"
             "• *cancelá la sesión de Juana del jueves*\n"
             "• *marcá pagada la de hoy de Tomás*\n"
-            "• *recordale a Juana lo que debe*\n\n"
+            "• *recordale a Juana lo que debe*\n"
+            "• *agregá a Juana a la lista de espera* / *sacá a Juana de la lista de espera*\n\n"
             "También te aviso por acá de reservas, cancelaciones y pagos.")
 
 
@@ -285,6 +289,26 @@ def _paciente(tenant: dict, buscado: str) -> str:
     return "\n\n".join(bloques) + (f"\n\nHay {otros} más con ese nombre: buscá con el apellido." if otros > 0 else "")
 
 
+def _espera(tenant: dict) -> str:
+    tz = _tz(tenant)
+    lista = db.lista_de_espera(tenant["id"])
+    if not lista:
+        return "No tenés a nadie en lista de espera. Para anotar a alguien: *agregá a Juana a la lista de espera*."
+    hoy = datetime.now(tz).date().isoformat()
+    lineas = []
+    for p in lista:
+        extra = [f"prefiere {p['preferencia']}"] if p.get("preferencia") else []
+        if p.get("created_at"):
+            extra.append("desde el " + datetime.fromisoformat(str(p["created_at"])).astimezone(tz).strftime("%d/%m"))
+        if p.get("origen") == "web":
+            extra.append("se anotó por la web")
+        if p.get("ofrecido_en") == hoy:
+            extra.append("hoy ya le ofrecimos un horario")
+        lineas.append(f"• {p.get('nombre')} ({_tel(p.get('telefono'))})" + (f" — {', '.join(extra)}" if extra else ""))
+    return (f"Lista de espera ({len(lista)}):\n" + "\n".join(lineas)
+            + "\n\nPara sacar a alguien: *sacá a Juana de la lista de espera*.")
+
+
 def _link(tenant: dict) -> str:
     if not tenant.get("slug") or not config.DOMINIO_PRINCIPAL:
         return "Todavía no tenés página de turnos. Pedila a administración."
@@ -296,7 +320,7 @@ def _pedido(texto: str):
     n = _normal(texto)
     reglas = ((_AYUDA, menu), (_HOY, lambda t: _dia(t, 0, "Hoy")), (_MANANA, lambda t: _dia(t, 1, "Mañana")),
               (_SEMANA, _semana), (_LIBRES, _libres), (_PAGOS, _pagos), (_DEUDA, _deudas),
-              (_MENSAJES, _mensajes), (_LINK, _link))
+              (_MENSAJES, _mensajes), (_ESPERA, _espera), (_LINK, _link))
     for regla, funcion in reglas:
         if regla.search(n):
             return funcion
@@ -347,7 +371,7 @@ def responder_a(tenants: list[dict], texto: str, telefono: str = ""):
         return _vincular(tenants, m.group(1), telefono)
     propias = [t for t in tenants if vinculado(t)]
     if _pedido(texto) is None:
-        if not _preparar_es_accion(texto) and not (_SI.search(_normal(texto)) or _NO.search(_normal(texto))):
+        if not _preparar_es_accion(texto) and not _es_respuesta(_normal(texto)):
             return None
         if not propias:
             return sin_vincular() if _preparar_es_accion(texto) else None
@@ -394,6 +418,19 @@ _RECORDAR = re.compile(r"^(?:recordale|recorda|recordarle|reclamale|cobrale)(?: 
                        r"(?: (?:lo que (?:me )?debe|que (?:me )?debe|la deuda|el pago|que (?:me )?pague))?$")
 # Sobre el texto ORIGINAL: «contestale: …» o «contestale a Juana: …».
 _CONTESTAR = re.compile(r"^\s*(?:contest[aá]le|respond[eé]le)(?:\s+a\s+(.{2,60}?))?\s*:\s*(.{2,600})$", re.IGNORECASE | re.DOTALL)
+
+
+_SUMAR = re.compile(r"^(?:suma|sumale|sumar|agenda|agendale|agendar|agendame|dale|anota|anotale|anotame)"
+                    r"(?: una sesion| un turno| sesion| turno)?(?: a| para)? " + _NOMBRE +
+                    r"(?: (?:el|para el|para))? (?P<dia>" + _DIA + r")(?: a las| a la)? (?P<h>\d{1,2})(?: (?P<m>\d{2}))?(?: hs| horas)?$")
+# Sobre el texto ORIGINAL, para no perder las tildes del nombre ni la preferencia.
+_ESPERA_SUMAR = re.compile(r"^\s*(?:agreg[aá](?:le|r)?|sum[aá](?:le|r)?|anot[aá](?:le|r)?|pon[eé](?:le|r)?)\s+(?:a\s+)?"
+                           r"(?P<nombre>[^\d,:+]{2,60}?)\s*(?P<tel>\+?\d[\d\s-]{6,20}\d)?\s*,?\s+(?:a|en)\s+(?:la\s+|mi\s+)?lista\s+de\s+espera"
+                           r"(?:\s*[,:]?\s*(?:para|prefiere|que prefiere)\s+(?P<pref>.{2,120}?))?\s*\.?\s*$", re.IGNORECASE)
+_ESPERA_SACAR = re.compile(r"^(?:saca|sacar|sacale|borra|borrar|quita|quitar|baja)(?: a)? " + _NOMBRE + r" de (?:la |mi )?lista de espera$")
+# «sí» pero sin avisarle al paciente (cancelar / agendar).
+_SIN_AVISAR = re.compile(r"^(?:si )?(?:pero )?(?:sin avisar(?:le)?|no (?:le )?avises)$")
+BOTONES_AVISAR = [("prof:si", "Sí y avisarle"), ("prof:sin avisar", "Sí, sin avisarle"), ("prof:no", "No")]
 
 
 def _fecha(texto: str, hoy: date) -> date | None:
@@ -568,9 +605,9 @@ def _preparar(tenant: dict, texto: str) -> tuple[dict, str] | str | None:
         if nuevo <= ahora:
             return "Ese horario ya pasó."
         avisa = db.tiene_whatsapp(turno.get("paciente_telefono"))
-        return ({"tipo": "reprogramar", "turno": turno["id"], "nuevo": nuevo.isoformat(), "nombre": nombre},
+        return ({"tipo": "reprogramar", "turno": turno["id"], "nuevo": nuevo.isoformat(), "nombre": nombre, "avisar": avisa},
                 f"¿Paso la sesión de {nombre} del {_cuando(turno['inicio'], tz)} al {_cuando(nuevo.isoformat(), tz)}"
-                + ("? Le aviso por WhatsApp." if avisa else "? (No tiene WhatsApp: avisale vos.)"))
+                + ("? ¿Le aviso por WhatsApp el horario nuevo?" if avisa else "? (No tiene WhatsApp: avisale vos.)"))
     m = _CANCELAR.search(n)
     if m:
         tz = _tz(tenant)
@@ -586,8 +623,10 @@ def _preparar(tenant: dict, texto: str) -> tuple[dict, str] | str | None:
             return f"No encontré una sesión próxima de {nombre}{' ese día' if m.group('dia') else ''}."
         turno = futuras[0]
         pagada = " Estaba pagada por la web: queda en «Pagos para revisar» para devolverle." if turno.get("pago_web") == "aprobado" else ""
-        return ({"tipo": "cancelar", "turno": turno["id"], "nombre": nombre},
-                f"¿Cancelo la sesión de {nombre} del {_cuando(turno['inicio'], tz)}? El horario queda libre.{pagada}")
+        avisa = db.tiene_whatsapp(turno.get("paciente_telefono"))
+        return ({"tipo": "cancelar", "turno": turno["id"], "nombre": nombre, "avisar": avisa},
+                f"¿Cancelo la sesión de {nombre} del {_cuando(turno['inicio'], tz)}? El horario queda libre.{pagada}"
+                + (" ¿Le aviso por WhatsApp que se canceló?" if avisa else " (No tiene WhatsApp: avisale vos.)"))
     m = _PAGADA.search(n)
     if m:
         tz = _tz(tenant)
@@ -625,6 +664,24 @@ def _preparar(tenant: dict, texto: str) -> tuple[dict, str] | str | None:
             return f"A {nombre} ya se le recordó hoy."
         return ({"tipo": "recordar", "clave": clave, "nombre": nombre, "monto": total},
                 f"¿Le recuerdo a {nombre} que tiene {_pesos(total)} pendientes ({len(deuda)} sesi{'ón' if len(deuda) == 1 else 'ones'})?")
+    m = _SUMAR.search(n)
+    if m:
+        return _preparar_sumar(tenant, m, hoy)
+    m = _ESPERA_SUMAR.search(texto or "")
+    if m:
+        return _preparar_espera(tenant, m)
+    m = _ESPERA_SACAR.search(n)
+    if m:
+        palabras = m.group("nombre").split()
+        lista = [p for p in db.lista_de_espera(tenant["id"]) if all(w in _normal(p.get("nombre") or "") for w in palabras)]
+        if not lista:
+            return f"No hay nadie que se llame «{m.group('nombre')}» en tu lista de espera."
+        if len(lista) > 1:
+            return ("Hay más de uno con ese nombre en la lista: decime cuál, con el apellido.\n\n"
+                    + "\n".join(f"• {p.get('nombre')}" for p in lista[:8]))
+        p = lista[0]
+        return ({"tipo": "espera_sacar", "espera": p["id"], "nombre": p.get("nombre")},
+                f"¿Saco a {p.get('nombre')} ({_tel(p.get('telefono'))}) de tu lista de espera?")
     m = _CONTESTAR.search(texto or "")
     if m:
         tz = _tz(tenant)
@@ -667,6 +724,92 @@ def _preparar(tenant: dict, texto: str) -> tuple[dict, str] | str | None:
     return None
 
 
+def _preparar_sumar(tenant: dict, m: re.Match, hoy: date) -> tuple[dict, str] | str:
+    """Una sesión suelta para un paciente que ya existe, con su valor,
+    modalidad y ficha de la última sesión (como agendarlo desde el panel)."""
+    tz = _tz(tenant)
+    encontrado = _paciente_unico(tenant, m.group("nombre"))
+    if isinstance(encontrado, str):
+        return encontrado + (" Si es nuevo, agendalo desde el panel." if encontrado.startswith("No encontré") else "")
+    sesiones, nombre = encontrado
+    base = sesiones[-1]
+    dia = _dia_proximo(m.group("dia"), hoy)
+    hora, minutos = int(m.group("h")), int(m.group("m") or 0)
+    if not dia or hora > 23 or minutos > 59:
+        return "No entendí el día o la hora. Probá con *sumá a Juana el jueves a las 10*."
+    inicio = datetime.combine(dia, dtime(hora, minutos), tzinfo=tz)
+    if inicio <= datetime.now(tz):
+        return "Ese horario ya pasó."
+    duracion = tenant.get("duracion_turno_minutos") or 50
+    fin = inicio + timedelta(minutes=duracion)
+    ini_utc, fin_utc = inicio.astimezone(timezone.utc).isoformat(), fin.astimezone(timezone.utc).isoformat()
+    if db.horario_ocupado(tenant["id"], ini_utc, fin_utc):
+        return f"El {_cuando(inicio.isoformat(), tz)} ya tenés otra sesión."
+    bloqueado = " Ojo: ese día está bloqueado; la agendo igual." if db.bloqueo_en(tenant["id"], ini_utc, fin_utc) else ""
+    avisa = db.tiene_whatsapp(base.get("paciente_telefono"))
+    detalle = [x for x in (base.get("modalidad"), _pesos(base["valor"]) if base.get("valor") else None) if x]
+    return ({"tipo": "sumar", "inicio": inicio.isoformat(), "duracion": duracion, "telefono": base.get("paciente_telefono"),
+             "nombre": nombre, "valor": base.get("valor"), "modalidad": base.get("modalidad"), "ficha": base.get("ficha") or "",
+             "avisar": avisa},
+            f"¿Le agendo a {nombre} una sesión el {_cuando(inicio.isoformat(), tz)}"
+            + (f" ({', '.join(detalle)}, como la última)" if detalle else "") + f"?{bloqueado}"
+            + (" ¿Le aviso por WhatsApp?" if avisa else " (No tiene WhatsApp: avisale vos.)"))
+
+
+def _preparar_espera(tenant: dict, m: re.Match) -> tuple[dict, str] | str:
+    """Anotar en la lista de espera a un paciente que ya existe (su WhatsApp
+    sale de sus sesiones) o a uno nuevo con el número en el mensaje."""
+    nombre = " ".join(m.group("nombre").split())
+    nombre = re.sub(r"^(?:a|al)\s+", "", nombre, flags=re.IGNORECASE)
+    telefono = "".join(ch for ch in m.group("tel") or "" if ch.isdigit())
+    preferencia = " ".join((m.group("pref") or "").split()) or None
+    if not telefono:
+        encontrado = _paciente_unico(tenant, nombre)
+        if isinstance(encontrado, str):
+            if encontrado.startswith("No encontré"):
+                return (f"No encontré a ningún paciente que se llame «{nombre}». Si es nuevo, mandame también su WhatsApp: "
+                        f"*agregá a {nombre} 1155667788 a la lista de espera*.")
+            return encontrado
+        sesiones, nombre = encontrado
+        telefono = sesiones[-1].get("paciente_telefono") or ""
+        if not db.tiene_whatsapp(telefono):
+            return (f"{nombre} no tiene WhatsApp cargado, y sin eso no le podemos ofrecer horarios. Mandámelo así: "
+                    f"*agregá a {nombre.split()[0]} 1155667788 a la lista de espera*.")
+    elif len(telefono) < 8:
+        return "Ese WhatsApp parece incompleto. Mandalo con característica, por ejemplo 1155667788."
+    else:
+        nombre = nombre[:1].upper() + nombre[1:]
+    if any(_diez(p.get("telefono")) == _diez(telefono) for p in db.lista_de_espera(tenant["id"])):
+        return f"{nombre} ya está en tu lista de espera."
+    return ({"tipo": "espera_sumar", "nombre": nombre, "telefono": telefono, "preferencia": preferencia},
+            f"¿Anoto a {nombre} (+{telefono}) en tu lista de espera" + (f" (prefiere {preferencia})" if preferencia else "") + "?")
+
+
+def _al_paciente(tenant: dict, telefono: str, mensaje: str) -> tuple[bool, str]:
+    """Le escribe al paciente en nombre del profesional: con la plantilla
+    «Mensaje del profesional» si está, si no texto libre (que WhatsApp sólo
+    entrega dentro de las 24 h desde que el paciente escribió)."""
+    import whatsapp
+    numero = whatsapp.numero_de(tenant)
+    if config.MENSAJE_PROFESIONAL_TEMPLATE:
+        return whatsapp.enviar_plantilla(numero, telefono, config.MENSAJE_PROFESIONAL_TEMPLATE,
+                                         config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], mensaje]), ""
+    return (whatsapp.enviar_texto(numero, telefono, f"*{tenant['nombre']}*: {mensaje}"),
+            " (Si no te escribió en las últimas 24 h, WhatsApp puede no entregarlo: para eso falta la plantilla "
+            "«Mensaje del profesional».)")
+
+
+def _resultado_aviso(tenant: dict, accion: dict, telefono: str | None, mensaje: str) -> str:
+    """Lo que se agrega al «Listo» según si se le avisó (o no) al paciente."""
+    if not db.tiene_whatsapp(telefono):
+        return ""
+    if not accion.get("avisar"):
+        primero = (accion.get("nombre") or "").split()[:1]
+        return f" No le avisé; si querés: *avisale a {primero[0] if primero else 'tu paciente'} que …*"
+    ok, nota = _al_paciente(tenant, telefono, mensaje)
+    return f" Le avisamos al paciente.{nota}" if ok else " No se le pudo avisar: escribile vos."
+
+
 VENTANA_RESPUESTA = timedelta(hours=23, minutes=50)
 
 
@@ -694,7 +837,10 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
             return f"No la pude pasar: {error}"
         db.registrar_actividad("profesional (WhatsApp)", "reprogramó una sesión", tenant["id"])
         aviso = ""
-        if db.tiene_whatsapp(turno.get("paciente_telefono")):
+        if db.tiene_whatsapp(turno.get("paciente_telefono")) and not accion.get("avisar", True):
+            primero = (accion.get("nombre") or "").split()[:1]
+            aviso = f" No le avisé; si querés: *avisale a {primero[0] if primero else 'tu paciente'} que …*"
+        elif db.tiene_whatsapp(turno.get("paciente_telefono")):
             aviso = (" Le avisamos al paciente." if _app._avisar_cambio(tenant, turno, nuevo.astimezone(timezone.utc), tz)
                      else " No se le pudo avisar: escribile vos.")
         return f"Listo, la sesión de {accion.get('nombre')} quedó el {_cuando(nuevo.isoformat(), tz)}.{aviso}"
@@ -714,9 +860,33 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
                 monto = 0
             if monto:
                 extra = f" Estaba pagada: quedó en «Pagos para revisar» para devolverle {_pesos(monto)}."
-        nombre = (accion.get("nombre") or "").split()[:1]
-        return (f"Listo, cancelada; el horario quedó libre.{extra} Si querés avisarle: "
-                f"*avisale a {nombre[0] if nombre else 'tu paciente'} que …*")
+        cuando = scheduler_cuando(tenant, {"inicio": turno["inicio"]})
+        aviso = _resultado_aviso(tenant, accion, turno.get("paciente_telefono"), f"Tu sesión del {cuando} quedó cancelada.")
+        esperando = len(db.lista_de_espera(tenant["id"]))
+        espera = (f" Tenés {esperando} en lista de espera: escribí *lista de espera* para verlos." if esperando else "")
+        return f"Listo, cancelada; el horario quedó libre.{extra}{aviso}{espera}"
+    if tipo == "sumar":
+        tz = _tz(tenant)
+        inicio = datetime.fromisoformat(accion["inicio"])
+        if inicio <= datetime.now(tz):
+            return "Ese horario ya pasó."
+        if not db.reservar_en_horario(tenant["id"], inicio.astimezone(timezone.utc), accion["duracion"], accion["telefono"],
+                                      accion.get("nombre"), accion.get("valor"), None, accion.get("modalidad"),
+                                      accion.get("ficha") or "", ignorar_bloqueo=True):
+            return "No la pude agendar: ese horario ya está ocupado."
+        db.registrar_actividad("profesional (WhatsApp)", "agendó una sesión", tenant["id"])
+        cuando = scheduler_cuando(tenant, {"inicio": inicio.isoformat(), "modalidad": accion.get("modalidad")})
+        aviso = _resultado_aviso(tenant, accion, accion["telefono"], f"Te agendé una sesión el {cuando}.")
+        return f"Listo, {accion.get('nombre')} quedó agendada el {_cuando(inicio.isoformat(), tz)}.{aviso}"
+    if tipo == "espera_sumar":
+        if not db.agregar_a_espera(tenant["id"], accion["nombre"], accion["telefono"], accion.get("preferencia")):
+            return f"{accion['nombre']} ya estaba en tu lista de espera."
+        db.registrar_actividad("profesional (WhatsApp)", "anotó a alguien en la lista de espera", tenant["id"])
+        return f"Listo, {accion['nombre']} quedó en tu lista de espera. Te aviso cuando se libere un horario."
+    if tipo == "espera_sacar":
+        db.quitar_de_espera(tenant["id"], accion["espera"])
+        db.registrar_actividad("profesional (WhatsApp)", "sacó a alguien de la lista de espera", tenant["id"])
+        return f"Listo, saqué a {accion.get('nombre')} de tu lista de espera."
     if tipo == "pagada":
         turno = db.turno_por_id(tenant["id"], accion["turno"])
         if not turno:
@@ -774,16 +944,7 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
         db.registrar_actividad("profesional (WhatsApp)", "reactivó la página de turnos", tenant["id"])
         return "Listo, tu página vuelve a tomar turnos."
     if tipo == "avisar":
-        import whatsapp
-        numero = whatsapp.numero_de(tenant)
-        if config.MENSAJE_PROFESIONAL_TEMPLATE:
-            ok = whatsapp.enviar_plantilla(numero, accion["telefono"], config.MENSAJE_PROFESIONAL_TEMPLATE,
-                                           config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], accion["mensaje"]])
-            nota = ""
-        else:
-            ok = whatsapp.enviar_texto(numero, accion["telefono"], f"*{tenant['nombre']}*: {accion['mensaje']}")
-            nota = (" (Si no te escribió en las últimas 24 h, WhatsApp puede no entregarlo: para eso falta la plantilla "
-                    "«Mensaje del profesional».)")
+        ok, nota = _al_paciente(tenant, accion["telefono"], accion["mensaje"])
         db.registrar_actividad("profesional (WhatsApp)", "le mandó un mensaje a un paciente", tenant["id"])
         if ok:  # si tenía mensajes suyos en la bandeja, quedan contestados
             for x in _mensajes_para_contestar(tenant):
@@ -795,19 +956,32 @@ def _ejecutar(tenant: dict, accion: dict) -> str:
     return "No sé hacer eso."
 
 
-def _con_confirmar(texto: str):
+def scheduler_cuando(tenant: dict, turno: dict) -> str:
+    """El día y la hora como los ve el paciente en los demás avisos."""
+    import scheduler
+    return scheduler.cuando_de(turno, tenant, _tz(tenant))
+
+
+def _con_confirmar(texto: str, con_aviso: bool = False):
     import conversation
+    como = ("Respondé *sí* (y le aviso), *sin avisar* o *no*." if con_aviso
+            else "Respondé *sí* o *no*.")
     if len(texto) > 1024:
-        return texto + "\n\nRespondé *sí* para hacerlo o *no* para dejarlo."
-    return conversation.Respuesta.con(texto + "\n\nRespondé *sí* o *no*.",
-                                     {"tipo": "botones", "cuerpo": texto, "botones": BOTONES_CONFIRMAR})
+        return texto + "\n\n" + como
+    return conversation.Respuesta.con(texto + "\n\n" + como,
+                                     {"tipo": "botones", "cuerpo": texto,
+                                      "botones": BOTONES_AVISAR if con_aviso else BOTONES_CONFIRMAR})
+
+
+def _es_respuesta(n: str) -> bool:
+    return bool(_SI.search(n) or _NO.search(n) or _SIN_AVISAR.search(n))
 
 
 def _accion(propias: list[dict], texto: str, telefono: str):
     """Pedido de acción, o el «sí» / «no» a una pendiente. None si no es nada de eso."""
     n = _normal(texto)
     clave = _diez(telefono)
-    if _SI.search(n) or _NO.search(n):
+    if _es_respuesta(n):
         pendiente = db.accion_profesional(clave) if clave else None
         if not pendiente:
             return None
@@ -820,8 +994,11 @@ def _accion(propias: list[dict], texto: str, telefono: str):
         tenant = next((t for t in propias if t["id"] == pendiente["tenant_id"] and _diez(t.get("aviso_telefono")) == clave), None)
         if not tenant or len(propias) != 1:  # el número ya no está vinculado a esa cuenta (o está en varias)
             return "No lo hice: este WhatsApp ya no está vinculado a esa cuenta."
+        accion = dict(pendiente["accion"])
+        if _SIN_AVISAR.search(n):
+            accion["avisar"] = False
         try:
-            return _ejecutar(tenant, pendiente["accion"])
+            return _ejecutar(tenant, accion)
         except Exception:
             logger.exception("Falló una acción del asistente (%s)", tenant.get("id"))
             return "Uh, no pude hacerlo. Probá desde el panel."
@@ -837,7 +1014,7 @@ def _accion(propias: list[dict], texto: str, telefono: str):
         return preparado
     accion, pregunta = preparado
     db.guardar_accion_profesional(clave, tenant["id"], accion)
-    return _con_confirmar(pregunta)
+    return _con_confirmar(pregunta, con_aviso=bool(accion.get("avisar")))
 
 
 def _preparar_varias(propias: list[dict], texto: str):
@@ -851,6 +1028,7 @@ def _preparar_es_accion(texto: str) -> bool:
     n = _normal(texto)
     return bool(_COMPROBANTE.search(n) or _BLOQUEAR.search(n) or _PAUSAR.search(n) or _REACTIVAR.search(n)
                 or _REPROGRAMAR.search(n) or _CANCELAR.search(n) or _PAGADA.search(n) or _RECORDAR.search(n)
+                or _SUMAR.search(n) or _ESPERA_SACAR.search(n) or _ESPERA_SUMAR.search(texto or "")
                 or _AVISAR.search(texto or "") or _CONTESTAR.search(texto or ""))
 
 

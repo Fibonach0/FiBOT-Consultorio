@@ -498,7 +498,8 @@ def marcar_nota(tenant_id: str, turno_id: str, nota: str | None) -> None:
 
 def reservar_en_horario(tenant_id: str, inicio: datetime, duracion_minutos: int, telefono: str,
                         nombre: str | None, valor: int | None, frecuencia: str | None,
-                        modalidad: str | None = None, ficha: str | None = None) -> bool:
+                        modalidad: str | None = None, ficha: str | None = None,
+                        ignorar_bloqueo: bool = False) -> bool:
     """Agenda una sesión a una hora dada, creando el horario si no estaba
     cargado. Es lo que usan los pacientes fijos: la sesión de dentro de dos
     meses seguramente todavía no tiene horario generado. False si está ocupado."""
@@ -513,7 +514,13 @@ def reservar_en_horario(tenant_id: str, inicio: datetime, duracion_minutos: int,
     )
     if not res.data:
         return False
-    return reservar_turno(tenant_id, res.data[0]["id"], telefono, nombre, valor, frecuencia, modalidad, ficha)
+    return reservar_turno(tenant_id, res.data[0]["id"], telefono, nombre, valor, frecuencia, modalidad, ficha,
+                          ignorar_bloqueo=ignorar_bloqueo)
+
+
+def horario_ocupado(tenant_id: str, inicio: str, fin: str) -> bool:
+    """Si [inicio, fin) se pisa con alguna sesión reservada de este tenant."""
+    return _se_pisa(tenant_id, inicio, fin, "00000000-0000-0000-0000-000000000000")
 
 
 def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, duracion_minutos: int,
