@@ -130,3 +130,86 @@ r = conversation.responder(dict(tenant, whatsapp_phone_number_id=None), TEL, "ho
 assert f"asistente de turnos de *{config.PLATAFORMA_NOMBRE}*" in r, r
 assert "Tus turnos son con *Lic. Ana Pérez*" in r and "soy el asistente de *Lic. Ana Pérez*" not in r, r
 print("número compartido: se presenta como la plataforma y nombra al profesional OK")
+
+
+# --- Bandeja, frases naturales, «mi turno» y lo que no es texto ---
+BANDEJA, AVISOS = [], []
+db.mensajes_sin_leer = lambda tid: sum(1 for m in BANDEJA if m[0] == tid)
+db.guardar_mensaje_paciente = lambda tid, tel, texto, tipo="texto": BANDEJA.append((tid, tel, texto, tipo)) or {}
+import scheduler  # noqa: E402
+scheduler.avisar_profesional = lambda t, texto: AVISOS.append(texto) or True
+_turno_mio = {"id": "mio", "inicio": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
+              "paciente_telefono": TEL, "paciente_nombre": "Juan"}
+db.proximos_turnos_de = lambda tid, tel: [dict(_turno_mio)] if tel == TEL else []
+_canceladas.clear()
+
+r = conversation.responder(tenant, TEL, "llego 10 minutos tarde")
+assert "Le pasé tu mensaje a *Lic. Ana Pérez*" in r and BANDEJA[-1] == ("t1", TEL, "llego 10 minutos tarde", "texto"), (r, BANDEJA)
+assert len(AVISOS) == 1 and "panel" in AVISOS[0] and "10 minutos" not in AVISOS[0], AVISOS
+print("bandeja: lo que no entiende se guarda y se le avisa al profesional, sin el texto OK")
+conversation.responder(tenant, TEL, "¿puedo llevar a mi hijo?")
+assert len(BANDEJA) == 2 and len(AVISOS) == 1, AVISOS
+print("bandeja: con mensajes sin leer no vuelve a avisar OK")
+assert conversation.responder(tenant, TEL, "10 minutos tarde llego").startswith("Le pasé"), "un número con texto no es reservar"
+print("«10 minutos tarde» no se toma como elegir el horario 10 OK")
+
+for frase in ("¿Cuándo es mi turno?", "mi turno", "a qué hora tengo?"):
+    r = conversation.responder(tenant, TEL, frase)
+    assert "Tu próximo turno con *Lic. Ana Pérez*" in r, (frase, r)
+print("«mi turno» y variantes OK")
+assert "No tenés turnos" in conversation.responder(tenant, "5491199999999", "mi turno")
+
+for frase in ("No voy a poder ir", "cancelo", "Necesito cancelar el turno del jueves"):
+    r = conversation.responder(tenant, TEL, frase)
+    assert "¿Querés cancelar tu turno" in r and "Todavía no se canceló nada" in r and not _canceladas, (frase, r)
+print("frases de cancelar: pregunta y no cancela nada sin la palabra *cancelar* OK")
+
+assert "escribí *cancelar*" in conversation.responder(tenant, TEL, "quiero cambiar el turno")
+print("reprogramar: explica cómo OK")
+
+_lun = datetime.now(timezone.utc)
+FAKE_TURNOS[:] = [{"id": f"x{i}", "tenant_id": "t1", "estado": "libre", "paciente_telefono": None, "paciente_nombre": None,
+                   "inicio": (_lun + timedelta(days=i, hours=1)).isoformat()} for i in range(1, 15)]
+_dia_obj = datetime.fromisoformat(FAKE_TURNOS[4]["inicio"]).astimezone(conversation._tz(tenant))
+_nombre_dia = conversation.DIAS[_dia_obj.weekday()]
+r = conversation.responder(tenant, TEL, f"Hola, quiero un turno el {_nombre_dia}")
+assert f"Horarios libres el {_nombre_dia}" in r and "5. " in r and "1. " not in r.replace("11. ", ""), r
+print("«quiero un turno el <día>»: sólo ese día, con su número de la lista completa OK")
+assert "próximos horarios libres" in conversation.responder(tenant, TEL, "¿hay lugar esta semana?")
+print("«¿hay lugar?» lista horarios OK")
+
+_n0 = len(BANDEJA)
+assert conversation.responder(tenant, TEL, "gracias!") == conversation.CORTESIA and len(BANDEJA) == _n0
+assert conversation.responder(tenant, TEL, "👍") == conversation.CORTESIA
+assert "*mi turno*" in conversation.responder(tenant, TEL, "Buenas tardes")
+print("gracias, emoji y saludo: no van a la bandeja OK")
+
+# no es texto
+assert conversation.responder_no_texto(tenant, TEL, "reaction") is None
+assert conversation.responder_no_texto(tenant, TEL, "sticker") == conversation.CORTESIA
+r = conversation.responder_no_texto(tenant, TEL, "audio", "m1")
+assert "leo sólo texto" in r and BANDEJA[-1][3] == "audio" and BANDEJA[-1][2] is None, (r, BANDEJA[-1])
+print("audio: pide que lo escriba y queda la marca en la bandeja OK")
+
+import pagos  # noqa: E402
+import whatsapp  # noqa: E402
+_pago = {"id": "pg1", "token": "tok123", "estado": "esperando", "turnos": ["mio"]}
+db.pago_esperando_de = lambda tid, tel: _pago if tel == TEL else None
+pagos.metodos = lambda t: ["transferencia"]
+_subidos = []
+pagos.subir_comprobante = lambda t, p, crudo, email=None: _subidos.append((p["id"], crudo)) or None
+whatsapp.bajar_media = lambda media_id, maximo: b"%PDF-1.4 x" if media_id == "doc1" else None
+r = conversation.responder_no_texto(tenant, TEL, "document", "doc1")
+assert "Recibí tu comprobante" in r and _subidos == [("pg1", b"%PDF-1.4 x")], (r, _subidos)
+print("foto/PDF con transferencia pendiente: se toma como comprobante OK")
+r = conversation.responder_no_texto(tenant, TEL, "image", "roto")
+assert "No pude abrir el archivo" in r and "/pago/tok123" in r and len(_subidos) == 1, r
+pagos.subir_comprobante = lambda t, p, crudo, email=None: "El comprobante tiene que ser una foto (JPG o PNG) o un PDF."
+r = conversation.responder_no_texto(tenant, TEL, "document", "doc1")
+assert r.startswith("El comprobante tiene que ser") and "/pago/tok123" in r, r
+n = len(BANDEJA)
+r = conversation.responder_no_texto(tenant, "5491188887777", "image", "doc1")
+assert "le avisé a *Lic. Ana Pérez*" in r and BANDEJA[-1][3] == "imagen" and len(BANDEJA) == n + 1, r
+print("foto sin pago pendiente: a la bandeja (sin el archivo) OK")
+
+print("\nTODOS LOS TESTS DE BANDEJA Y FRASES PASARON")

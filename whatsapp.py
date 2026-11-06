@@ -408,3 +408,38 @@ def firma_valida(payload_bytes: bytes, firma_header: str | None) -> bool:
     ).hexdigest()
     recibida = firma_header.split("sha256=", 1)[1]
     return hmac.compare_digest(esperada, recibida)
+
+
+def marcar_leido(phone_number_id: str, message_id: str | None) -> bool:
+    """Los dos tildes azules apenas llega el mensaje. No es un mensaje al
+    paciente (no pasa por el freno) y si falla no importa."""
+    if not phone_number_id or not message_id:
+        return False
+    url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{phone_number_id}/messages"
+    try:
+        r = requests.post(url, headers={"Authorization": f"Bearer {config.META_ACCESS_TOKEN}"},
+                          json={"messaging_product": "whatsapp", "status": "read", "message_id": message_id}, timeout=10)
+        return r.status_code < 300
+    except requests.RequestException:
+        return False
+
+
+def bajar_media(media_id: str, maximo: int) -> bytes | None:
+    """El archivo que mandó el paciente (foto o PDF), para usarlo como
+    comprobante. None si no se pudo o pesa más de `maximo`."""
+    headers = {"Authorization": f"Bearer {config.META_ACCESS_TOKEN}"}
+    try:
+        r = requests.get(f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{media_id}", headers=headers, timeout=15)
+        if r.status_code >= 300:
+            logger.warning("Meta no dio el archivo (%s)", r.status_code)
+            return None
+        datos = r.json()
+        if int(datos.get("file_size") or 0) > maximo or not datos.get("url"):
+            return None
+        r = requests.get(datos["url"], headers=headers, timeout=30)
+        if r.status_code >= 300 or len(r.content) > maximo:
+            return None
+        return r.content
+    except (requests.RequestException, ValueError):
+        logger.warning("No se pudo bajar el archivo de WhatsApp", exc_info=True)
+        return None

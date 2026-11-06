@@ -442,6 +442,33 @@
   </div>
   <div class="tablero abajo">
   <div class="ajustes-col">
+  {% if mensajes %}
+  <div class="card" id="mensajes">
+    {% set sin_leer = mensajes|rejectattr('leido')|list|length %}
+    <h3>Mensajes{% if sin_leer %} <span class="contador">{{ sin_leer }}</span>{% endif %}</h3>
+    <p class="tenue" style="margin-top:0">Lo que tus pacientes le escribieron al WhatsApp de turnos y el asistente no supo resolver. Podés contestar desde acá hasta 24 h después del mensaje.</p>
+    {% for m in mensajes %}
+    <div class="turno"{% if m.leido %} style="opacity:.7"{% endif %}>
+      <span style="min-width:0"><strong>{{ m._quien }}</strong> <span class="tenue">· {{ m._cuando }}</span><br>
+        {% if m._sin_texto %}<em class="tenue">{{ m._texto }}</em>{% else %}<span style="white-space:pre-wrap;overflow-wrap:anywhere">{{ m._texto }}</span>{% endif %}
+        {% if m.respuesta %}<br><span class="tenue">Respondiste: {{ m.respuesta }}</span>{% endif %}
+      </span>
+      <span class="acciones" style="display:flex;gap:6px;flex-wrap:wrap">
+        {% if m._puede_responder %}
+        <form method="post" action="{{ url_for('agenda_mensaje', mensaje_id=m.id, accion='responder') }}" style="display:flex;gap:6px">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="text" name="respuesta" maxlength="1000" placeholder="Responder…" aria-label="Respuesta a {{ m._quien }}" required>
+          <button class="btn chico" type="submit">Enviar</button>
+        </form>
+        {% endif %}
+        {% if not m.leido %}
+        <form method="post" action="{{ url_for('agenda_mensaje', mensaje_id=m.id, accion='leido') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Leído</button></form>
+        {% endif %}
+      </span>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
   {% if pagos_revisar %}
   <div class="card" id="pagos-revisar">
     <h3>Pagos para revisar <span class="contador">{{ pagos_revisar|length }}</span></h3>
