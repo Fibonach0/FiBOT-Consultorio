@@ -34,6 +34,7 @@ import config
 import cancelaciones
 import pagos
 import asistente_profesional
+import buscador
 import conversation
 import db
 import rubros
@@ -2445,8 +2446,45 @@ def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
         "cobros": _cobros(fichas, _mes_de(request.args.get("mes") or request.args.get("semana", "")[:7], ahora.date()), tz, ahora),
         "meses": MESES_LABEL,
         "duracion_default": tenant.get("duracion_turno_minutos") or 50,
+        "primeros_pasos": _primeros_pasos(tenant, fichas),
     }
+    comunes["buscador"] = buscador.indice(tenant, comunes, rubros.de(tenant), url_for)
     return comunes
+
+
+def _primeros_pasos(tenant: dict, fichas: list[dict]) -> dict | None:
+    """La guía de arranque: qué falta para que los pacientes reserven solos.
+    None cuando está todo o el profesional la ocultó."""
+    if (tenant.get("preferencias_vista") or {}).get("sin_primeros_pasos"):
+        return None
+    pasos = [
+        ("Cargá tu horario de atención", "Así se generan solos los horarios libres.",
+         bool(tenant.get("horario_semanal")), url_for("ajustes", p="agenda") + "#horario"),
+        ("Poné el precio de la sesión", "Queda cargado en cada reserva.",
+         bool(tenant.get("precio_sesion") or any(t.get("precio") for t in tenant.get("tipos_turno") or [])),
+         url_for("ajustes", p="agenda") + "#tipos"),
+        ("Contá quién sos", "Tu foto y unas líneas sobre vos: es lo primero que ve un paciente.",
+         bool(tenant.get("foto") or tenant.get("sobre_mi")), url_for("ajustes", p="pagina") + "#presentacion"),
+        ("Vinculá tu WhatsApp", "Te llegan los avisos y le podés preguntar tu agenda al asistente.",
+         asistente_profesional.vinculado(tenant), url_for("ajustes", p="avisos") + "#avisos"),
+        ("Compartí tu link", "Mandáselo a tus pacientes o ponelo en tu Instagram.",
+         any(not f.get("sin_sesiones") for f in fichas), url_for("ajustes", p="pagina") + "#mi-pagina"),
+    ]
+    hechos = sum(1 for p in pasos if p[2])
+    if hechos == len(pasos):
+        return None
+    return {"pasos": [{"titulo": t, "detalle": d, "hecho": h, "url": u} for t, d, h, u in pasos],
+            "hechos": hechos, "total": len(pasos)}
+
+
+@app.post("/agenda/primeros-pasos/ocultar")
+@login_required
+def agenda_primeros_pasos_ocultar():
+    tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
+    pref = dict(tenant.get("preferencias_vista") or {}, sin_primeros_pasos=True)
+    db.guardar_ajustes(session["tenant_id"], {"preferencias_vista": pref})
+    flash("Listo, oculté «Primeros pasos». Lo que falta lo encontrás en Ajustes.")
+    return _volver_a_agenda()
 
 
 AJUSTES_PESTANIAS = [("agenda", "Agenda"), ("pagina", "Mi página"), ("cobros", "Cobros"), ("cancelaciones", "Cancelaciones"),

@@ -3,7 +3,7 @@
 {% block cuerpo %}
 <header>
   <span><a href="{{ url_for('agenda') }}">← Agenda</a> · Ajustes</span>
-  <span><a href="{{ url_for('ayuda') }}">Cómo se usa</a> · <a href="{{ url_for('logout') }}">Salir</a></span>
+  <span style="display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;column-gap:6px"><button class="buscar-boton" type="button" data-buscar-abrir aria-label="Buscar en tu panel">🔍 Buscar <kbd>Ctrl K</kbd></button><a href="{{ url_for('ayuda') }}">Cómo se usa</a> · <a href="{{ url_for('logout') }}">Salir</a></span>
 </header>
 <style>
   .ajustes { max-width:880px; }
@@ -895,4 +895,5 @@
   });
 })();
 </script>
+{% include "_buscador.html" %}
 {% endblock %}

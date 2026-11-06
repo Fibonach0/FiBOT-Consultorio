@@ -85,6 +85,21 @@
     details.plegable[open] > form { margin-top:0; }
     .plegable-resumen { flex:1; min-width:0; text-align:right; color:var(--muted); font-size:.82rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
     .fila[hidden], .agregar-fila[hidden] { display:none; }
+    .bandeja-tabs { display:flex; gap:2px; overflow-x:auto; scrollbar-width:none; border-bottom:1px solid var(--rule); margin:4px 0 10px; }
+    .bandeja-tab { flex:0 0 auto; padding:7px 10px; font:inherit; font-size:.88rem; color:var(--muted); background:none; border:none; border-bottom:3px solid transparent; cursor:pointer; white-space:nowrap; }
+    .bandeja-tab[aria-selected="true"] { color:var(--green); font-weight:700; border-bottom-color:var(--green); }
+    .bandeja-tab:focus-visible { outline:2px solid var(--green); outline-offset:-2px; }
+    .bandeja-panel[hidden] { display:none; }
+    .pasos-barra { height:6px; border-radius:3px; background:var(--chip-bg); margin:10px 0 6px; overflow:hidden; }
+    .pasos-barra span { display:block; height:100%; background:var(--green-solid); }
+    .pasos { list-style:none; margin:0; padding:0; }
+    .pasos li { display:flex; gap:10px; align-items:baseline; padding:6px 0; border-top:1px solid var(--rule); }
+    .pasos li:first-child { border-top:none; }
+    .pasos a { color:inherit; text-decoration:none; }
+    .pasos a:hover strong { color:var(--green); text-decoration:underline; }
+    .paso-marca { flex:0 0 22px; height:22px; border-radius:50%; border:1.5px solid var(--green); color:var(--green); font-size:.78rem; display:inline-flex; align-items:center; justify-content:center; }
+    .pasos li.hecho .paso-marca { background:var(--green-solid); color:var(--on-green); border-color:var(--green-solid); }
+    .pasos li.hecho { color:var(--muted); }
     .ir-ajustes { display:flex; flex-direction:column; gap:2px; text-decoration:none; color:inherit; }
     .ir-ajustes:hover { border-color:var(--green); }
     .ir-ajustes strong { color:var(--green); }
