@@ -96,6 +96,22 @@ alguien con transferencia pendiente (`db.pago_esperando_de`) se baja de Meta
 `pagos.subir_comprobante`; las reacciones no se contestan. Todo mensaje
 entrante se marca leído (`whatsapp.marcar_leido`).
 
+**Listas, reprogramar y «¿con quién es?» (`migrations/070`)**: `conversation`
+puede devolver `Respuesta` (un `str` con `.interactivo`); `whatsapp.enviar_respuesta`
+manda la lista o los botones y, si Meta no los acepta, el texto de siempre
+(que sigue explicando cómo hacerlo escribiendo). Los horarios van como filas
+`reservar:<turno>` (`conversation.elegir_horario` lo busca en los libres de
+ahora) y «cambiar el turno» como `mover:<turno>:<nuevo>`, que resuelve
+`app._mover_desde_whatsapp`: los ids vienen del teléfono del paciente, así que
+se revisa que el turno sea de ese teléfono, el plazo y que el horario siga
+libre. La web y WhatsApp comparten `app._mover_por_paciente`. En el número
+compartido, si el paciente tiene turnos con más de un profesional
+(`db.tenants_de_paciente`, sin tenant_id a propósito, como
+`tenant_por_paciente`), `app._tenant_del_mensaje` pregunta con botones (o
+«con Micaela» por escrito), guarda el mensaje pendiente en
+`elecciones_whatsapp` y lo contesta al elegir; la elección dura 2 h desde el
+último mensaje.
+
 **Celulares argentinos y el 131030**: se manda con el 9 (549…), que es lo
 normal. Si Meta contesta 131030 («no está en la lista de autorizados»),
 `whatsapp._mandar` reintenta una vez con `con_15` (54 + característica + 15 +
