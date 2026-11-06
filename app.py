@@ -33,6 +33,7 @@ from openpyxl import Workbook
 import config
 import cancelaciones
 import pagos
+import asistente_profesional
 import conversation
 import db
 import rubros
@@ -297,6 +298,11 @@ def webhook_receive():
                     whatsapp.enviar_texto(phone_number_id, telefono, decision)
                     continue
                 texto = msg.get("text", {}).get("body", "")
+                # ¿El profesional preguntando por su agenda desde su WhatsApp de avisos?
+                para_profesional = _respuesta_al_profesional(tenant_del_numero, telefono, texto)
+                if para_profesional:
+                    whatsapp.enviar_texto(phone_number_id, telefono, para_profesional)
+                    continue
                 tenant, resuelto = _tenant_del_mensaje(tenant_del_numero, telefono, phone_number_id, texto)
                 if resuelto:
                     continue
@@ -306,6 +312,20 @@ def webhook_receive():
                 _contestar(tenant, telefono, texto)
 
     return jsonify(ok=True), 200
+
+
+def _respuesta_al_profesional(tenant_del_numero: dict | None, telefono: str, texto: str) -> str | None:
+    """Si escribe un profesional desde su WhatsApp de avisos y es un pedido
+    suyo («hoy», «pagos»…), la respuesta. Con número propio, sólo esa cuenta.
+    None: el mensaje sigue como el de un paciente."""
+    try:
+        cuentas = db.tenants_por_aviso(telefono)
+        if tenant_del_numero:
+            cuentas = [t for t in cuentas if t["id"] == tenant_del_numero["id"]]
+        return asistente_profesional.responder_a(cuentas, texto) if cuentas else None
+    except Exception:
+        logger.exception("Falló el asistente del profesional (…%s)", (telefono or "")[-4:])
+        return None
 
 
 def _contestar(tenant: dict, telefono: str, texto: str) -> None:
@@ -1562,17 +1582,41 @@ def admin_alta():
         error = "Página pública inválida: minúsculas, números y guiones, y no puede ser una ruta del sistema."
     elif db.tenant_por_slug_o_usuario(slug, panel_user):
         error = "Ya existe una cuenta con ese usuario o esa página pública."
+    aviso = whatsapp_de_alta(f.get("telefono"))
+    if not error and not aviso:
+        error = "Falta el WhatsApp del profesional (con característica, ej. 11 2345 6789): ahí le llegan los avisos."
     if error:
         flash(error)
         return redirect(url_for("admin_panel"))
     email = (f.get("email") or "").strip() or None
-    db.crear_tenant({"nombre": nombre, "rubro": rubro, "slug": slug, "panel_user": panel_user, "email": email,
-                     "panel_pass_hash": bcrypt.hashpw(clave.encode(), bcrypt.gensalt()).decode(),
-                     "timezone": "America/Argentina/Buenos_Aires", "duracion_turno_minutos": 50,
-                     "recordatorio_horas_antes": 24})
+    datos = {"nombre": nombre, "rubro": rubro, "slug": slug, "panel_user": panel_user, "email": email,
+             "aviso_telefono": aviso,
+             "panel_pass_hash": bcrypt.hashpw(clave.encode(), bcrypt.gensalt()).decode(),
+             "timezone": "America/Argentina/Buenos_Aires", "duracion_turno_minutos": 50,
+             "recordatorio_horas_antes": 24}
+    db.crear_tenant(datos)
     db.registrar_actividad(_actor_admin(), f"dio de alta a {nombre}")
-    flash(f"Se creó la cuenta de {nombre}. Pasale el usuario y la clave por un canal seguro.")
+    try:
+        saludo = scheduler.avisar_profesional({k: v for k, v in datos.items() if k != "panel_pass_hash"},
+                                              asistente_profesional.bienvenida(datos))
+    except Exception:
+        logger.warning("No salió la bienvenida por WhatsApp", exc_info=True)
+        saludo = False
+    flash(f"Se creó la cuenta de {nombre}. Pasale el usuario y la clave por un canal seguro. "
+          + ("Le mandamos la bienvenida a su WhatsApp: desde ahí puede escribirle «ayuda» al asistente."
+             if saludo else "La bienvenida por WhatsApp no salió (¿falta la plantilla de avisos o el número de la plataforma?)."))
     return redirect(url_for("admin_panel"))
+
+
+def whatsapp_de_alta(texto: str | None) -> str | None:
+    """Sólo dígitos, en formato internacional. Diez dígitos (11 2345 6789) se
+    toman como celular argentino: 549 + número."""
+    numero = "".join(ch for ch in texto or "" if ch.isdigit())
+    if numero.startswith("0"):
+        numero = numero.lstrip("0")
+    if len(numero) == 10:
+        numero = "549" + numero
+    return numero if 11 <= len(numero) <= 15 else None
 
 
 @app.post("/admin/profesionales/<tenant_id>/<accion>")

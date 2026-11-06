@@ -38,11 +38,16 @@ display_phone = input("Número que ve el paciente (opcional, solo informativo): 
 timezone = input("Timezone [America/Argentina/Buenos_Aires]: ").strip() or "America/Argentina/Buenos_Aires"
 duracion = input("Duración de turno en minutos [50]: ").strip() or "50"
 recordatorio_horas = input("Recordatorio cuántas horas antes [24]: ").strip() or "24"
+aviso = "".join(ch for ch in input("WhatsApp del profesional, para avisos y su asistente (ej. 11 2345 6789): ") if ch.isdigit()).lstrip("0")
+if len(aviso) == 10:
+    aviso = "549" + aviso
 panel_user = input("Usuario de panel (para el login web): ").strip()
 clave = getpass.getpass("Clave de panel (no se muestra en pantalla): ")
 
 if not (nombre and panel_user and clave):
     sys.exit("Nombre, usuario y clave son obligatorios.")
+if not 11 <= len(aviso) <= 15:
+    sys.exit("Falta el WhatsApp del profesional (con característica): ahí le llegan los avisos.")
 # phone_number_id ya NO es obligatorio: sin él, el tenant sale por el número
 # de la plataforma (PLATAFORMA_PHONE_NUMBER_ID). Es lo que permite dar de alta
 # a alguien hoy en vez de esperar la verificación de Meta de su propio número.
@@ -77,6 +82,7 @@ res = (
             "recordatorio_horas_antes": int(recordatorio_horas),
             "panel_user": panel_user,
             "panel_pass_hash": pass_hash,
+            "aviso_telefono": aviso,
         }
     )
     .execute()
@@ -88,3 +94,4 @@ if not phone_number_id:
           "  (PLATAFORMA_PHONE_NUMBER_ID tiene que estar cargada en Railway).")
 if slug:
     print(f"Página pública de reserva: https://consultorio.fibot.ar/{slug}")
+print("Desde su WhatsApp puede escribirle «ayuda» al número de turnos para consultar su agenda.")

@@ -1501,13 +1501,19 @@ def huecos_pendientes(tenant_id: str) -> list[dict]:
 def tenant_por_aviso(telefono: str) -> dict | None:
     """El profesional activo cuyo WhatsApp de avisos es este (últimos 10
     dígitos: el 9 y el 15 argentinos varían)."""
+    todos = tenants_por_aviso(telefono)
+    return todos[0] if todos else None
+
+
+def tenants_por_aviso(telefono: str) -> list[dict]:
+    """Todas las cuentas activas con este WhatsApp de avisos (una persona
+    puede tener más de una, o probar con cuentas de demo). Como
+    `tenant_por_paciente`, no recibe tenant_id: es la que lo averigua."""
     final = "".join(ch for ch in telefono or "" if ch.isdigit())[-10:]
     if len(final) < 10:
-        return None
-    for t in tenants_activos():
-        if "".join(ch for ch in t.get("aviso_telefono") or "" if ch.isdigit())[-10:] == final:
-            return t
-    return None
+        return []
+    return [t for t in tenants_activos()
+            if "".join(ch for ch in t.get("aviso_telefono") or "" if ch.isdigit())[-10:] == final]
 
 
 def registrar_evento_pagina(tenant_id: str, tipo: str) -> None:
