@@ -1535,6 +1535,29 @@ def turnos_de_paciente_por_nombre(tenant_id: str, nombre: str, limite: int = 200
     return res.data
 
 
+# ---------- acciones del asistente del profesional (migrations/072) ----------
+# Por WhatsApp de avisos (no reciben tenant_id para buscar: el tenant va
+# guardado y asistente_profesional revisa que siga vinculado a ese número).
+
+def guardar_accion_profesional(telefono: str, tenant_id: str, accion: dict) -> None:
+    _client.table("acciones_profesional").upsert(
+        {"telefono": telefono, "tenant_id": tenant_id, "accion": accion,
+         "creado": datetime.now(timezone.utc).isoformat()}, on_conflict="telefono").execute()
+
+
+def accion_profesional(telefono: str) -> dict | None:
+    res = _client.table("acciones_profesional").select("*").eq("telefono", telefono).limit(1).execute()
+    return res.data[0] if res.data else None
+
+
+def borrar_accion_profesional(telefono: str) -> None:
+    _client.table("acciones_profesional").delete().eq("telefono", telefono).execute()
+
+
+def marcar_resumen_noche(tenant_id: str, dia: str) -> None:
+    _client.table("tenants").update({"ultimo_resumen_noche": dia}).eq("id", tenant_id).execute()
+
+
 def registrar_evento_pagina(tenant_id: str, tipo: str) -> None:
     _client.table("eventos_pagina").insert({"tenant_id": tenant_id, "tipo": tipo,
                                             "cuando": datetime.now(timezone.utc).isoformat()}).execute()

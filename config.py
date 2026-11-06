@@ -70,6 +70,11 @@ AVISO_TEMPLATE = os.environ.get("AVISO_TEMPLATE", "")
 # {{1}}. Vacía = sale con AVISO_TEMPLATE, sin botones (plantillas.py).
 RESUMEN_TEMPLATE = os.environ.get("RESUMEN_TEMPLATE", "")
 
+# Mensaje del profesional a un paciente pedido por WhatsApp («avisale a Juan
+# que…»): {{1}} profesional, {{2}} el mensaje. Vacía = texto libre (sólo llega
+# si el paciente escribió en las últimas 24 h).
+MENSAJE_PROFESIONAL_TEMPLATE = os.environ.get("MENSAJE_PROFESIONAL_TEMPLATE", "")
+
 # Recordatorio de pago, lo dispara el profesional a mano desde la ficha:
 #   {{1}} nombre del profesional      {{2}} cuánto debe
 # Vacía = texto libre, con la misma limitación de las 24 h.

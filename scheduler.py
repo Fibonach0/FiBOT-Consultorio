@@ -154,6 +154,11 @@ def _avisar_reservas(tenant: dict, tz: ZoneInfo) -> None:
         return
     cuando = _fmt(turnos[0]["inicio"], tz)
     resumen = f"1 reserva nueva para el {cuando}" if len(turnos) == 1 else f"{len(turnos)} reservas nuevas, la próxima el {cuando}"
+    if _vinculado(tenant):  # con el WhatsApp vinculado, quién y cuándo
+        resumen = "; ".join(f"{t.get('paciente_nombre') or 'Sin nombre'} reservó para el {_fmt(t['inicio'], tz)}"
+                            for t in sorted(turnos, key=lambda t: t["inicio"])[:8])
+        if len(turnos) > 8:
+            resumen += f"; y {len(turnos) - 8} reservas más"
     if config.AVISO_TEMPLATE:
         ok = whatsapp.enviar_plantilla(numero, tenant["aviso_telefono"], config.AVISO_TEMPLATE,
                                        config.RECORDATORIO_TEMPLATE_LANG, [resumen])
@@ -161,6 +166,36 @@ def _avisar_reservas(tenant: dict, tz: ZoneInfo) -> None:
         ok = whatsapp.enviar_texto(numero, tenant["aviso_telefono"], f"Tu consultorio: {resumen}. Mirá el panel.")
     if not ok:
         logger.error("No se pudo avisar la reserva al tenant %s", tenant["id"])
+
+
+HORA_NOCHE = 20
+
+
+def _resumen_noche(tenant: dict, tz: ZoneInfo) -> None:
+    """A las 20, las sesiones de mañana con nombres, para llegar preparado.
+    Sólo con el WhatsApp vinculado y si no lo apagó. Se marca antes de
+    mandar (nunca dos) y no sale si mañana no tiene sesiones."""
+    ahora = datetime.now(tz)
+    hoy = ahora.date().isoformat()
+    if (ahora.hour < HORA_NOCHE or tenant.get("resumen_noche") is False or tenant.get("ultimo_resumen_noche") == hoy
+            or not _vinculado(tenant)):
+        return
+    db.marcar_resumen_noche(tenant["id"], hoy)
+    manana = ahora.replace(hour=0, minute=0, second=0, microsecond=0) + timedelta(days=1)
+    turnos = sorted((t for t in db.agenda_semana(tenant["id"], manana, manana + timedelta(days=1)) if t.get("estado") == "reservado"),
+                    key=lambda t: t["inicio"])
+    if not turnos:
+        return
+    partes = []
+    for t in turnos[:10]:
+        extra = "virtual" if t.get("modalidad") == "virtual" else t.get("sede")
+        partes.append(f"{datetime.fromisoformat(t['inicio']).astimezone(tz):%H:%M} {t.get('paciente_nombre') or 'Sin nombre'}"
+                      + (f" ({extra})" if extra else ""))
+    texto = (f"mañana {DIAS[manana.weekday()]} {manana.day}/{manana.month:02d} tenés {len(turnos)} "
+             f"sesi{'ón' if len(turnos) == 1 else 'ones'}: " + ", ".join(partes)
+             + (f" y {len(turnos) - 10} más" if len(turnos) > 10 else ""))
+    if not avisar_profesional(tenant, texto):
+        logger.error("No se pudo mandar el resumen de la noche del tenant %s", tenant["id"])
 
 
 _ultima_limpieza = None
@@ -196,6 +231,10 @@ def _tick() -> None:
             _resumen_diario(tenant, tz)
         except Exception:
             logger.exception("Fallo armando el resumen de tenant %s", tenant["id"])
+        try:
+            _resumen_noche(tenant, tz)
+        except Exception:
+            logger.exception("Fallo el resumen de la noche de tenant %s", tenant["id"])
         try:
             _avisar_reservas(tenant, tz)
         except Exception:
@@ -336,13 +375,30 @@ def _recordar_confirmaciones(tenant: dict, tz: ZoneInfo, ahora: datetime | None 
         mandar_confirmacion(tenant, t, tz)
 
 
-def avisar_profesional(tenant: dict, texto: str) -> bool:
+def _vinculado(tenant: dict) -> bool:
+    import asistente_profesional
+    return asistente_profesional.vinculado(tenant)
+
+
+def _una_linea(texto: str) -> str:
+    """Los parámetros de una plantilla no aceptan saltos de línea."""
+    return " ".join((texto or "").split())
+
+
+def avisar_profesional(tenant: dict, texto: str, paciente: str | None = None, con_nombre: str | None = None) -> bool:
     """WhatsApp al profesional (a `aviso_telefono`) en el momento, con la
-    misma plantilla del resumen. Sin nombres ni datos de pacientes: el detalle
-    está en el panel."""
+    misma plantilla del resumen. Con el WhatsApp VINCULADO
+    (asistente_profesional) va con nombre: `con_nombre` reemplaza el texto, o
+    `paciente` reemplaza «un paciente». Sin vincular, el texto sin nombres."""
     numero = whatsapp.numero_de(tenant)
     if not tenant.get("aviso_telefono") or not numero:
         return False
+    if _vinculado(tenant):
+        if con_nombre:
+            texto = con_nombre
+        elif paciente:
+            texto = texto.replace("un paciente", paciente, 1) if "un paciente" in texto else f"{texto} ({paciente})"
+    texto = _una_linea(texto)
     try:
         if config.AVISO_TEMPLATE:
             return whatsapp.enviar_plantilla(numero, tenant["aviso_telefono"], config.AVISO_TEMPLATE,

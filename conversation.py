@@ -467,7 +467,12 @@ def _a_la_bandeja(tenant: dict, telefono: str, texto: str | None, tipo: str = "t
     if not previos:
         try:
             import scheduler
-            scheduler.avisar_profesional(tenant, "un paciente te escribió por WhatsApp: el mensaje está en el panel, en «Mensajes»")
+            quien = next((f.get("paciente_nombre") for f in db.fichas_del_telefono(tenant["id"], telefono)
+                          if f.get("paciente_nombre")), None) or f"+{telefono}"
+            que = f"«{texto[:300]}»" if texto else {"audio": "un audio", "imagen": "una foto", "video": "un video"}.get(tipo, "un archivo")
+            scheduler.avisar_profesional(tenant, "un paciente te escribió por WhatsApp: el mensaje está en el panel, en «Mensajes»",
+                                         con_nombre=f"{quien} te escribió por WhatsApp: {que}. Contestale desde el panel o escribime "
+                                                    f"«avisale a {quien.split()[0]} que …»")
         except Exception:
             logger.warning("No se pudo avisar el mensaje nuevo", exc_info=True)
     return True
