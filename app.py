@@ -271,13 +271,17 @@ def webhook_receive():
                 logger.warning("Mensaje a un phone_number_id sin tenant activo: %s", phone_number_id)
                 continue
             for msg in value.get("messages", []):
+                # Los dos tildes azules apenas llega, sea lo que sea.
+                if msg.get("type") != "reaction":
+                    whatsapp.marcar_leido(phone_number_id, msg.get("id"))
                 # Texto, o el botón de respuesta rápida de una plantilla (la de
                 # confirmación: «Sí, confirmo» / «Cancelar»).
                 if msg.get("type") == "button":
                     msg = {**msg, "type": "text", "text": {"body": (msg.get("button") or {}).get("text", "")}}
-                if msg.get("type") != "text":
-                    continue
                 telefono = msg.get("from")
+                if msg.get("type") != "text":
+                    _no_texto(msg, phone_number_id, tenant_del_numero, telefono)
+                    continue
                 _marcar("mensaje", phone_number_id)
                 # ¿Es un profesional contestando «liberar» / «me lo tomo» sobre
                 # un horario que le cancelaron? (cancelaciones.py)
@@ -302,6 +306,27 @@ def webhook_receive():
                 whatsapp.enviar_texto(whatsapp.numero_de(tenant), telefono, respuesta)
 
     return jsonify(ok=True), 200
+
+
+def _no_texto(msg: dict, phone_number_id: str, tenant_del_numero: dict | None, telefono: str) -> None:
+    """Audio, foto, PDF, sticker…: antes se ignoraban y el paciente quedaba
+    esperando. Ver conversation.responder_no_texto."""
+    tipo = msg.get("type") or ""
+    if tipo == "reaction" or not telefono:
+        return
+    _marcar("mensaje", phone_number_id)
+    tenant = tenant_del_numero or db.tenant_por_paciente(telefono)
+    if not tenant:
+        _sin_destino(phone_number_id, telefono)
+        return
+    media_id = (msg.get(tipo) or {}).get("id") if isinstance(msg.get(tipo), dict) else None
+    try:
+        respuesta = conversation.responder_no_texto(tenant, telefono, tipo, media_id)
+    except Exception:
+        logger.exception("Fallo procesando un %s de …%s (tenant %s)", tipo, telefono[-4:], tenant["id"])
+        respuesta = "Uh, tuve un problema con eso. ¿Me lo escribís?"
+    if respuesta:
+        whatsapp.enviar_texto(whatsapp.numero_de(tenant), telefono, respuesta)
 
 
 RESPUESTA_SIN_DESTINO = (
@@ -2196,6 +2221,7 @@ def agenda():
         "estadisticas": _estadisticas_pagina(tenant, tz),
         "pagos_revisar": (revisar := _pagos_para_revisar(tenant, tz)),
         "motivos_rechazo": pagos.MOTIVOS_RECHAZO,
+        "mensajes": _mensajes_pacientes(tenant, tz),
         "cobros_web": _cobros_web(tenant, _mes_de(request.args.get("mes") or request.args.get("semana", "")[:7], ahora.date()),
                                   tz, revisar),
         "devolucion_horas": DEVOLUCION_HORAS,
@@ -5242,6 +5268,64 @@ def _cobros_web(tenant: dict, primero: date, tz: ZoneInfo, revisar: list[dict]) 
             "neto": sum(p["monto"] - (p.get("devuelto") or 0) for p in lista),
             "por_validar": sum(p["monto"] for p in comprobantes), "por_validar_n": len(comprobantes),
             "pagos": lista}
+
+
+TIPOS_MENSAJE = {"audio": "Mandó un audio", "imagen": "Mandó una foto", "documento": "Mandó un archivo",
+                 "video": "Mandó un video", "otro": "Mandó algo que no es texto"}
+
+
+def _mensajes_pacientes(tenant: dict, tz: ZoneInfo) -> list[dict]:
+    """La bandeja: lo que el bot no supo resolver. Se puede contestar desde el
+    panel mientras siga abierta la ventana de 24 h de WhatsApp."""
+    try:
+        lista = db.mensajes_pacientes(tenant["id"])
+    except Exception:
+        logger.warning("No se pudo leer la bandeja de mensajes", exc_info=True)
+        return []
+    ahora = datetime.now(ZoneInfo("UTC"))
+    nombres: dict[str, str | None] = {}
+    for m in lista:
+        if m["telefono"] not in nombres:
+            try:
+                nombres[m["telefono"]] = next((f.get("paciente_nombre") for f in db.fichas_del_telefono(tenant["id"], m["telefono"])
+                                               if f.get("paciente_nombre")), None)
+            except Exception:
+                nombres[m["telefono"]] = None
+        creado = datetime.fromisoformat(str(m["creado"]))
+        m["_quien"] = nombres[m["telefono"]] or f"+{m['telefono']}"
+        m["_cuando"] = creado.astimezone(tz).strftime("%d/%m %H:%M")
+        m["_texto"] = m.get("texto") or TIPOS_MENSAJE.get(m.get("tipo"), "")
+        m["_sin_texto"] = not m.get("texto")
+        m["_puede_responder"] = not m.get("respuesta") and ahora - creado < timedelta(hours=23, minutes=50)
+    return lista
+
+
+@app.post("/agenda/mensaje/<mensaje_id>/<accion>")
+@login_required
+def agenda_mensaje(mensaje_id, accion):
+    """Marcar leído o contestar (texto libre, dentro de las 24 h) un mensaje de
+    la bandeja. La respuesta sale por el mismo número del bot."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    m = db.mensaje_paciente(tenant["id"], mensaje_id)
+    volver = redirect(url_for("agenda") + "#mensajes")
+    if not m:
+        return volver
+    if accion == "leido":
+        db.actualizar_mensaje_paciente(tenant["id"], m["id"], {"leido": True})
+    elif accion == "responder":
+        texto = (request.form.get("respuesta") or "").strip()[:1000]
+        creado = datetime.fromisoformat(str(m["creado"]))
+        if not texto:
+            flash("Escribí la respuesta.")
+        elif m.get("respuesta") or datetime.now(ZoneInfo("UTC")) - creado >= timedelta(hours=23, minutes=50):
+            flash("Pasaron más de 24 h: WhatsApp no deja contestarle por acá. Escribile desde tu teléfono.")
+        elif whatsapp.enviar_texto(whatsapp.numero_de(tenant), m["telefono"], f"*{tenant['nombre']}*: {texto}"):
+            db.actualizar_mensaje_paciente(tenant["id"], m["id"], {"respuesta": texto, "leido": True,
+                                                                    "respondido": datetime.now(ZoneInfo("UTC")).isoformat()})
+            flash("Respuesta enviada por WhatsApp.")
+        else:
+            flash("WhatsApp no aceptó el mensaje. Probá de nuevo en un rato.")
+    return volver
 
 
 def _pagos_para_revisar(tenant: dict, tz: ZoneInfo) -> list[dict]:

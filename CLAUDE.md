@@ -77,6 +77,25 @@ lista de recordatorios de una cuenta para una fecha y hora dadas, sin mandar ni
 marcar nada (`db.turnos_para_recordar` acepta `ahora`). Sin nombres de
 pacientes: sólo los últimos 4 dígitos.
 
+**Bandeja, frases y lo que no es texto (`migrations/069`)**: lo que el bot no
+reconoce va a `mensajes_pacientes` (por tenant) y se le contesta «Le pasé tu
+mensaje a…»; al profesional le llega un WhatsApp sin texto ni nombre sólo si no
+tenía otros sin leer. En el panel («Mensajes») lo marca leído o lo contesta
+(`/agenda/mensaje/<id>/responder`, texto libre por el número del bot, sólo
+dentro de las 24 h). Saludos, «gracias», emojis y stickers no van a la bandeja.
+Las frases se reconocen con reglas locales en `conversation.py` (`_normal` saca
+tildes y signos): «mi turno», «no voy a poder ir» (pregunta, nunca cancela sin
+la palabra *cancelar*), «quiero un turno el martes» (filtra el día pero muestra
+el número de la lista completa, para seguir sin estado), «cambiar el turno».
+«2 Juan» reserva; «10 minutos tarde» no (`_parece_nombre`). Nada del texto sale
+a servicios externos. El webhook ya no descarta lo que no es texto
+(`app._no_texto` → `conversation.responder_no_texto`): audio y video piden que
+lo escriban (queda la marca en la bandeja, nunca el archivo); foto o PDF de
+alguien con transferencia pendiente (`db.pago_esperando_de`) se baja de Meta
+(`whatsapp.bajar_media`, hasta 2 MB) y entra como comprobante por
+`pagos.subir_comprobante`; las reacciones no se contestan. Todo mensaje
+entrante se marca leído (`whatsapp.marcar_leido`).
+
 **Celulares argentinos y el 131030**: se manda con el 9 (549…), que es lo
 normal. Si Meta contesta 131030 («no está en la lista de autorizados»),
 `whatsapp._mandar` reintenta una vez con `con_15` (54 + característica + 15 +

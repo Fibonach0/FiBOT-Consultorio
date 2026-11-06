@@ -1628,3 +1628,44 @@ def interesados(limite: int = 50) -> list[dict]:
 
 def marcar_interesado_visto(interesado_id: str, visto: bool = True) -> None:
     _client.table("interesados").update({"visto": visto}).eq("id", interesado_id).execute()
+
+
+# ---------- bandeja de mensajes de pacientes (migrations/069) ----------
+
+def guardar_mensaje_paciente(tenant_id: str, telefono: str, texto: str | None, tipo: str = "texto") -> dict:
+    res = _client.table("mensajes_pacientes").insert({"tenant_id": tenant_id, "telefono": telefono,
+                                                      "texto": (texto or "")[:2000] or None, "tipo": tipo}).execute()
+    return res.data[0] if res.data else {}
+
+
+def mensajes_sin_leer(tenant_id: str) -> int:
+    res = (_client.table("mensajes_pacientes").select("id").eq("tenant_id", tenant_id)
+           .eq("leido", False).execute())
+    return len(res.data or [])
+
+
+def mensajes_pacientes(tenant_id: str, limite: int = 30) -> list[dict]:
+    """Los de ESTE tenant: primero los sin leer, después los más nuevos."""
+    res = (_client.table("mensajes_pacientes").select("*").eq("tenant_id", tenant_id)
+           .order("creado", desc=True).limit(limite).execute())
+    return sorted(res.data or [], key=lambda m: m.get("leido") is True)
+
+
+def mensaje_paciente(tenant_id: str, mensaje_id: str) -> dict | None:
+    res = (_client.table("mensajes_pacientes").select("*").eq("tenant_id", tenant_id)
+           .eq("id", mensaje_id).limit(1).execute())
+    return res.data[0] if res.data else None
+
+
+def actualizar_mensaje_paciente(tenant_id: str, mensaje_id: str, campos: dict) -> None:
+    _client.table("mensajes_pacientes").update(campos).eq("tenant_id", tenant_id).eq("id", mensaje_id).execute()
+
+
+def pago_esperando_de(tenant_id: str, telefono: str) -> dict | None:
+    """El pago web de este paciente que espera transferencia, si hay uno."""
+    res = (_client.table("turnos").select("pago_id").eq("tenant_id", tenant_id).eq("estado", "reservado")
+           .eq("paciente_telefono", telefono).eq("pago_web", "esperando").limit(1).execute())
+    if not res.data or not res.data[0].get("pago_id"):
+        return None
+    pago = pago_de(tenant_id, res.data[0]["pago_id"])
+    return pago if pago and pago.get("estado") == "esperando" else None

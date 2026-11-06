@@ -31,6 +31,7 @@ scheduler.iniciar = lambda: None
 import app  # noqa: E402
 import db  # noqa: E402
 import whatsapp as whatsapp_real  # noqa: E402
+whatsapp_real.marcar_leido = lambda pid, mid: True  # nunca a Meta desde los tests
 
 fallos = []
 
@@ -241,6 +242,7 @@ def reset():
     TABLAS["entregas"] = []
     TABLAS["admins"] = []
     TABLAS["eventos_plataforma"] = []
+    TABLAS["mensajes_pacientes"] = []
     TABLAS["ajustes_plataforma"] = []
     TABLAS["plantillas_meta"] = []
     TABLAS["mensajes_sin_destino"] = []
@@ -3231,6 +3233,36 @@ with panel_c.session_transaction() as ses:
 html = panel_c.get(f"/agenda?semana={_futuro.date().isoformat()}").data.decode()
 chequear("panel: marca la sesión confirmada", "✓ confirmó" in html)
 
+# bandeja de mensajes de pacientes
+_hace = lambda **k: (datetime.now(timezone.utc) - timedelta(**k)).isoformat()
+TABLAS["mensajes_pacientes"] = [
+    {"id": "mp1", "tenant_id": "t1", "telefono": "5491166667777", "tipo": "texto", "texto": "Llego 10 minutos tarde",
+     "creado": _hace(minutes=5), "leido": False},
+    {"id": "mp2", "tenant_id": "t1", "telefono": "5491100009999", "tipo": "audio", "texto": None,
+     "creado": _hace(hours=30), "leido": False},
+    {"id": "mp3", "tenant_id": "t2", "telefono": "5491100008888", "tipo": "texto", "texto": "Mensaje de otra cuenta",
+     "creado": _hace(minutes=1), "leido": False}]
+html = panel_c.get("/agenda").data.decode()
+chequear("bandeja: el panel muestra los mensajes de esta cuenta", 'id="mensajes"' in html and "Llego 10 minutos tarde" in html
+         and "Mandó un audio" in html and "Mensaje de otra cuenta" not in html)
+chequear("bandeja: sólo se contesta dentro de las 24 h", html.count('name="respuesta"') == 1)
+_bandeja_wa = []
+_bw = app.whatsapp.enviar_texto
+app.whatsapp.enviar_texto = lambda n, to, texto: _bandeja_wa.append((to, texto)) or True
+panel_c.post("/agenda/mensaje/mp1/responder", data={"csrf_token": "tok", "respuesta": "No hay problema, te espero"})
+_mp1 = TABLAS["mensajes_pacientes"][0]
+chequear("bandeja: la respuesta sale por WhatsApp con el nombre del profesional",
+         _bandeja_wa == [("5491166667777", "*Lic. Marcos*: No hay problema, te espero")]
+         and _mp1["respuesta"] == "No hay problema, te espero" and _mp1["leido"] is True, _bandeja_wa)
+panel_c.post("/agenda/mensaje/mp2/responder", data={"csrf_token": "tok", "respuesta": "hola"})
+chequear("bandeja: pasadas las 24 h no manda nada", len(_bandeja_wa) == 1 and not TABLAS["mensajes_pacientes"][1].get("respuesta"))
+panel_c.post("/agenda/mensaje/mp2/leido", data={"csrf_token": "tok"})
+panel_c.post("/agenda/mensaje/mp3/leido", data={"csrf_token": "tok"})
+chequear("bandeja: marcar leído, y nunca uno de otra cuenta", TABLAS["mensajes_pacientes"][1]["leido"] is True
+         and TABLAS["mensajes_pacientes"][2]["leido"] is False)
+app.whatsapp.enviar_texto = _bw
+TABLAS["mensajes_pacientes"] = []
+
 # el botón de la plantilla llega como type=button
 TABLAS["turnos"][0]["confirmado_at"] = None
 _resp_bot = []
@@ -3706,7 +3738,8 @@ db.get_tenant_by_id = lambda tid: dict(_t1) if tid == "t1" else None
 panel_c.post("/agenda/tipos", data={"csrf_token": "tok", "tipo1_nombre": "Primera entrevista", "tipo1_minutos": "100",
                                     "tipo2_nombre": "Sesión", "tipo2_minutos": "50"})
 chequear("tipos: se guardan", [x["minutos"] for x in _t1["tipos_turno"]] == [100, 50])
-_c = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0) + timedelta(days=3)
+# A media tarde (13 UTC): de noche, k3 (200 min después) cruzaba la medianoche y caía en otra semana.
+_c = datetime.now(timezone.utc).replace(hour=13, minute=0, second=0, microsecond=0) + timedelta(days=3)
 TABLAS["turnos"] = [turno("k1", "t1", _c), turno("k2", "t1", _c + timedelta(minutes=50)),
                     turno("k3", "t1", _c + timedelta(minutes=200))]
 web5 = app.app.test_client()
