@@ -1669,3 +1669,37 @@ def pago_esperando_de(tenant_id: str, telefono: str) -> dict | None:
         return None
     pago = pago_de(tenant_id, res.data[0]["pago_id"])
     return pago if pago and pago.get("estado") == "esperando" else None
+
+
+# ---------- número compartido: «¿con quién es?» (migrations/070) ----------
+# Igual que tenant_por_paciente, estas dos NO reciben tenant_id a propósito:
+# son las que averiguan de qué profesional es el mensaje.
+
+def tenants_de_paciente(telefono: str, dias: int = 120) -> list[dict]:
+    """Los profesionales activos con turnos de este teléfono (futuros o de
+    los últimos `dias`), el del turno más reciente primero."""
+    desde = (datetime.now(timezone.utc) - timedelta(days=dias)).isoformat()
+    res = (_client.table("turnos").select("tenant_id,inicio").eq("paciente_telefono", telefono)
+           .eq("estado", "reservado").gte("inicio", desde).order("inicio", desc=True).execute())
+    vistos, salida = set(), []
+    for fila in res.data or []:
+        if fila["tenant_id"] in vistos:
+            continue
+        vistos.add(fila["tenant_id"])
+        t = get_tenant_by_id(fila["tenant_id"])
+        if t and t.get("activo", True):
+            salida.append(t)
+    return salida
+
+
+def eleccion_whatsapp(telefono: str) -> dict | None:
+    res = _client.table("elecciones_whatsapp").select("*").eq("telefono", telefono).limit(1).execute()
+    fila = res.data[0] if res.data else None
+    if fila and datetime.fromisoformat(str(fila["vence"])) > datetime.now(timezone.utc):
+        return fila
+    return None
+
+
+def guardar_eleccion_whatsapp(telefono: str, tenant_id: str | None, pendiente: str | None, vence: datetime) -> None:
+    _client.table("elecciones_whatsapp").upsert({"telefono": telefono, "tenant_id": tenant_id, "pendiente": pendiente,
+                                                 "vence": vence.isoformat()}, on_conflict="telefono").execute()

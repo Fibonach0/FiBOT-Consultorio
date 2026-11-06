@@ -243,6 +243,7 @@ def reset():
     TABLAS["admins"] = []
     TABLAS["eventos_plataforma"] = []
     TABLAS["mensajes_pacientes"] = []
+    TABLAS["elecciones_whatsapp"] = []
     TABLAS["ajustes_plataforma"] = []
     TABLAS["plantillas_meta"] = []
     TABLAS["mensajes_sin_destino"] = []
@@ -4444,6 +4445,83 @@ chequear("horario: franjas que se pisan no se guardan", _t1["horario_semanal"] =
 html = panel_c.get("/agenda").data.decode()
 chequear("panel: secciones plegables agrupadas", html.count("data-plegable") >= 9 and "Tu agenda" in html
          and "+ otra franja" in html and "+ otro consultorio" in html and "Sede 1, Sede 2" in html)
+
+# --- Listas de WhatsApp, reprogramar y «¿con quién es?» ---
+import conversation as _conv  # noqa: E402
+_wa_env, _wa_int = [], []
+_sv = (app.whatsapp.enviar_texto, app.whatsapp._interactivo, app.config.PLATAFORMA_PHONE_NUMBER_ID, db.get_tenant_by_phone_number_id,
+       scheduler.avisar_profesional)
+app.whatsapp.enviar_texto = lambda n, to, texto: _wa_env.append((n, to, texto)) or True
+app.whatsapp._interactivo = lambda n, to, inter: _wa_int.append((n, to, inter)) or True
+app.config.PLATAFORMA_PHONE_NUMBER_ID = "PLAT"
+db.get_tenant_by_phone_number_id = lambda pid: None
+_avisos_mov = []
+scheduler.avisar_profesional = lambda t, texto: _avisos_mov.append(texto) or True
+TABLAS["tenants"][1].update({"activo": True, "slug": "otra"})
+_dl = datetime.now(timezone.utc).replace(hour=13, minute=0, second=0, microsecond=0) + timedelta(days=4)
+_TEL = "5491177778888"
+TABLAS["turnos"] = [turno("w-mio", "t1", _dl, estado="reservado", paciente_telefono=_TEL, paciente_nombre="Rita"),
+                    turno("w-l1", "t1", _dl + timedelta(hours=2)), turno("w-l2", "t1", _dl + timedelta(days=1)),
+                    turno("w-ajeno", "t1", _dl + timedelta(hours=4), estado="reservado", paciente_telefono="5491100000000",
+                          paciente_nombre="Otro")]
+TABLAS["elecciones_whatsapp"] = []
+_fw = lambda i: next(t for t in TABLAS["turnos"] if t["id"] == i)
+
+
+def _wh(mensaje):
+    cuerpo = json.dumps({"object": "whatsapp_business_account", "entry": [{"changes": [{"field": "messages", "value": {
+        "metadata": {"phone_number_id": "PLAT"}, "messages": [{"from": _TEL, "id": "wamid.x", **mensaje}]}}]}]}).encode()
+    firma = "sha256=" + _hm.new(app.config.META_APP_SECRET.encode(), cuerpo, _hl.sha256).hexdigest()
+    return app.app.test_client().post("/webhook", data=cuerpo, content_type="application/json", headers={"X-Hub-Signature-256": firma})
+
+
+_wh({"type": "text", "text": {"body": "turno"}})
+_lista = _wa_int[-1][2] if _wa_int else {}
+chequear("lista: los horarios libres salen para tocar", _lista.get("type") == "list"
+         and [r["id"] for r in _lista["action"]["sections"][0]["rows"]][:2] == ["reservar:w-l1", "reservar:w-l2"], _lista)
+_wh({"type": "text", "text": {"body": "cambiar el turno"}})
+_filas = [r["id"] for r in _wa_int[-1][2]["action"]["sections"][0]["rows"]]
+chequear("reprogramar: lista con el turno y el horario nuevo", "mover:w-mio:w-l1" in _filas, _filas)
+_wh({"type": "interactive", "interactive": {"type": "list_reply", "list_reply": {"id": "mover:w-ajeno:w-l2", "title": "x"}}})
+chequear("reprogramar: nunca el turno de otro teléfono", _fw("w-ajeno")["estado"] == "reservado"
+         and _fw("w-l2")["estado"] == "libre" and "ya no está reservado a tu nombre" in _wa_env[-1][2], _wa_env[-1:])
+_wh({"type": "interactive", "interactive": {"type": "list_reply", "list_reply": {"id": "mover:w-mio:w-l1", "title": "x"}}})
+chequear("reprogramar: pasa el turno, confirma y avisa al profesional", _fw("w-l1")["estado"] == "reservado"
+         and _fw("w-l1")["paciente_telefono"] == _TEL and _fw("w-mio")["estado"] == "libre"
+         and "Listo: tu turno pasó al" in _wa_env[-1][2] and any("por WhatsApp" in a for a in _avisos_mov), (_wa_env[-1:], _avisos_mov))
+_wh({"type": "interactive", "interactive": {"type": "list_reply", "list_reply": {"id": "reservar:w-l2", "title": "x"}}})
+chequear("lista: tocar un horario lo reserva", _fw("w-l2")["estado"] == "reservado" and _fw("w-l2")["paciente_telefono"] == _TEL
+         and "quedó reservado" in _wa_env[-1][2], _wa_env[-1:])
+_wh({"type": "interactive", "interactive": {"type": "list_reply", "list_reply": {"id": "reservar:w-l2", "title": "x"}}})
+chequear("lista: un horario que ya no está, se avisa", "Justo se acaba de reservar" in _wa_env[-1][2])
+
+# dos profesionales en el número compartido
+_gtid = db.get_tenant_by_id
+db.get_tenant_by_id = lambda tid: next((dict(t) for t in TABLAS["tenants"] if t["id"] == tid), None)
+TABLAS["turnos"].append(turno("w-otra", "t2", _dl + timedelta(days=2), estado="reservado", paciente_telefono=_TEL, paciente_nombre="Rita"))
+_n_int = len(_wa_int)
+_wh({"type": "text", "text": {"body": "mi turno"}})
+_pregunta = _wa_int[-1][2] if len(_wa_int) > _n_int else {}
+chequear("con quién: pregunta con un botón por profesional", _pregunta.get("type") == "button"
+         and sorted(b["reply"]["id"] for b in _pregunta["action"]["buttons"]) == ["con:t1", "con:t2"], _pregunta)
+_wh({"type": "interactive", "interactive": {"type": "button_reply", "button_reply": {"id": "con:t2", "title": "Dra. Otra"}}})
+chequear("con quién: al elegir, contesta lo que había preguntado", "Tu próximo turno con *Dra. Otra*" in _wa_env[-1][2], _wa_env[-1:])
+_wh({"type": "text", "text": {"body": "mi turno"}})
+chequear("con quién: recuerda la elección un rato", "Dra. Otra" in _wa_env[-1][2] and len(_wa_int) == _n_int + 1, _wa_env[-1:])
+TABLAS["elecciones_whatsapp"] = []
+_wh({"type": "text", "text": {"body": "mi turno"}})
+_wh({"type": "text", "text": {"body": "con Marcos"}})
+chequear("con quién: también por escrito («con Marcos»)", "Tu próximo turno con *Lic. Marcos*" in _wa_env[-1][2], _wa_env[-1:])
+_wh({"type": "text", "text": {"body": "con Otra"}})
+_wh({"type": "text", "text": {"body": "mi turno"}})
+chequear("con quién: «con Otra» cambia aunque ya hubiera elegido", "Dra. Otra" in _wa_env[-1][2], _wa_env[-1:])
+_wh({"type": "text", "text": {"body": "con Marcos"}})
+_wh({"type": "interactive", "interactive": {"type": "button_reply", "button_reply": {"id": "con:t-inventado", "title": "x"}}})
+chequear("con quién: un profesional que no es suyo no se elige", TABLAS["elecciones_whatsapp"][0]["tenant_id"] == "t1")
+
+(app.whatsapp.enviar_texto, app.whatsapp._interactivo, app.config.PLATAFORMA_PHONE_NUMBER_ID, db.get_tenant_by_phone_number_id,
+ scheduler.avisar_profesional) = _sv
+db.get_tenant_by_id = _gtid
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
