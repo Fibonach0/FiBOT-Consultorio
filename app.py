@@ -279,6 +279,9 @@ def webhook_receive():
                 if msg.get("type") == "button":
                     msg = {**msg, "type": "text", "text": {"body": (msg.get("button") or {}).get("text", "")}}
                 telefono = msg.get("from")
+                if msg.get("type") == "interactive":
+                    _interactivo(msg, phone_number_id, tenant_del_numero, telefono)
+                    continue
                 if msg.get("type") != "text":
                     _no_texto(msg, phone_number_id, tenant_del_numero, telefono)
                     continue
@@ -293,19 +296,159 @@ def webhook_receive():
                 if decision:
                     whatsapp.enviar_texto(phone_number_id, telefono, decision)
                     continue
-                tenant = tenant_del_numero or db.tenant_por_paciente(telefono)
+                texto = msg.get("text", {}).get("body", "")
+                tenant, resuelto = _tenant_del_mensaje(tenant_del_numero, telefono, phone_number_id, texto)
+                if resuelto:
+                    continue
                 if not tenant:
                     _sin_destino(phone_number_id, telefono)
                     continue
-                texto = msg.get("text", {}).get("body", "")
-                try:
-                    respuesta = conversation.responder(tenant, telefono, texto)
-                except Exception:
-                    logger.exception("Fallo procesando mensaje de %s (tenant %s)", telefono, tenant["id"])
-                    respuesta = "Uh, tuve un problema procesando eso. Probá de nuevo en un rato."
-                whatsapp.enviar_texto(whatsapp.numero_de(tenant), telefono, respuesta)
+                _contestar(tenant, telefono, texto)
 
     return jsonify(ok=True), 200
+
+
+def _contestar(tenant: dict, telefono: str, texto: str) -> None:
+    try:
+        respuesta = conversation.responder(tenant, telefono, texto)
+    except Exception:
+        logger.exception("Fallo procesando mensaje de …%s (tenant %s)", (telefono or "")[-4:], tenant["id"])
+        respuesta = "Uh, tuve un problema procesando eso. Probá de nuevo en un rato."
+    whatsapp.enviar_respuesta(whatsapp.numero_de(tenant), telefono, respuesta)
+
+
+MINUTOS_ELECCION = 120
+
+
+def _tenant_del_mensaje(tenant_del_numero: dict | None, telefono: str, phone_number_id: str,
+                        texto: str | None = None) -> tuple[dict | None, bool]:
+    """(tenant, ya_resuelto). Con número propio, ese. En el número compartido,
+    por el paciente; si tiene turnos con más de un profesional, se usa el que
+    eligió hace poco o se le pregunta «¿con quién es?» (ya_resuelto=True: el
+    mensaje queda guardado y se contesta cuando elige). «con Micaela» por
+    escrito también elige."""
+    if tenant_del_numero:
+        return tenant_del_numero, False
+    try:
+        candidatos = db.tenants_de_paciente(telefono)
+    except Exception:
+        logger.warning("No se pudieron buscar los profesionales del paciente", exc_info=True)
+        candidatos = []
+    if len(candidatos) <= 1:
+        return (candidatos[0] if candidatos else db.tenant_por_paciente(telefono)), False
+    eleccion = db.eleccion_whatsapp(telefono)
+    pedido = conversation._normal(texto or "")
+    if pedido.startswith("con "):
+        coinciden = [t for t in candidatos if all(p in conversation._normal(t["nombre"]).split() for p in pedido[4:].split())]
+        if len(coinciden) == 1:
+            _elegir_profesional(coinciden[0], telefono, (eleccion or {}).get("pendiente"))
+            return None, True
+    elegido = next((t for t in candidatos if eleccion and t["id"] == eleccion.get("tenant_id")), None)
+    if elegido:
+        db.guardar_eleccion_whatsapp(telefono, elegido["id"], None,
+                                     datetime.now(ZoneInfo("UTC")) + timedelta(minutes=MINUTOS_ELECCION))
+        return elegido, False
+    db.guardar_eleccion_whatsapp(telefono, None, (texto or "")[:1000] or None,
+                                 datetime.now(ZoneInfo("UTC")) + timedelta(minutes=MINUTOS_ELECCION))
+    cuerpo = "Tenés turnos con más de un profesional. ¿Con quién es?"
+    a_mano = cuerpo + "\n\n" + "\n".join(f"• Escribí *con {t['nombre'].split()[-1]}* para {t['nombre']}" for t in candidatos)
+    interactivo = ({"tipo": "botones", "cuerpo": cuerpo, "botones": [(f"con:{t['id']}", t["nombre"]) for t in candidatos]}
+                   if len(candidatos) <= 3 else
+                   {"tipo": "lista", "cuerpo": cuerpo, "boton": "Elegir", "titulo": "Profesionales",
+                    "filas": [{"id": f"con:{t['id']}", "title": t["nombre"]} for t in candidatos]})
+    whatsapp.enviar_respuesta(phone_number_id, telefono, conversation.Respuesta.con(a_mano, interactivo))
+    return None, True
+
+
+def _elegir_profesional(tenant: dict, telefono: str, pendiente: str | None) -> None:
+    """Queda elegido un rato; si había un mensaje esperando, se contesta."""
+    db.guardar_eleccion_whatsapp(telefono, tenant["id"], None,
+                                 datetime.now(ZoneInfo("UTC")) + timedelta(minutes=MINUTOS_ELECCION))
+    if pendiente and not conversation._normal(pendiente).startswith("con "):
+        _contestar(tenant, telefono, pendiente)
+    else:
+        whatsapp.enviar_texto(whatsapp.numero_de(tenant), telefono,
+                              f"Listo, hablamos de tus turnos con *{tenant['nombre']}*. Escribí *turno*, *mi turno* o *cancelar*. "
+                              "Para hablar de otro profesional, escribí *con* y su nombre.")
+
+
+def _interactivo(msg: dict, phone_number_id: str, tenant_del_numero: dict | None, telefono: str) -> None:
+    """El paciente tocó una fila de una lista o un botón. Los ids vienen del
+    teléfono del paciente: se revisa todo de nuevo (que el turno sea suyo,
+    que el horario siga libre), nunca se confía en ellos."""
+    _marcar("mensaje", phone_number_id)
+    datos = msg.get("interactive") or {}
+    elegido = datos.get("list_reply") or datos.get("button_reply") or {}
+    ident, titulo = str(elegido.get("id") or ""), elegido.get("title") or ""
+    if ident.startswith("con:"):
+        candidatos = {t["id"]: t for t in db.tenants_de_paciente(telefono)}
+        tenant = candidatos.get(ident[4:])
+        if tenant:
+            eleccion = db.eleccion_whatsapp(telefono)
+            _elegir_profesional(tenant, telefono, (eleccion or {}).get("pendiente"))
+        return
+    tenant, resuelto = _tenant_del_mensaje(tenant_del_numero, telefono, phone_number_id)
+    if resuelto:
+        return
+    if not tenant:
+        _sin_destino(phone_number_id, telefono)
+        return
+    try:
+        if ident.startswith("reservar:"):
+            respuesta = conversation.elegir_horario(tenant, telefono, ident[len("reservar:"):])
+        elif ident.startswith("mover:") and ident.count(":") == 2:
+            _, turno_id, nuevo_id = ident.split(":")
+            respuesta = _mover_desde_whatsapp(tenant, telefono, turno_id, nuevo_id)
+        else:
+            respuesta = conversation.responder(tenant, telefono, titulo)
+    except Exception:
+        logger.exception("Fallo procesando una elección de …%s (tenant %s)", (telefono or "")[-4:], tenant["id"])
+        respuesta = "Uh, tuve un problema procesando eso. Probá de nuevo en un rato."
+    whatsapp.enviar_respuesta(whatsapp.numero_de(tenant), telefono, respuesta)
+
+
+def _mover_desde_whatsapp(tenant: dict, telefono: str, turno_id: str, nuevo_id: str) -> str:
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    turno = db.turno_por_id(tenant["id"], turno_id)
+    if (not turno or turno.get("estado") != "reservado" or turno.get("paciente_telefono") != telefono
+            or datetime.fromisoformat(turno["inicio"]) <= datetime.now(ZoneInfo("UTC"))):
+        return "Ese turno ya no está reservado a tu nombre. Escribí *mi turno* para ver los tuyos."
+    if not _puede_modificar(turno, tenant):
+        return (f"Tu turno es en menos de {cancelaciones.horas_limite(tenant)} horas: para cambiarlo, "
+                f"escribile directamente a *{tenant['nombre']}*. Todavía no se cambió nada.")
+    nuevo = db.turno_por_id(tenant["id"], nuevo_id)
+    error = _mover_por_paciente(tenant, turno, nuevo, "WhatsApp") if nuevo else "no está"
+    if error:
+        return "Ese horario ya no está disponible. Escribí *cambiar el turno* para ver los que quedan."
+    return (f"Listo: tu turno pasó al {conversation._fmt(nuevo['inicio'], tz)}. "
+            f"Ya le avisamos a *{tenant['nombre']}*. Si no podés ir, escribí *cancelar*.")
+
+
+def _mover_por_paciente(tenant: dict, turno: dict, nuevo: dict, origen: str) -> str | None:
+    """El paciente pasa su turno a otro horario libre (desde la web o por
+    WhatsApp). None si salió; si no, por qué. Usa el mismo reprogramar_turno
+    del panel; el turno nuevo queda confirmado y como reserva nueva."""
+    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
+    if (tenant.get("pausado") or nuevo["estado"] != "libre" or nuevo.get("hueco")
+            or datetime.fromisoformat(nuevo["inicio"]) <= datetime.now(ZoneInfo("UTC"))):
+        return "Ese horario ya no está disponible."
+    duracion = _minutos_de(turno) or tenant.get("duracion_turno_minutos") or 50
+    if not _entra(tenant, nuevo["id"], duracion):
+        return f"En ese horario no entra tu turno de {duracion} minutos."
+    error = db.reprogramar_turno(tenant["id"], turno["id"], datetime.fromisoformat(nuevo["inicio"]), duracion,
+                                 ignorar_bloqueo=bool(nuevo.get("abierto")))
+    if error:
+        return error
+    db.actualizar_reserva(tenant["id"], nuevo["id"], {
+        "token_calendario": turno.get("token_calendario"), "confirmado_at": datetime.now(ZoneInfo("UTC")).isoformat(),
+        "confirmacion_enviada_at": turno.get("confirmacion_enviada_at"), "reserva_nueva": True, "reserva_avisada": False})
+    db.registrar_actividad(f"paciente ({origen})", f"cambió el horario de un turno desde {'el link de agendar' if origen == 'web' else origen}",
+                           tenant["id"])
+    scheduler.avisar_profesional(tenant, f"un paciente pasó {'desde la web' if origen == 'web' else 'por ' + origen} su turno del "
+                                         f"{scheduler.cuando_de(turno, tenant, tz)} al {scheduler.cuando_de(nuevo, tenant, tz)}")
+    _evento(tenant, "cambio")
+    db.actualizar_reserva(tenant["id"], nuevo["id"], {"reserva_avisada": True})
+    return None
 
 
 def _no_texto(msg: dict, phone_number_id: str, tenant_del_numero: dict | None, telefono: str) -> None:
@@ -315,7 +458,9 @@ def _no_texto(msg: dict, phone_number_id: str, tenant_del_numero: dict | None, t
     if tipo == "reaction" or not telefono:
         return
     _marcar("mensaje", phone_number_id)
-    tenant = tenant_del_numero or db.tenant_por_paciente(telefono)
+    tenant, resuelto = _tenant_del_mensaje(tenant_del_numero, telefono, phone_number_id)
+    if resuelto:
+        return
     if not tenant:
         _sin_destino(phone_number_id, telefono)
         return
@@ -4935,24 +5080,11 @@ def agendar_cambiar_a(token, turno_id):
             "agendar_accion.html", tenant=tenant, accion="cambiar", turno=_con_hora_local([turno], tz)[0],
             nuevo=_con_hora_local([nuevo], tz)[0], token=token)))
     # La duración es la del turno que tenía (ej. una entrevista de 60), no la
-    # del horario nuevo; y tiene que entrar ahí.
-    duracion = _minutos_de(turno) or tenant.get("duracion_turno_minutos") or 50
-    if not _entra(tenant, nuevo["id"], duracion):
-        flash(f"En ese horario no entra tu turno de {duracion} minutos — elegí otro.")
-        return redirect(url_for("agendar_cambiar", token=token))
-    error = db.reprogramar_turno(tenant["id"], turno["id"], datetime.fromisoformat(nuevo["inicio"]), duracion,
-                                 ignorar_bloqueo=bool(nuevo.get("abierto")))
+    # del horario nuevo; y tiene que entrar ahí (lo revisa _mover_por_paciente).
+    error = _mover_por_paciente(tenant, {**turno, "token_calendario": token}, nuevo, "web")
     if error:
-        flash("Ese horario ya no está disponible — elegí otro.")
+        flash(error if error.startswith("En ese horario no entra") else "Ese horario ya no está disponible — elegí otro.")
         return redirect(url_for("agendar_cambiar", token=token))
-    db.actualizar_reserva(tenant["id"], nuevo["id"], {
-        "token_calendario": token, "confirmado_at": datetime.now(ZoneInfo("UTC")).isoformat(),
-        "confirmacion_enviada_at": turno.get("confirmacion_enviada_at"), "reserva_nueva": True, "reserva_avisada": False})
-    db.registrar_actividad("paciente (web)", "cambió el horario de un turno desde el link de agendar", tenant["id"])
-    scheduler.avisar_profesional(tenant, f"un paciente pasó desde la web su turno del {scheduler.cuando_de(turno, tenant, tz)} "
-                                         f"al {scheduler.cuando_de(nuevo, tenant, tz)}")
-    _evento(tenant, "cambio")
-    db.actualizar_reserva(tenant["id"], nuevo["id"], {"reserva_avisada": True})
     return redirect(url_for("agendar", token=token, cambiado=1))
 
 

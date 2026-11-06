@@ -443,3 +443,51 @@ def bajar_media(media_id: str, maximo: int) -> bytes | None:
     except (requests.RequestException, ValueError):
         logger.warning("No se pudo bajar el archivo de WhatsApp", exc_info=True)
         return None
+
+
+def _interactivo(phone_number_id: str, to: str, interactivo: dict) -> bool:
+    """Lista o botones (sólo dentro de las 24 h: es una respuesta). False si
+    Meta no lo aceptó: quien llama manda el texto de siempre."""
+    if _sin_numero(to):
+        return True
+    if not permitido(to):
+        logger.info("Envío frenado por WHATSAPP_SOLO_A (destino ...%s)", _ultimos10(to)[-4:])
+        return True
+    url = f"https://graph.facebook.com/{config.META_GRAPH_VERSION}/{phone_number_id}/messages"
+    headers = {"Authorization": f"Bearer {config.META_ACCESS_TOKEN}", "Content-Type": "application/json"}
+    try:
+        r = _mandar(url, headers, {"messaging_product": "whatsapp", "to": to, "type": "interactive", "interactive": interactivo})
+    except requests.RequestException:
+        logger.exception("Error de red mandando un mensaje interactivo")
+        return False
+    if r.status_code >= 300:
+        logger.error("Meta rechazó el interactivo (%s): %s", r.status_code, r.text)
+        return False
+    return True
+
+
+def enviar_lista(phone_number_id: str, to: str, cuerpo: str, boton: str, filas: list[dict], titulo: str = "Horarios") -> bool:
+    """Lista desplegable: hasta 10 filas {id, title (24), description (72)}."""
+    filas = [{"id": f["id"][:200], "title": f["title"][:24], **({"description": f["description"][:72]} if f.get("description") else {})}
+             for f in filas[:10]]
+    return _interactivo(phone_number_id, to, {"type": "list", "body": {"text": cuerpo[:1024]},
+                                              "action": {"button": boton[:20], "sections": [{"title": titulo[:24], "rows": filas}]}})
+
+
+def enviar_botones(phone_number_id: str, to: str, cuerpo: str, botones: list[tuple[str, str]]) -> bool:
+    """Hasta 3 botones (id, texto de 20)."""
+    return _interactivo(phone_number_id, to, {"type": "button", "body": {"text": cuerpo[:1024]}, "action": {"buttons": [
+        {"type": "reply", "reply": {"id": i[:256], "title": t[:20]}} for i, t in botones[:3]]}})
+
+
+def enviar_respuesta(phone_number_id: str, to: str, respuesta) -> bool:
+    """Lo que devuelve conversation: texto, o texto con una versión interactiva
+    (`respuesta.interactivo`). Si la interactiva falla, sale el texto."""
+    extra = getattr(respuesta, "interactivo", None)
+    if extra:
+        if extra["tipo"] == "lista" and enviar_lista(phone_number_id, to, extra["cuerpo"], extra["boton"], extra["filas"],
+                                                    extra.get("titulo", "Horarios")):
+            return True
+        if extra["tipo"] == "botones" and enviar_botones(phone_number_id, to, extra["cuerpo"], extra["botones"]):
+            return True
+    return enviar_texto(phone_number_id, to, str(respuesta))

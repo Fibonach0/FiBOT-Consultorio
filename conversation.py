@@ -19,6 +19,27 @@ MESES = ["ene", "feb", "mar", "abr", "may", "jun", "jul", "ago", "sep", "oct", "
 
 logger = logging.getLogger("conversation")
 
+
+class Respuesta(str):
+    """Texto de siempre, con una versión para tocar (lista o botones de
+    WhatsApp) en `interactivo`. Si la lista no sale, se manda el texto: por
+    eso el texto sigue diciendo cómo hacerlo escribiendo."""
+    interactivo: dict | None = None
+
+    @classmethod
+    def con(cls, texto: str, interactivo: dict | None) -> "Respuesta":
+        r = cls(texto)
+        r.interactivo = interactivo
+        return r
+
+
+DIAS_CORTOS = ["lun", "mar", "mié", "jue", "vie", "sáb", "dom"]
+
+
+def _corto(dt_iso: str, tz: ZoneInfo) -> str:
+    dt = datetime.fromisoformat(dt_iso).astimezone(tz)
+    return f"{DIAS_CORTOS[dt.weekday()]} {dt.day:02d}/{dt.month:02d} {dt.hour:02d}:{dt.minute:02d}"
+
 _SELECCION = re.compile(r"^\s*(\d{1,2})\b(.*)$")
 _CANCELAR = re.compile(r"^cancelar(?:\s+(?:el\s+)?turno)?(?:\s+(?:de|a|para))?(?:\s+(.*))?$", re.IGNORECASE)
 
@@ -84,21 +105,40 @@ def _listar_libres(tenant: dict, dia: str | None = None) -> str:
         else:
             numerados, titulo = numerados[:8], f"No hay horarios libres {nombre_dia}. Estos son los próximos:"
     lineas = [f"{i}. {_fmt(t['inicio'], tz)}" for i, t in numerados]
-    return (
+    texto = (
         f"{titulo}\n\n"
         + "\n".join(lineas)
         + "\n\nRespondé con el número para reservar (podés sumar tu nombre, ej: *2 Juan Pérez*)."
     )
+    lista = {"tipo": "lista", "boton": "Ver horarios", "titulo": "Horarios libres",
+             "cuerpo": f"{titulo.rstrip(':')}. Tocá *Ver horarios* y elegí uno.",
+             "filas": [{"id": f"reservar:{t['id']}", "title": _corto(t["inicio"], tz)} for _, t in numerados[:10]]}
+    return Respuesta.con(texto, lista)
 
 
 def _reservar(tenant: dict, telefono: str, indice: int, nombre: str | None) -> str:
     if tenant.get("pausado"):
         return _pausado(tenant)
-    tz = _tz(tenant)
     libres = db.turnos_libres(tenant["id"], datetime.now(timezone.utc), limite=max(indice, 8))
     if indice < 1 or indice > len(libres):
         return "Ese número no corresponde a ningún horario de la lista. Escribí *turno* para ver los disponibles."
-    elegido = libres[indice - 1]
+    return _reservar_elegido(tenant, telefono, libres[indice - 1], indice, nombre)
+
+
+def elegir_horario(tenant: dict, telefono: str, turno_id: str) -> str:
+    """El paciente tocó un horario de la lista. Se busca en los libres de
+    AHORA: si ya no está, se le dice (nunca se reserva algo que no vio)."""
+    if tenant.get("pausado"):
+        return _pausado(tenant)
+    libres = db.turnos_libres(tenant["id"], datetime.now(timezone.utc), limite=LIBRES_CON_DIA)
+    posicion = next((i for i, t in enumerate(libres, start=1) if t["id"] == turno_id), None)
+    if not posicion:
+        return "Justo se acaba de reservar ese horario. Escribí *turno* para ver los que quedan libres."
+    return _reservar_elegido(tenant, telefono, libres[posicion - 1], posicion, None)
+
+
+def _reservar_elegido(tenant: dict, telefono: str, elegido: dict, indice: int, nombre: str | None) -> str:
+    tz = _tz(tenant)
     if not nombre and len(db.fichas_del_telefono(tenant["id"], telefono)) > 1:
         return f"Este WhatsApp es de más de un paciente. Escribí el número y el nombre, ej: *{indice} Lola*."
     if nombre and db.nombre_ambiguo(tenant["id"], telefono, nombre):
@@ -312,10 +352,32 @@ def _antes_de_cancelar(tenant: dict, telefono: str) -> str:
 
 
 def _como_reprogramar(tenant: dict, telefono: str) -> str:
-    if not db.proximos_turnos_de(tenant["id"], telefono):
+    """Con un solo turno: la lista de horarios para pasarlo (cada fila lleva
+    el turno y el horario nuevo; lo resuelve app._mover_desde_whatsapp). Por
+    escrito, el link de la web si lo tiene, o cancelar y pedir otro."""
+    tz = _tz(tenant)
+    turnos = db.proximos_turnos_de(tenant["id"], telefono)
+    if not turnos:
         return f"No tenés turnos reservados con *{tenant['nombre']}*. Escribí *turno* para ver horarios libres."
-    return ("Para cambiar el horario: escribí *cancelar* para liberar el que tenés y después *turno* para elegir otro. "
-            f"Si tu turno es muy pronto, escribile directamente a *{tenant['nombre']}*.")
+    a_mano = ("Para cambiar el horario: escribí *cancelar* para liberar el que tenés y después *turno* para elegir otro.")
+    if len(turnos) > 1:
+        return a_mano + f" Si tu turno es muy pronto, escribile directamente a *{tenant['nombre']}*."
+    turno = turnos[0]
+    import cancelaciones
+    if not cancelaciones.puede_modificar(turno, tenant):
+        return (f"Tu turno del {_fmt(turno['inicio'], tz)} es en menos de {cancelaciones.horas_limite(tenant)} horas: "
+                f"para cambiarlo, escribile directamente a *{tenant['nombre']}*.")
+    if tenant.get("pausado"):
+        return _pausado(tenant)
+    libres = [t for t in db.turnos_libres(tenant["id"], datetime.now(timezone.utc), limite=10) if t["id"] != turno["id"]]
+    if turno.get("token_calendario"):
+        a_mano = f"Para cambiar tu turno del {_fmt(turno['inicio'], tz)}, elegí otro horario acá: {_base_url()}/agendar/{turno['token_calendario']}/cambiar"
+    if not libres:
+        return f"Por ahora no hay otros horarios libres con *{tenant['nombre']}*. Tu turno del {_fmt(turno['inicio'], tz)} sigue en pie."
+    return Respuesta.con(a_mano, {
+        "tipo": "lista", "boton": "Elegir horario", "titulo": "Horarios libres",
+        "cuerpo": f"Tu turno es el {_fmt(turno['inicio'], tz)}. Tocá *Elegir horario* para pasarlo a otro.",
+        "filas": [{"id": f"mover:{turno['id']}:{t['id']}", "title": _corto(t["inicio"], tz)} for t in libres[:10]]})
 
 
 def _a_la_bandeja(tenant: dict, telefono: str, texto: str | None, tipo: str = "texto") -> bool:
