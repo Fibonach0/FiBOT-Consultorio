@@ -145,11 +145,44 @@ def _reservar_elegido(tenant: dict, telefono: str, elegido: dict, indice: int, n
         return (f"Hay más de un paciente que se llama {nombre} con este WhatsApp. Escribí el nombre completo, "
                 f"o pedile la reserva directamente a *{tenant['nombre']}*.")
     if db.reservar_turno(tenant["id"], elegido["id"], telefono, nombre):
+        cobro = _cobrar_reserva(tenant, elegido, nombre)
+        if cobro:
+            return cobro
         return (
             f"Listo, quedó reservado para el {_fmt(elegido['inicio'], tz)}. "
             "Te aviso antes por acá. Si necesitás cancelarlo, escribí *cancelar*."
         )
     return "Justo se acaba de reservar ese horario. Escribí *turno* para ver los que quedan libres."
+
+
+def _cobrar_reserva(tenant: dict, turno: dict, nombre: str | None) -> Respuesta | None:
+    """Si el profesional cobra las reservas (lo mismo que en la página: medio
+    que funcione y precio), el horario queda apartado hasta que pague, igual
+    que en la web: `pagos.iniciar` y el link a /pago/<token>. Si no se paga a
+    tiempo, `pagos.vencer` lo libera. None si no se cobra."""
+    import pagos
+    if not pagos.activo(tenant):
+        return None
+    monto = pagos.monto_de(tenant, None)
+    if not monto:
+        return None
+    tz = _tz(tenant)
+    campos = {"valor": tenant["precio_sesion"]} if tenant.get("precio_sesion") else {}
+    if campos:
+        db.actualizar_reserva(tenant["id"], turno["id"], campos)
+    pago = pagos.iniciar(tenant, [{**turno, **campos, "paciente_nombre": nombre or turno.get("paciente_nombre")}], monto)
+    link = f"{_base_url()}/pago/{pago['token']}"
+    hasta = datetime.fromisoformat(str(pago["vence"])).astimezone(tz)
+    sena = " de seña" if (tenant.get("cobro_modo") or "total") == "sena" else ""
+    medios = pagos.metodos(tenant)
+    como = ("con Mercado Pago" if medios == ["mercadopago"] else
+            "por transferencia (después mandame la foto del comprobante por acá o subilo en el link)" if medios == ["transferencia"]
+            else "con Mercado Pago o por transferencia")
+    principio = (f"Te aparté el {_fmt(turno['inicio'], tz)} con *{tenant['nombre']}*. Para confirmarlo, pagá "
+                 f"*{_pesos(monto)}*{sena} {como} antes de las {hasta:%H:%M}")
+    final = "Si no se paga a tiempo, el horario se libera solo."
+    return Respuesta.con(f"{principio}: {link}\n\n{final}",
+                         {"tipo": "link", "boton": "Pagar", "url": link, "cuerpo": f"{principio}.\n\n{final}"})
 
 
 def _cancelar(tenant: dict, telefono: str, nombre: str | None = None) -> str:

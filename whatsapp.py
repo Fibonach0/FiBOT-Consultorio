@@ -486,6 +486,12 @@ def enviar_botones(phone_number_id: str, to: str, cuerpo: str, botones: list[tup
         {"type": "reply", "reply": {"id": i[:256], "title": t[:20]}} for i, t in botones[:3]]}})
 
 
+def enviar_boton_link(phone_number_id: str, to: str, cuerpo: str, texto: str, url: str) -> bool:
+    """Un botón que abre un link (por ejemplo «Pagar»). Sólo dentro de las 24 h."""
+    return _interactivo(phone_number_id, to, {"type": "cta_url", "body": {"text": cuerpo[:1024]}, "action": {
+        "name": "cta_url", "parameters": {"display_text": texto[:20], "url": url}}})
+
+
 def enviar_respuesta(phone_number_id: str, to: str, respuesta) -> bool:
     """Lo que devuelve conversation: texto, o texto con una versión interactiva
     (`respuesta.interactivo`). Si la interactiva falla, sale el texto."""
@@ -495,5 +501,7 @@ def enviar_respuesta(phone_number_id: str, to: str, respuesta) -> bool:
                                                     extra.get("titulo", "Horarios")):
             return True
         if extra["tipo"] == "botones" and enviar_botones(phone_number_id, to, extra["cuerpo"], extra["botones"]):
+            return True
+        if extra["tipo"] == "link" and enviar_boton_link(phone_number_id, to, extra["cuerpo"], extra["boton"], extra["url"]):
             return True
     return enviar_texto(phone_number_id, to, str(respuesta))

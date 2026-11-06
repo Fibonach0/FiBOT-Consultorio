@@ -267,3 +267,39 @@ print("«¿qué debo?» y variantes; sin deuda lo dice OK")
 assert "No tenés turnos reservados" in conversation.responder(tenant, "5491199999999", "Sí, confirmo")
 print("«Sí, confirmo» sin turno no confirma nada OK")
 print("\nTODOS LOS TESTS DE BOTONES DE PLANTILLAS PASARON")
+
+
+# --- Reservar por WhatsApp con cobro: queda apartado hasta pagar, como en la web ---
+PAGOS, RESERVAS = [], []
+db.crear_pago = lambda fila: PAGOS.append(dict(fila, id=f"pg{len(PAGOS)}")) or PAGOS[-1]
+db.actualizar_reserva = lambda tid, turno_id, campos: RESERVAS.append((turno_id, campos))
+FAKE_TURNOS[:] = [{"id": "cob1", "tenant_id": "t1", "estado": "libre", "paciente_telefono": None, "paciente_nombre": None,
+                   "inicio": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()}]
+_cobra = dict(tenant, cobro_web="transferencia", transferencia_datos="Alias: ana.psico", precio_sesion=30000)
+r = conversation.responder(_cobra, "5491177770000", "1 Rita")
+assert "Te aparté el" in r and "*$ 30.000*" in r and "/pago/" in r and "foto del comprobante" in r, r
+assert len(PAGOS) == 1 and PAGOS[0]["turnos"] == ["cob1"] and PAGOS[0]["monto"] == 30000 and PAGOS[0]["paciente_nombre"] == "Rita", PAGOS
+assert ("cob1", {"valor": 30000}) in RESERVAS and any(c.get("pago_web") == "esperando" for _, c in RESERVAS), RESERVAS
+assert r.interactivo["tipo"] == "link" and r.interactivo["url"].endswith(PAGOS[0]["token"]) and "/pago/" not in r.interactivo["cuerpo"]
+print("reservar por WhatsApp con cobro: queda apartado, pago creado y link con botón «Pagar» OK")
+
+FAKE_TURNOS[:] = [{"id": "cob2", "tenant_id": "t1", "estado": "libre", "paciente_telefono": None, "paciente_nombre": None,
+                   "inicio": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()}]
+r = conversation.responder(dict(_cobra, cobro_modo="sena", sena_monto=10000), "5491177770001", "1 Leo")
+assert "*$ 10.000* de seña" in r and PAGOS[-1]["monto"] == 10000, r
+print("con seña cobra la seña OK")
+
+FAKE_TURNOS[:] = [{"id": "cob3", "tenant_id": "t1", "estado": "libre", "paciente_telefono": None, "paciente_nombre": None,
+                   "inicio": (datetime.now(timezone.utc) + timedelta(days=3)).isoformat()}]
+_antes = len(PAGOS)
+r = conversation.responder(dict(_cobra, precio_sesion=None), "5491177770002", "1 Sin Precio")
+assert "Listo, quedó reservado" in r and len(PAGOS) == _antes, r
+print("sin precio no se cobra (igual que en la web) OK")
+
+import whatsapp  # noqa: E402
+_inter = []
+whatsapp._interactivo = lambda pid, to, i: _inter.append(i) or True
+assert whatsapp.enviar_respuesta("PN", "549", conversation.Respuesta.con("texto", {"tipo": "link", "boton": "Pagar", "url": "https://x/pago/t", "cuerpo": "c"}))
+assert _inter[-1]["type"] == "cta_url" and _inter[-1]["action"]["parameters"] == {"display_text": "Pagar", "url": "https://x/pago/t"}
+print("el botón «Pagar» sale como cta_url OK")
+print("\nTODOS LOS TESTS DE COBRO POR WHATSAPP PASARON")
