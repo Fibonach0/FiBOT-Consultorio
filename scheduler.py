@@ -129,8 +129,11 @@ def _resumen_diario(tenant: dict, tz: ZoneInfo) -> None:
     if not partes or not numero:
         return
     resumen = ", ".join(partes)
-    if config.AVISO_TEMPLATE:
-        ok = whatsapp.enviar_plantilla(numero, tenant["aviso_telefono"], config.AVISO_TEMPLATE,
+    # Con botones («Ver hoy», «Pagos», «Mensajes») si está la plantilla: el
+    # toque llega como texto y lo contesta asistente_profesional.
+    plantilla = config.RESUMEN_TEMPLATE or config.AVISO_TEMPLATE
+    if plantilla:
+        ok = whatsapp.enviar_plantilla(numero, tenant["aviso_telefono"], plantilla,
                                        config.RECORDATORIO_TEMPLATE_LANG, [resumen])
     else:
         ok = whatsapp.enviar_texto(numero, tenant["aviso_telefono"], f"Tu consultorio hoy: {resumen}. Mirá el panel.")

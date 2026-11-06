@@ -60,6 +60,11 @@ CATALOGO = [
      "texto": "Aviso de FiBOT Consultorio: {{1}}. El detalle está en tu panel.",
      "ejemplo": ["hoy tenés 4 sesiones; la primera a las 9:15"],
      "botones": []},
+    {"uso": "Resumen de la mañana", "variable": "RESUMEN_TEMPLATE", "nombre": "resumen_manana",
+     "params": ["el resumen en una línea"], "para": "profesional",
+     "texto": "Buen día. Tu consultorio hoy: {{1}}. Tocá un botón para ver el detalle.",
+     "ejemplo": ["4 sesiones, la primera a las 9:15, y 1 comprobante para validar"],
+     "botones": ["Ver hoy", "Pagos", "Mensajes"]},
 ]
 
 # Qué tiene que contestar el bot a cada botón (lo prueba test_conversation).
@@ -73,9 +78,22 @@ QUE_HACE = {
 }
 
 
-def botones_de_todas() -> list[str]:
+# Los botones de las plantillas que le llegan al PROFESIONAL los contesta su
+# asistente (lo prueba test_asistente_profesional), no el bot de pacientes.
+QUE_HACE_PROFESIONAL = {
+    "Ver hoy": "le muestra las sesiones de hoy, con nombres",
+    "Pagos": "le lista los comprobantes y devoluciones para revisar",
+    "Mensajes": "le muestra los mensajes de pacientes sin leer",
+}
+
+
+def botones_de_todas(para: str = "paciente") -> list[str]:
+    """Los botones de las plantillas de pacientes (o, con
+    para="profesional", los de las que le llegan al profesional)."""
     vistos: list[str] = []
     for p in CATALOGO:
+        if p.get("para", "paciente") != para:
+            continue
         for b in p["botones"]:
             if b not in vistos:
                 vistos.append(b)

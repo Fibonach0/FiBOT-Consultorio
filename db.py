@@ -1516,6 +1516,25 @@ def tenants_por_aviso(telefono: str) -> list[dict]:
             if "".join(ch for ch in t.get("aviso_telefono") or "" if ch.isdigit())[-10:] == final]
 
 
+def vincular_aviso(tenant_id: str, numero: str) -> None:
+    """El profesional mandó desde su WhatsApp de avisos el código del panel
+    (asistente_profesional). Vale mientras no cambie `aviso_telefono`."""
+    _client.table("tenants").update({"aviso_verificado": numero}).eq("id", tenant_id).execute()
+
+
+def turnos_de_paciente_por_nombre(tenant_id: str, nombre: str, limite: int = 200) -> list[dict]:
+    """Sesiones reservadas de ESTE tenant cuyo paciente se llama parecido
+    (para «paciente Juan» del asistente del profesional). Las vocales van
+    como comodín (`_`): «perez» encuentra «Pérez»; quien llama filtra fino."""
+    limpio = "".join(ch for ch in nombre if ch.isalpha() or ch == " ").strip()
+    if len(limpio) < 2:
+        return []
+    patron = "%" + "%".join("".join("_" if ch in "aeiouáéíóú" else ch for ch in palabra) for palabra in limpio.split()) + "%"
+    res = (_client.table("turnos").select("*").eq("tenant_id", tenant_id).eq("estado", "reservado")
+           .ilike("paciente_nombre", patron).order("inicio", desc=True).limit(limite).execute())
+    return res.data
+
+
 def registrar_evento_pagina(tenant_id: str, tipo: str) -> None:
     _client.table("eventos_pagina").insert({"tenant_id": tenant_id, "tipo": tipo,
                                             "cuando": datetime.now(timezone.utc).isoformat()}).execute()

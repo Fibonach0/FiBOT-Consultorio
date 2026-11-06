@@ -66,6 +66,10 @@ REPROGRAMADO_TEMPLATE = os.environ.get("REPROGRAMADO_TEMPLATE", "")
 # Vacía = texto libre, con la misma limitación de las 24 h.
 AVISO_TEMPLATE = os.environ.get("AVISO_TEMPLATE", "")
 
+# Resumen de la mañana con botones («Ver hoy», «Pagos», «Mensajes»), mismo
+# {{1}}. Vacía = sale con AVISO_TEMPLATE, sin botones (plantillas.py).
+RESUMEN_TEMPLATE = os.environ.get("RESUMEN_TEMPLATE", "")
+
 # Recordatorio de pago, lo dispara el profesional a mano desde la ficha:
 #   {{1}} nombre del profesional      {{2}} cuánto debe
 # Vacía = texto libre, con la misma limitación de las 24 h.
