@@ -394,7 +394,7 @@
       <a class="pro" href="{{ url_for('publico', slug=t.slug) }}" data-para-en="{{ t._para }}" data-reveal>
         <div class="foto">{{ t.nombre | replace('Lic. ', '') | first | upper }}
           {% if t.foto %}<img src="{{ url_for('publico_foto', slug=t.slug) }}" alt="" loading="lazy">{% endif %}
-          <span class="chapa{% if t.pausado %} espera{% endif %}">{% if t.pausado %}lista de espera{% elif t.modalidades_publicas == 'virtual' %}por videollamada{% elif t.modalidades_publicas == 'ambas' %}presencial u online{% else %}presencial{% endif %}</span>
+          <span class="chapa{% if t.pausado %} espera{% endif %}">{% if t.pausado %}{{ vuelve(t) | lower }}{% elif t.modalidades_publicas == 'virtual' %}por videollamada{% elif t.modalidades_publicas == 'ambas' %}presencial u online{% else %}presencial{% endif %}</span>
         </div>
         <div class="datos">
           <div class="nombre">{{ t.nombre }}</div>

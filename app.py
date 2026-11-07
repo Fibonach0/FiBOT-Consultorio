@@ -641,6 +641,18 @@ COLORES_PAGINA = {
 }
 app.jinja_env.globals["colores_pagina"] = COLORES_PAGINA
 app.jinja_env.globals["anio_actual"] = lambda: datetime.now().year
+
+
+def _vuelve(t: dict) -> str:
+    """Lo que dice la tarjeta de un profesional pausado en el directorio."""
+    try:
+        hasta = date.fromisoformat((t.get("pausado_hasta") or "")[:10])
+    except ValueError:
+        return "Vuelve a atender pronto"
+    return f"Vuelve el {hasta.day}/{hasta.month}"
+
+
+app.jinja_env.globals["vuelve"] = _vuelve
 app.jinja_env.filters["pesos"] = lambda v: f"$ {v:,}".replace(",", ".")
 _pesos = app.jinja_env.filters["pesos"]
 
@@ -2503,9 +2515,34 @@ def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
         "primeros_pasos": _primeros_pasos(tenant, fichas),
         "paciente_nuevo": _paciente_nuevo(fichas),
         "revision": _revision_semana(tenant, fichas, bloqueos, tz, ahora),
+        "avisos_pagina": _avisos_pagina(tenant, ahora),
     }
     comunes["buscador"] = buscador.indice(tenant, comunes, rubros.de(tenant), url_for)
     return comunes
+
+
+PAUSA_AVISAR_DIAS = 3
+
+
+def _avisos_pagina(tenant: dict, ahora: datetime) -> dict:
+    """Lo que hace que los pacientes no lo encuentren o no puedan reservar sin
+    que el profesional lo note: pausado hace días sin fecha de vuelta, o fuera
+    del directorio de consultorio.fibot.ar."""
+    avisos = {"pausa_dias": None, "fuera_directorio": False}
+    if tenant.get("pausado") and not tenant.get("pausado_hasta"):
+        desde = tenant.get("pausado_desde")
+        dias = None
+        if desde:
+            try:
+                dias = (ahora - datetime.fromisoformat(desde)).days
+            except ValueError:
+                dias = None
+        # Sin `pausado_desde` (pausas de antes de guardarlo) también avisa.
+        if dias is None or dias >= PAUSA_AVISAR_DIAS:
+            avisos["pausa_dias"] = dias if dias is not None else -1
+    if tenant.get("slug") and tenant.get("en_directorio") is False:
+        avisos["fuera_directorio"] = True
+    return avisos
 
 
 def _paciente_nuevo(fichas: list[dict]) -> dict | None:
