@@ -214,6 +214,51 @@ def vencer_huecos(tenant: dict, ahora: datetime | None = None) -> int:
     return resueltos
 
 
+DIAS_ANTES_VUELTA = 2
+_DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def avisar_vuelta_si_toca(tenant: dict, ahora: datetime) -> int:
+    """Pausa con fecha de vuelta: DIAS_ANTES_VUELTA días antes, desde las 10,
+    a la lista de espera le avisamos que vuelve (una vez por fecha de vuelta,
+    `tenants.vuelta_avisada`; se marca antes de mandar). Devuelve a cuántos
+    se les pudo escribir."""
+    from datetime import date
+    hasta_txt = str(tenant.get("pausado_hasta") or "")[:10]
+    if not tenant.get("pausado") or not hasta_txt or not tenant.get("slug") or ahora.hour < 10:
+        return 0
+    try:
+        hasta = date.fromisoformat(hasta_txt)
+    except ValueError:
+        return 0
+    faltan = (hasta - ahora.date()).days
+    if not 0 < faltan <= DIAS_ANTES_VUELTA or tenant.get("vuelta_avisada") == hasta_txt:
+        return 0
+    espera = db.lista_de_espera(tenant["id"])
+    db.guardar_ajustes(tenant["id"], {"vuelta_avisada": hasta_txt})
+    if not espera:
+        return 0
+    numero = whatsapp.numero_de(tenant)
+    if not numero:
+        return 0
+    cuando = "mañana" if faltan == 1 else f"el {_DIAS[hasta.weekday()]} {hasta.day}/{hasta.month}"
+    link = f"{base_url()}/{tenant['slug']}"
+    mensaje = (f"vuelvo a tomar turnos {cuando}. Como estás en mi lista de espera, ese día te escribimos "
+               f"con el primer horario libre. Mi página: {link}")
+    avisados = 0
+    for p in espera:
+        if config.MENSAJE_PROFESIONAL_TEMPLATE:
+            ok = whatsapp.enviar_plantilla(numero, p["telefono"], config.MENSAJE_PROFESIONAL_TEMPLATE,
+                                           config.RECORDATORIO_TEMPLATE_LANG, [tenant["nombre"], mensaje])
+        else:
+            ok = whatsapp.enviar_texto(numero, p["telefono"], f"Hola. *{tenant['nombre']}*: {mensaje}")
+        avisados += 1 if ok else 0
+    if avisados:
+        scheduler.avisar_profesional(tenant, f"faltan {faltan} día{'s' if faltan != 1 else ''} para que termine tu "
+                                             f"pausa: le avisamos a {avisados} de tu lista de espera que volvés {cuando}")
+    return avisados
+
+
 def reactivar_si_toca(tenant: dict, hoy) -> bool:
     """Pausa con fecha de vuelta: el día que llega, la página vuelve a tomar
     turnos, se le avisa al profesional y a la lista de espera se le ofrece el

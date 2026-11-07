@@ -3726,7 +3726,15 @@ panel_c.post("/agenda/pausa", data={"csrf_token": "tok", "pausar": "1", "pausado
 chequear("pausa con fecha: hoy o antes no", not _t1.get("pausado"))
 panel_c.post("/agenda/pausa", data={"csrf_token": "tok", "pausar": "1", "pausado_hasta": (_hoy_ar + timedelta(days=10)).isoformat()})
 chequear("pausa con fecha: se guarda", _t1["pausado"] and _t1["pausado_hasta"] == (_hoy_ar + timedelta(days=10)).isoformat())
-chequear("pausa con fecha: la página dice cuándo vuelve", "vuelve el" in app.app.test_client().get("/marcos").data.decode())
+_pag = app.app.test_client().get("/marcos").data.decode()
+_v10 = _hoy_ar + timedelta(days=10)
+chequear("pausa con fecha: la página dice cuándo vuelve, con cuenta regresiva",
+         f"Vuelve el {app.DIAS_LARGOS[_v10.weekday()]} {_v10.day}/{_v10.month}" in _pag and 'class="pf-cuenta"' in _pag
+         and '<b data-c="d">10</b>' in _pag and "dos días antes de que vuelva te avisamos" in _pag, _pag[:0])
+_t1["pausado_hasta"] = None
+_pag = app.app.test_client().get("/marcos").data.decode()
+chequear("pausa sin fecha: «Vuelve a atender pronto», sin cuenta", "Vuelve a atender pronto" in _pag and 'class="pf-cuenta"' not in _pag)
+_t1["pausado_hasta"] = _v10.isoformat()
 TABLAS["turnos"] = [turno("r1", "t1", datetime.now(timezone.utc) + timedelta(days=12))]
 TABLAS["lista_espera"] = [{"id": "e1", "tenant_id": "t1", "nombre": "Nora", "telefono": "5491144445555", "ofrecido_en": None,
                            "origen": "web", "created_at": _b.isoformat()}]
@@ -3734,6 +3742,20 @@ _ofr, _avs = [], []
 _vo, _va = _canc3.ofrecer_horario, scheduler.avisar_profesional
 _canc3.ofrecer_horario = lambda tenant, tel, cuando, link: _ofr.append(tel) or True
 scheduler.avisar_profesional = lambda tenant, texto, **_kw: _avs.append(texto) or True
+_men = []
+_ve, _vt = _canc3.whatsapp.enviar_texto, _canc3.whatsapp.enviar_plantilla
+_canc3.whatsapp.enviar_texto = lambda numero, to, texto: _men.append((to, texto)) or True
+_z = app.ZoneInfo(TZ)
+_a10 = lambda d: datetime.combine(_hoy_ar + timedelta(days=d), datetime.min.time(), _z).replace(hour=10)
+chequear("vuelta: 3 días antes todavía no avisa", _canc3.avisar_vuelta_si_toca(dict(_t1), _a10(7)) == 0 and not _men)
+chequear("vuelta: 2 días antes, antes de las 10 no", _canc3.avisar_vuelta_si_toca(dict(_t1), _a10(8).replace(hour=8)) == 0)
+chequear("vuelta: 2 días antes le avisa a la lista y al profesional",
+         _canc3.avisar_vuelta_si_toca(dict(_t1), _a10(8)) == 1 and _men[0][0] == "5491144445555"
+         and f"vuelvo a tomar turnos el {app.DIAS_LARGOS[_v10.weekday()]} {_v10.day}/{_v10.month}" in _men[0][1]
+         and "/marcos" in _men[0][1] and _t1["vuelta_avisada"] == _v10.isoformat()
+         and "le avisamos a 1 de tu lista de espera" in _avs[-1], (_men, _avs))
+chequear("vuelta: una sola vez", _canc3.avisar_vuelta_si_toca(dict(_t1), _a10(9)) == 0 and len(_men) == 1)
+_canc3.whatsapp.enviar_texto, _canc3.whatsapp.enviar_plantilla = _ve, _vt
 chequear("pausa con fecha: antes no se reactiva", not _canc3.reactivar_si_toca(dict(_t1), _hoy_ar + timedelta(days=9)))
 chequear("pausa con fecha: ese día se reactiva", _canc3.reactivar_si_toca(dict(_t1), _hoy_ar + timedelta(days=10))
          and _t1["pausado"] is False and _t1["pausado_hasta"] is None)
