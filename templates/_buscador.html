@@ -33,6 +33,8 @@
   .buscador-pie-tip { padding:10px 16px 4px; font-size:.84rem; color:var(--muted); }
   .buscador-pie-tip button { background:none; border:none; padding:0; font:inherit; color:var(--green); cursor:pointer; text-decoration:underline; }
   .asistente-resp { padding:14px 16px; white-space:normal; line-height:1.45; overflow-wrap:anywhere; }
+  .asist-ficha { font:inherit; color:var(--green); background:none; border:none; padding:0; text-decoration:underline; text-underline-offset:2px; cursor:pointer; }
+  .asist-ficha:hover, .asist-ficha:focus-visible { text-decoration-thickness:2px; }
   .asistente-resp .quien { font-size:.72rem; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:6px; }
   .asistente-botones { display:flex; gap:8px; flex-wrap:wrap; padding:0 16px 14px; }
   .buscador-pie { margin:0; padding:8px 14px; border-top:1px solid var(--rule); font-size:.76rem; }
@@ -177,7 +179,18 @@
   }
   const EJEMPLOS = ['qué tengo mañana', 'quién me debe', 'bloquear el viernes', 'cómo vengo este mes'];
   // Texto del asistente (con *negritas* de WhatsApp) a HTML seguro.
-  const formato = t => esc(t).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>').replace(/(^|\s)_([^_\n]+)_/g, '$1<em>$2</em>').replace(/\n/g, '<br>');
+  // Los nombres completos de pacientes en la respuesta se pueden tocar para abrir su ficha
+  // (si dos fichas tienen el mismo nombre no se enlaza: no sabríamos cuál).
+  const porNombre = new Map();
+  idx.fichas.forEach(f => { const k = f.n.trim(); if (k.length > 2) porNombre.set(k, porNombre.has(k) ? null : f); });
+  const nombres = [...porNombre.keys()].filter(k => porNombre.get(k)).sort((a, b) => b.length - a.length);
+  const reNombres = nombres.length
+    ? new RegExp('(^|[^\\p{L}])(' + nombres.map(n => esc(n).replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|') + ')(?![\\p{L}])', 'gu') : null;
+  const conFichas = h => reNombres ? h.replace(reNombres, (m, antes, n) => {
+    const f = porNombre.get(n.replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&#39;/g, "'"));
+    return f ? `${antes}<button type="button" class="asist-ficha" data-ir-ficha="${esc(f.r)}">${n}</button>` : m;
+  }) : h;
+  const formato = t => conFichas(esc(t)).replace(/\*([^*\n]+)\*/g, '<strong>$1</strong>').replace(/(^|\s)_([^_\n]+)_/g, '$1<em>$2</em>').replace(/\n/g, '<br>');
   async function enviar(url, datos) {
     const fd = new FormData();
     fd.append('csrf_token', csrf);
@@ -244,6 +257,15 @@
     const boton = e.target.closest('[data-asist]');
     if (boton) return confirmar(+boton.dataset.n, boton.dataset.asist);
     if (e.target.closest('[data-cerrar]')) return dialogo.close();
+    const enlace = e.target.closest('[data-ir-ficha]');
+    if (enlace) {
+      const f = idx.fichas.find(x => x.r === enlace.dataset.irFicha);
+      if (!f) return;
+      anotarRec('f:' + f.r);
+      // Si el asistente cambió algo, la agenda se recarga: la ficha se abre después.
+      if (recargar) { recargar = false; dialogo.close(); location.href = idx.agenda + '?ficha=' + encodeURIComponent(f.r); return; }
+      return abrirFicha(f)();
+    }
     const ejemplo = e.target.closest('[data-ejemplo]');
     if (ejemplo) { q.value = ejemplo.dataset.ejemplo; q.focus(); return pintar(); }
     const a = e.target.closest('.buscador-item');
