@@ -1062,6 +1062,18 @@ Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
   ficha no tenía sesiones; `_paciente_nuevo` la muestra UNA vez en la agenda
   (WhatsApp, valor, sesiones fijas). Sin pacientes todavía, el formulario de
   agendar trae una línea de guía.
+- Tarjeta de Hoy con acciones (`.hoy-acciones`, `data-sin-ficha` para que no
+  abra la ficha): Vino / No vino, Pagó (con el valor) y nota de la sesión. Usan
+  las rutas de siempre con `ancla=hoy`; `_volver_a_agenda` sólo acepta `hoy` o
+  `revision` como ancla (nunca una URL).
+- Repaso de la semana (`_revision_semana`, `#revision`): sin marcar, faltaron,
+  deben, series por terminar y libres de la semana que viene (sin días
+  bloqueados). Sale sola de viernes a domingo (`DIAS_REVISION`; «Listo, ya la
+  vi» la oculta en ese navegador hasta el lunes) y cualquier día con
+  `?revision=1` (está en el buscador como «Repaso de la semana»).
+- Respuestas del asistente en el buscador: los nombres completos de pacientes
+  se vuelven botones que abren la ficha (`conFichas`; un nombre repetido en dos
+  fichas no se enlaza).
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
 - GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +

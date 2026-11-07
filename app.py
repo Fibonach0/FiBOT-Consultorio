@@ -2293,8 +2293,59 @@ def _hoy(tenant: dict, fichas: list[dict], tz: ZoneInfo, ahora: datetime) -> lis
         ficha = por_clave.get(db.clave_de(t))
         if ficha:
             cerca = [c for c in ficha["fechas"] if c["_dias"] <= DIAS_FECHA_CERCA]
-            filas.append({"hora": t["_hora"], "asistencia": t.get("asistencia"), "ficha": ficha, "fechas": cerca})
+            filas.append({"hora": t["_hora"], "asistencia": t.get("asistencia"), "ficha": ficha, "fechas": cerca,
+                          "id": t["id"], "pago": t.get("pago"), "valor": t.get("valor"), "nota": t.get("nota")})
     return filas
+
+
+DIAS_REVISION = (4, 5, 6)  # viernes, sábado y domingo: la revisión sale sola
+
+
+def _revision_semana(tenant: dict, fichas: list[dict], bloqueos: list[dict], tz: ZoneInfo, ahora: datetime) -> dict | None:
+    """El repaso del viernes: quién faltó, qué quedó sin marcar, quién debe,
+    qué series se terminan y cómo viene la semana que viene. Sale sola de
+    viernes a domingo, y cualquier día con ?revision=1 (o desde el buscador)."""
+    if request.endpoint != "agenda":
+        return None
+    pedida = request.args.get("revision") == "1"
+    if not pedida and ahora.weekday() not in DIAS_REVISION:
+        return None
+    lunes = (ahora - timedelta(days=ahora.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+    proximo = lunes + timedelta(days=7)
+    faltaron, sin_marcar = [], []
+    for f in fichas:
+        for t in f.get("sesiones") or []:
+            inicio = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+            if not (lunes <= inicio < ahora):
+                continue
+            fila = {"ficha": f, "id": t["id"], "cuando": f"{DIAS_LABEL[inicio.weekday()]} {inicio:%H:%M}"}
+            if t.get("asistencia") == "no_vino":
+                faltaron.append(fila)
+            elif not t.get("asistencia"):
+                sin_marcar.append(fila)
+    deben = sorted((f for f in fichas if f.get("sin_pagar")), key=lambda f: -(f.get("adeudado") or 0))
+    por_terminar = [f for f in fichas if f.get("quedan") is not None]
+    utc = ZoneInfo("UTC")
+    turnos = db.agenda_semana(tenant["id"], proximo.astimezone(utc), (proximo + timedelta(days=7)).astimezone(utc))
+    libres_por_dia = {}
+    for t in turnos:
+        inicio = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+        if t["estado"] == "libre" and not any(b["_desde"] <= inicio.date() <= b["_hasta"] for b in bloqueos):
+            libres_por_dia[inicio.weekday()] = libres_por_dia.get(inicio.weekday(), 0) + 1
+    return {
+        "pedida": pedida,
+        "semana": lunes.date().isoformat(),
+        "proxima": proximo.date().isoformat(),
+        "faltaron": faltaron,
+        "sin_marcar": sin_marcar,
+        "deben": deben[:8],
+        "deben_mas": max(0, len(deben) - 8),
+        "deuda": sum(f.get("adeudado") or 0 for f in deben),
+        "por_terminar": por_terminar,
+        "libres": sum(libres_por_dia.values()),
+        "libres_por_dia": [(DIAS_LABEL[d], n) for d, n in sorted(libres_por_dia.items())],
+        "reservadas_proxima": sum(t["estado"] == "reservado" for t in turnos),
+    }
 
 
 def _cuestionarios_de_ficha(filas: list[dict], tz: ZoneInfo, ahora: datetime) -> dict:
@@ -2346,6 +2397,9 @@ def _volver_a_agenda():
     Desde la página de ajustes (campo `volver`), vuelve a esa pestaña."""
     if request.form.get("volver") == "ajustes":
         return _a_ajustes(request.form.get("pestania"))
+    if request.form.get("ancla") in ("hoy", "revision"):
+        ancla = request.form["ancla"]
+        return redirect(url_for("agenda", revision="1" if ancla == "revision" else None, _anchor=ancla))
     semana = request.form.get("semana") or ""
     try:
         datetime.strptime(semana, "%Y-%m-%d")
@@ -2448,6 +2502,7 @@ def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
         "duracion_default": tenant.get("duracion_turno_minutos") or 50,
         "primeros_pasos": _primeros_pasos(tenant, fichas),
         "paciente_nuevo": _paciente_nuevo(fichas),
+        "revision": _revision_semana(tenant, fichas, bloqueos, tz, ahora),
     }
     comunes["buscador"] = buscador.indice(tenant, comunes, rubros.de(tenant), url_for)
     return comunes

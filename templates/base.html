@@ -139,6 +139,16 @@
     .hoy-sesion { padding:10px 12px; border:1px solid var(--rule); border-left:3px solid var(--green); border-radius:6px; font-size:.88rem; cursor:pointer; }
     .hoy-sesion:hover, .hoy-sesion:focus-visible { background:var(--hover); outline:none; }
     .hoy-sesion .debe { color:var(--warn); font-weight:600; font-size:.84rem; }
+    .revision .turno { gap:10px; }
+    .revision .turno > .btn, .revision .turno > form { flex-shrink:0; white-space:nowrap; }
+    .hoy-acciones { display:flex; flex-wrap:wrap; gap:6px; align-items:flex-start; margin-top:8px; padding-top:8px; border-top:1px dashed var(--rule); cursor:default; }
+    .hoy-acciones form { display:flex; gap:6px; flex-wrap:wrap; margin:0; }
+    .hoy-nota-rapida { flex-basis:100%; }
+    .hoy-nota-rapida:not([open]) { flex-basis:auto; }
+    .hoy-nota-rapida summary { list-style:none; display:inline-block; }
+    .hoy-nota-rapida summary::-webkit-details-marker { display:none; }
+    .hoy-nota-rapida form { margin-top:6px; }
+    .hoy-nota-rapida textarea { width:100%; }
     .hoy-nota { margin-top:4px; font-family:Georgia, serif; font-style:italic; font-size:.82rem; color:var(--muted); }
     .cobros { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:8px; margin-bottom:6px; }
     .cobros div { display:flex; flex-direction:column; }

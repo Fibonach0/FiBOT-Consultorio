@@ -87,6 +87,8 @@ CATALOGO = [
     ("Ajustes", "Cuestionarios propios", "Crear, importar o compartir cuestionarios", ("ajustes", {"p": "avanzado"}, "herramientas"),
      "cuestionarios propios crear importar biblioteca escalas"),
     # --- Acciones en la agenda
+    ("Acciones", "Repaso de la semana", "Quién faltó, quién debe, series por terminar y la semana que viene",
+     ("agenda", {"revision": "1"}, "revision"), "repaso revision resumen semana semanal viernes faltaron deben balance cierre"),
     ("Acciones", "Bloquear días (vacaciones)", "Nadie puede reservar esos días", ("agenda", {}, "bloqueos"),
      "bloquear dias vacaciones congreso licencia feriado libre"),
     ("Acciones", "Pausar mi página", "Dejar de tomar turnos un tiempo", ("agenda", {}, "bloqueos"), "pausar pausa vacaciones dejar de tomar turnos"),

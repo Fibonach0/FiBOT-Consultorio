@@ -203,6 +203,84 @@
   </script>
   {% endif %}
 
+  {% if revision %}
+  {# Repaso de la semana: sale sola de viernes a domingo (se puede dar por vista hasta la semana que viene) y cualquier día con ?revision=1. #}
+  {% set r = revision %}
+  <div class="card revision" id="revision" data-semana="{{ r.semana }}"{% if not r.pedida %} data-ocultable{% endif %}>
+    <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
+      <h3 style="margin:0">Repaso de la semana</h3>
+      <button class="btn chico secundario" type="button" data-revision-vista>{{ 'Cerrar' if r.pedida else 'Listo, ya la vi' }}</button>
+    </div>
+    {% if not (r.faltaron or r.sin_marcar or r.deben or r.por_terminar) %}<p class="tenue" style="margin:.4em 0">Semana en orden: nadie faltó, todo marcado y nadie debe.</p>{% endif %}
+    {% if r.sin_marcar %}
+    <h4 class="subtitulo">Sin marcar <span class="contador">{{ r.sin_marcar|length }}</span></h4>
+    {% for x in r.sin_marcar %}
+    <div class="turno">
+      <span><strong>{{ x.ficha.nombre }}</strong> <span class="tenue">· {{ x.cuando }}</span></span>
+      <form method="post" action="{{ url_for('agenda_asistencia', turno_id=x.id) }}" class="fila">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="ancla" value="revision">
+        <button class="btn chico secundario" name="asistencia" value="vino">Vino</button>
+        <button class="btn chico secundario" name="asistencia" value="no_vino">No vino</button>
+      </form>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% if r.faltaron %}
+    <h4 class="subtitulo">Faltaron <span class="contador">{{ r.faltaron|length }}</span></h4>
+    {% for x in r.faltaron %}
+    <div class="turno">
+      <span><strong>{{ x.ficha.nombre }}</strong> <span class="tenue">· {{ x.cuando }}{% if x.ficha.faltas_recientes > 1 %} · {{ x.ficha.faltas_recientes }} faltas en el último tiempo{% endif %}</span></span>
+      <button class="btn chico secundario" type="button" data-ficha="{{ x.ficha.dom }}">Ver ficha</button>
+    </div>
+    {% endfor %}
+    {% endif %}
+    {% if r.deben %}
+    <h4 class="subtitulo">Deben <span class="tenue">· {{ r.deuda|pesos }} en total</span></h4>
+    {% for f in r.deben %}
+    <div class="turno">
+      <span><strong>{{ f.nombre }}</strong> <span class="tenue">· {{ f.adeudado|pesos if f.adeudado else f.sin_pagar ~ ' sesión' ~ ('es' if f.sin_pagar > 1 else '') }}</span></span>
+      <button class="btn chico secundario" type="button" data-ficha="{{ f.dom }}">Ver cuenta</button>
+    </div>
+    {% endfor %}
+    {% if r.deben_mas %}<div class="tenue">Y {{ r.deben_mas }} más: buscá «quién me debe».</div>{% endif %}
+    {% endif %}
+    {% if r.por_terminar %}
+    <h4 class="subtitulo">Series por terminar</h4>
+    {% for f in r.por_terminar %}
+    <div class="turno">
+      <span><strong>{{ f.nombre }}</strong> <span class="tenue">· {% if f.quedan == 0 %}no le quedan sesiones{% elif f.quedan == 1 %}le queda 1 sesión{% else %}le quedan {{ f.quedan }}{% endif %}</span></span>
+      <form method="post" action="{{ url_for('agenda_renovar') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="ancla" value="revision">
+        <input type="hidden" name="telefono" value="{{ f.clave }}">
+        <button class="btn chico" type="submit">Renovar 8</button>
+      </form>
+    </div>
+    {% endfor %}
+    {% endif %}
+    <h4 class="subtitulo">La semana que viene</h4>
+    <div class="turno">
+      <span>{{ r.reservadas_proxima }} sesion{{ 'es' if r.reservadas_proxima != 1 }} agendada{{ 's' if r.reservadas_proxima != 1 }}{% if r.libres %} · <strong>{{ r.libres }} horario{{ 's' if r.libres != 1 }} libre{{ 's' if r.libres != 1 }}</strong>
+        <span class="tenue">({% for d, n in r.libres_por_dia %}{{ d|lower }} {{ n }}{{ ', ' if not loop.last }}{% endfor %})</span>{% else %} · sin horarios libres{% endif %}</span>
+      <a class="btn chico secundario" href="{{ url_for('agenda', semana=r.proxima) }}">Ver la semana</a>
+    </div>
+    {% if r.libres and espera %}<div class="tenue">Tenés {{ espera|length }} en lista de espera: <a href="{{ url_for('agenda', semana=r.proxima) }}#espera">ofreceles un horario</a>.</div>{% endif %}
+  </div>
+  <script>
+  (() => {
+    const card = document.getElementById('revision');
+    const clave = 'fibot-revision-vista-' + card.dataset.semana;
+    try { if (card.hasAttribute('data-ocultable') && localStorage.getItem(clave)) card.hidden = true; } catch (_) {}
+    if (location.hash === '#revision') { card.hidden = false; }
+    card.querySelector('[data-revision-vista]').addEventListener('click', () => {
+      try { localStorage.setItem(clave, '1'); } catch (_) {}
+      card.hidden = true;
+      if (new URLSearchParams(location.search).has('revision')) history.replaceState(null, '', location.pathname);
+    });
+  })();
+  </script>
+  {% endif %}
   <div class="card" id="hoy">
     <h3>Hoy{% if hoy %} <span class="contador">{{ hoy|length }}</span>{% endif %}</h3>
     {% if not hoy %}<div class="tenue">Hoy no hay sesiones.</div>{% endif %}
@@ -220,6 +298,33 @@
         {% endfor %}
         {% if h.ficha.ultima_nota %}<div class="hoy-nota">{{ h.ficha.ultima_nota._dia }}: {{ h.ficha.ultima_nota.nota|truncate(110) }}</div>
         {% elif h.ficha.notas %}<div class="hoy-nota">{{ h.ficha.notas|truncate(110) }}</div>{% endif %}
+        {# Lo de cada sesión sin abrir la semana. data-sin-ficha: tocar acá no abre la ficha. #}
+        <div class="hoy-acciones" data-sin-ficha>
+          <form method="post" action="{{ url_for('agenda_asistencia', turno_id=h.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="ancla" value="hoy">
+            <button class="btn chico {% if h.asistencia != 'vino' %}secundario{% endif %}" name="asistencia" value="{{ '' if h.asistencia == 'vino' else 'vino' }}" aria-pressed="{{ 'true' if h.asistencia == 'vino' else 'false' }}">Vino</button>
+            <button class="btn chico {% if h.asistencia != 'no_vino' %}secundario{% endif %}" name="asistencia" value="{{ '' if h.asistencia == 'no_vino' else 'no_vino' }}" aria-pressed="{{ 'true' if h.asistencia == 'no_vino' else 'false' }}">No vino</button>
+          </form>
+          <form method="post" action="{{ url_for('agenda_pago', turno_id=h.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="ancla" value="hoy">
+            {% if h.pago == 'pendiente' %}
+            <button class="btn chico secundario" name="pago" value="pagado">Pagó{% if h.valor %} {{ h.valor|pesos }}{% endif %}</button>
+            {% elif h.pago == 'pagado' %}
+            <button class="btn chico" name="pago" value="pendiente" aria-pressed="true" title="Tocá para marcarla sin pagar">Pagó ✓</button>
+            {% else %}<span class="chip">no se cobra</span>{% endif %}
+          </form>
+          <details class="hoy-nota-rapida">
+            <summary class="btn chico secundario">{{ 'Nota ✓' if h.nota else 'Nota' }}</summary>
+            <form class="apilado" method="post" action="{{ url_for('agenda_nota', turno_id=h.id) }}">
+              <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+              <input type="hidden" name="ancla" value="hoy">
+              <textarea name="nota" rows="3" aria-label="Nota de la sesión de {{ h.ficha.nombre }}" placeholder="Lo que quieras recordar de esta sesión">{{ h.nota or '' }}</textarea>
+              <button class="btn chico" type="submit">Guardar nota</button>
+            </form>
+          </details>
+        </div>
       </div>
       {% endfor %}
     </div>
@@ -1379,8 +1484,9 @@
     dialogo.showModal();
   }
   document.querySelectorAll('[data-ficha]').forEach(ficha => {
-    ficha.addEventListener('click', () => abrir(ficha.dataset.ficha));
+    ficha.addEventListener('click', e => { if (!e.target.closest('[data-sin-ficha]')) abrir(ficha.dataset.ficha); });
     ficha.addEventListener('keydown', e => {
+      if (e.target.closest('[data-sin-ficha]')) return;
       if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); abrir(ficha.dataset.ficha); }
     });
   });

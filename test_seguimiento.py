@@ -3277,7 +3277,7 @@ with panel_c.session_transaction() as ses:
     ses["tenant_id"] = "t1"
     ses["sesion_id"] = _sesion_de("t1")
     ses["csrf_token"] = "tok"
-html = panel_c.get(f"/agenda?semana={_futuro.date().isoformat()}").data.decode()
+html = panel_c.get(f"/agenda?semana={_futuro.astimezone(app.ZoneInfo(TZ)).date().isoformat()}").data.decode()
 chequear("panel: marca la sesión confirmada", "✓ confirmó" in html)
 
 # bandeja de mensajes de pacientes
@@ -4565,7 +4565,7 @@ chequear("buscador: cada ajuste lleva a su pestaña", any(x["t"] == "Precio de l
          and any(x["t"] == "Cambiar la clave" and x["u"] == "/ajustes?p=cuenta#seguridad" for x in _ix["items"])
          and any(x["t"] == "Bloquear días (vacaciones)" and x["u"] == "/agenda#bloqueos" for x in _ix["items"]))
 _dest = {x["u"].split("#")[1] for x in _ix["items"] if "#" in x["u"]}
-_todo = _ag + _aj
+_todo = _ag + _aj + panel_c.get("/agenda?revision=1").data.decode()
 chequear("buscador: todas las anclas del catálogo existen en el panel", all(f'id="{a}"' in _todo for a in _dest), [a for a in _dest if f'id="{a}"' not in _todo])
 chequear("buscador: la agenda abre la ficha pedida por ?ficha=", "get('ficha')" in _ag)
 
@@ -4622,6 +4622,63 @@ _libre2 = next(t for t in TABLAS["turnos"] if t["tenant_id"] == "t1" and t["esta
                and datetime.fromisoformat(t["inicio"]) > datetime.now(timezone.utc))
 panel_c.post(f"/agenda/agendar/{_libre2['id']}", data={"csrf_token": "tok", "nombre": "Paciente Recién Llegada"})
 chequear("paciente nuevo: a alguien que ya tenía sesiones no se le repite", 'id="paciente-nuevo"' not in panel_c.get("/agenda").data.decode())
+
+# --- Hoy con acciones rápidas, repaso de la semana y nombres que abren la ficha ---
+_tf = lambda i: next(t for t in TABLAS["turnos"] if t["id"] == i)
+_z = app.ZoneInfo(TZ)
+_ahl = datetime.now(_z)
+_lun = (_ahl - timedelta(days=_ahl.weekday())).replace(hour=0, minute=0, second=0, microsecond=0)
+_pas = max(_lun + timedelta(minutes=1), _ahl - timedelta(hours=3))
+TABLAS["turnos"] += [
+    turno("hoy-r1", "t1", _ahl.replace(hour=12, minute=0, second=0, microsecond=0).astimezone(timezone.utc), estado="reservado",
+          paciente_telefono="5491100001111", paciente_nombre="Rita Rápida", valor=30000),
+    turno("rev-falto", "t1", _pas.astimezone(timezone.utc), estado="reservado", paciente_telefono="5491100002222",
+          paciente_nombre="Fausto Faltó", asistencia="no_vino", valor=25000),
+    turno("rev-sinm", "t1", (_pas + timedelta(seconds=30)).astimezone(timezone.utc), estado="reservado",
+          paciente_telefono="5491100003333", paciente_nombre="Sonia Sinmarcar", valor=20000),
+    turno("rev-libre", "t1", (_lun + timedelta(days=8, hours=10)).astimezone(timezone.utc)),
+]
+_ag = panel_c.get("/agenda").data.decode()
+_bloque_hoy = _ag[_ag.index('id="hoy"'):_ag.index('class="tablero"')]
+chequear("hoy: cada sesión trae Vino / No vino, Pagó con el valor y nota", "/agenda/asistencia/hoy-r1" in _bloque_hoy
+         and "/agenda/pago/hoy-r1" in _bloque_hoy and "Pagó $ 30.000" in _bloque_hoy and "/agenda/nota/hoy-r1" in _bloque_hoy
+         and "data-sin-ficha" in _bloque_hoy)
+chequear("hoy: tocar los botones no abre la ficha", "closest('[data-sin-ficha]')" in _ag)
+_r = panel_c.post("/agenda/asistencia/hoy-r1", data={"csrf_token": "tok", "asistencia": "vino", "ancla": "hoy"})
+chequear("hoy: marcar que vino vuelve a la tarjeta de Hoy", _r.status_code == 302 and _r.headers["Location"].endswith("/agenda#hoy")
+         and _tf("hoy-r1")["asistencia"] == "vino")
+panel_c.post("/agenda/pago/hoy-r1", data={"csrf_token": "tok", "pago": "pagado", "ancla": "hoy"})
+panel_c.post("/agenda/nota/hoy-r1", data={"csrf_token": "tok", "nota": "Trajo el sueño de la escalera", "ancla": "hoy"})
+_bloque_hoy = (_ag := panel_c.get("/agenda").data.decode())[_ag.index('id="hoy"'):_ag.index('class="tablero"')]
+chequear("hoy: pago y nota quedan marcados", _tf("hoy-r1")["pago"] == "pagado" and _tf("hoy-r1")["nota"] == "Trajo el sueño de la escalera"
+         and "Pagó ✓" in _bloque_hoy and "Nota ✓" in _bloque_hoy)
+chequear("hoy: la ancla no sirve para redirigir afuera", panel_c.post("/agenda/asistencia/hoy-r1", data={
+    "csrf_token": "tok", "asistencia": "vino", "ancla": "https://malo.com"}).headers["Location"] in ("/agenda", "http://localhost/agenda"))
+
+_rv = panel_c.get("/agenda?revision=1").data.decode()
+_bloque_rv = _rv[_rv.index('id="revision"'):_rv.index('id="hoy"')]
+chequear("repaso: con ?revision=1 sale cualquier día y no se oculta sola", "Repaso de la semana" in _bloque_rv and " data-ocultable>" not in _bloque_rv)
+chequear("repaso: quién faltó y qué quedó sin marcar", "Fausto Faltó" in _bloque_rv and "Faltaron" in _bloque_rv
+         and "Sonia Sinmarcar" in _bloque_rv and "/agenda/asistencia/rev-sinm" in _bloque_rv)
+chequear("repaso: quién debe y la semana que viene", "Deben" in _bloque_rv and "$ 25.000" in _bloque_rv
+         and "La semana que viene" in _bloque_rv and "horario" in _bloque_rv.split("La semana que viene")[1])
+chequear("repaso: nunca muestra pacientes de otra cuenta", "Zoe De Otra Cuenta" not in _bloque_rv)
+_r = panel_c.post("/agenda/asistencia/rev-sinm", data={"csrf_token": "tok", "asistencia": "vino", "ancla": "revision"})
+chequear("repaso: marcar desde el repaso vuelve al repaso", _r.headers["Location"].endswith("/agenda?revision=1#revision")
+         and _tf("rev-sinm")["asistencia"] == "vino")
+_dias = app.DIAS_REVISION
+app.DIAS_REVISION = tuple(range(7))
+chequear("repaso: el viernes sale sola y se puede dar por vista", 'id="revision"' in (_x := panel_c.get("/agenda").data.decode())
+         and " data-ocultable>" in _x and "fibot-revision-vista-" in _x)
+app.DIAS_REVISION = ()
+chequear("repaso: el resto de la semana no aparece sola", 'id="revision"' not in panel_c.get("/agenda").data.decode())
+app.DIAS_REVISION = _dias
+chequear("repaso: no sale en ajustes", 'id="revision"' not in panel_c.get("/ajustes?revision=1").data.decode())
+chequear("repaso: el buscador lo encuentra", any(x["t"] == "Repaso de la semana" and x["u"] == "/agenda?revision=1#revision"
+                                                for x in _indice(_rv)["items"]))
+chequear("asistente: los nombres de la respuesta abren la ficha", "data-ir-ficha" in _rv and "conFichas(esc(t))" in _rv
+         and "porNombre.has(k) ? null" in _rv)
+TABLAS["turnos"] = [t for t in TABLAS["turnos"] if t["id"] not in ("hoy-r1", "rev-falto", "rev-sinm", "rev-libre")]
 
 # --- Listas de WhatsApp, reprogramar y «¿con quién es?» ---
 import conversation as _conv  # noqa: E402
