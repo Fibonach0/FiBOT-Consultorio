@@ -273,6 +273,11 @@ def _tick() -> None:
             logger.exception("Fallo reactivando la pausa de tenant %s", tenant["id"])
         try:
             import cancelaciones  # acá: cancelaciones importa este módulo
+            cancelaciones.avisar_vuelta_si_toca(tenant, datetime.now(tz))
+        except Exception:
+            logger.exception("Fallo avisando la vuelta de la pausa de tenant %s", tenant["id"])
+        try:
+            import cancelaciones  # acá: cancelaciones importa este módulo
             cancelaciones.vencer_huecos(tenant)
         except Exception:
             logger.exception("Fallo venciendo horarios retenidos de tenant %s", tenant["id"])

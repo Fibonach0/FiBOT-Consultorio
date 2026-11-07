@@ -1081,6 +1081,12 @@ Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
   vuelta», y `en_directorio = false` con «Aparecer en el directorio». En el
   directorio un pausado dice «Vuelve a atender pronto» o «Vuelve el D/M»
   (global `vuelve`).
+- Pausa con fecha en `/<slug>`: «Vuelve el jueves 12/11» con cuenta regresiva
+  (`app._cuenta_vuelta`, medianoche en la zona del profesional; el JS cuenta
+  días/horas/min/seg y sin JS quedan los días). `DIAS_ANTES_VUELTA` (2) días
+  antes, desde las 10, `cancelaciones.avisar_vuelta_si_toca` (tick) le escribe a
+  la lista de espera que vuelve (`MENSAJE_PROFESIONAL_TEMPLATE` si está) y avisa
+  al profesional; una vez por fecha (`tenants.vuelta_avisada`, `migrations/075`).
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
 - GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +

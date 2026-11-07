@@ -653,6 +653,29 @@ def _vuelve(t: dict) -> str:
 
 
 app.jinja_env.globals["vuelve"] = _vuelve
+
+
+DIAS_LARGOS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def _cuenta_vuelta(tenant: dict) -> dict | None:
+    """La cuenta regresiva de la página de un pausado con fecha de vuelta: el
+    instante en que vuelve (medianoche en su zona, para el JS), los días que
+    faltan (el texto sin JS) y la fecha linda."""
+    try:
+        hasta = date.fromisoformat((tenant.get("pausado_hasta") or "")[:10])
+    except ValueError:
+        return None
+    tz = _tz_de(tenant)
+    vuelve = datetime.combine(hasta, dtime(0, 0), tz)
+    ahora = datetime.now(tz)
+    if vuelve <= ahora:
+        return None
+    return {"iso": vuelve.isoformat(), "dias": (hasta - ahora.date()).days,
+            "fecha": f"{DIAS_LARGOS[hasta.weekday()]} {hasta.day}/{hasta.month}"}
+
+
+app.jinja_env.globals["cuenta_vuelta"] = _cuenta_vuelta
 app.jinja_env.filters["pesos"] = lambda v: f"$ {v:,}".replace(",", ".")
 _pesos = app.jinja_env.filters["pesos"]
 
