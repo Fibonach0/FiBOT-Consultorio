@@ -112,6 +112,7 @@
   .pf-cuenta div { background:var(--green-bg); border-radius:12px; padding:10px 4px; text-align:center; }
   .pf-cuenta b { display:block; font-size:1.7rem; font-weight:700; line-height:1.1; color:var(--green); font-variant-numeric:tabular-nums; }
   .pf-cuenta span { font-size:.78rem; color:var(--muted); }
+  .pf-cal { font-size:.9rem; margin:-4px 0 12px; }
   .pf-espera summary { display:flex; justify-content:space-between; gap:12px; cursor:pointer; font-size:15px; }
   .pf-espera summary::after { content:"+"; color:var(--s-acento); font-size:18px; line-height:1; }
   .pf-espera[open] summary::after { content:"−"; }
@@ -177,11 +178,12 @@
           <div><b data-c="m">–</b><span>min</span></div>
           <div><b data-c="s">–</b><span>seg</span></div>
         </div>
+        <p class="pf-cal">Agregar a mi calendario: <a href="{{ cuenta.google }}" target="_blank" rel="noopener">Google Calendar</a> · <a href="{{ cuenta.ics }}">Apple, Outlook u otro (.ics)</a></p>
         {% else %}
         <h2>Vuelve a atender pronto</h2>
         {% endif %}
         {% if tenant.mensaje_pausa %}<p style="white-space:pre-line">{{ tenant.mensaje_pausa }}</p>{% endif %}
-        <p style="color:var(--muted);margin-bottom:0">Por ahora no toma turnos nuevos. Si ya tenés un turno, sigue en pie. Anotate abajo en la lista de espera{% if cuenta %}: dos días antes de que vuelva te avisamos por WhatsApp, y ese día te mandamos el primer horario libre{% else %} y te avisamos cuando vuelva a haber horarios{% endif %}.</p>
+        <p style="color:var(--muted);margin-bottom:0">Por ahora no toma turnos nuevos. Si ya tenés un turno, sigue en pie. Anotate abajo en la lista de espera{% if cuenta %}: dos días antes de que vuelva te avisamos por WhatsApp, y ese día te mandamos un horario libre para vos{% else %} y te avisamos cuando vuelva a haber horarios{% endif %}.</p>
         <script>
         (function () {
           var c = document.querySelector('.pf-cuenta'); if (!c) return;

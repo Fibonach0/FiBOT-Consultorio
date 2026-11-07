@@ -92,6 +92,7 @@ CATALOGO = [
     ("Acciones", "Bloquear días (vacaciones)", "Nadie puede reservar esos días", ("agenda", {}, "bloqueos"),
      "bloquear dias vacaciones congreso licencia feriado libre"),
     ("Acciones", "Pausar mi página", "Dejar de tomar turnos un tiempo", ("agenda", {}, "bloqueos"), "pausar pausa vacaciones dejar de tomar turnos"),
+    ("Acciones", "Mensaje a la lista de espera al volver", "Lo que les llega 2 días antes de que termine tu pausa", ("agenda", {}, "bloqueos"), "mensaje vuelta volver pausa lista de espera aviso"),
     ("Acciones", "Lista de espera", "Anotar a alguien o ofrecerle un horario", ("agenda", {}, "espera"), "lista de espera anotar ofrecer"),
     ("Acciones", "Generar horarios a mano", "Fechas sueltas fuera de tu horario", ("agenda", {}, "generar"), "generar horarios mano fechas sueltas"),
     ("Acciones", "Aumento de honorarios", "Subir el valor de las próximas sesiones", ("agenda", {}, "aumento"), "aumento subir valor precio honorarios"),

@@ -98,6 +98,30 @@ def ofrecer_a_toda_la_espera(tenant: dict, turno: dict, hoy) -> int:
     return avisados
 
 
+def ofrecer_repartido(tenant: dict, hoy) -> int:
+    """Al terminar una pausa: a cada persona de la lista de espera (en orden de
+    anotación) le ofrece un horario libre DISTINTO, así no compiten todos por
+    el mismo. Si hay más personas que horarios, se vuelve a empezar por el
+    primero. Saltea a quien hoy ya recibió un ofrecimiento. Devuelve a cuántos
+    se les pudo escribir."""
+    if not tenant.get("slug"):
+        return 0
+    espera = [p for p in db.lista_de_espera(tenant["id"]) if p.get("ofrecido_en") != hoy.isoformat()]
+    if not espera:
+        return 0
+    libres = db.turnos_libres(tenant["id"], datetime.now(ZoneInfo("UTC")), limite=len(espera))
+    if not libres:
+        return 0
+    tz = _tz(tenant)
+    link = f"{base_url()}/{tenant['slug']}"
+    avisados = 0
+    for i, p in enumerate(espera):
+        db.marcar_ofrecido(tenant["id"], p["id"], hoy.isoformat())
+        if ofrecer_horario(tenant, p["telefono"], scheduler.cuando_de(libres[i % len(libres)], tenant, tz), link):
+            avisados += 1
+    return avisados
+
+
 def tras_cancelar(tenant: dict, turno: dict, por: str) -> None:
     """Después de que el paciente canceló `turno` (ya liberado). `por` es
     «la web» o «WhatsApp», para el aviso."""
@@ -243,8 +267,12 @@ def avisar_vuelta_si_toca(tenant: dict, ahora: datetime) -> int:
         return 0
     cuando = "mañana" if faltan == 1 else f"el {_DIAS[hasta.weekday()]} {hasta.day}/{hasta.month}"
     link = f"{base_url()}/{tenant['slug']}"
-    mensaje = (f"vuelvo a tomar turnos {cuando}. Como estás en mi lista de espera, ese día te escribimos "
-               f"con el primer horario libre. Mi página: {link}")
+    propio = " ".join((tenant.get("mensaje_vuelta") or "").split())
+    if propio:
+        mensaje = f"{propio.rstrip('.')}. Mi página: {link}"
+    else:
+        mensaje = (f"vuelvo a tomar turnos {cuando}. Como estás en mi lista de espera, ese día te escribimos "
+                   f"con un horario libre. Mi página: {link}")
     avisados = 0
     for p in espera:
         if config.MENSAJE_PROFESIONAL_TEMPLATE:
@@ -261,18 +289,15 @@ def avisar_vuelta_si_toca(tenant: dict, ahora: datetime) -> int:
 
 def reactivar_si_toca(tenant: dict, hoy) -> bool:
     """Pausa con fecha de vuelta: el día que llega, la página vuelve a tomar
-    turnos, se le avisa al profesional y a la lista de espera se le ofrece el
-    próximo horario libre (una vez por persona y por día). Lo llama el
+    turnos, se le avisa al profesional y a cada persona de la lista de espera
+    se le ofrece un horario libre distinto (`ofrecer_repartido`). Lo llama el
     scheduler; devuelve True si reactivó."""
     hasta = tenant.get("pausado_hasta")
     if not tenant.get("pausado") or not hasta or hoy.isoformat() < str(hasta)[:10]:
         return False
     db.guardar_ajustes(tenant["id"], {"pausado": False, "pausado_hasta": None, "mensaje_pausa": None})
     tenant = {**tenant, "pausado": False}
-    avisados = 0
-    proximo = db.turnos_libres(tenant["id"], datetime.now(ZoneInfo("UTC")), limite=1)
-    if proximo:
-        avisados = ofrecer_a_toda_la_espera(tenant, proximo[0], hoy)
+    avisados = ofrecer_repartido(tenant, hoy)
     scheduler.avisar_profesional(tenant, "terminó tu pausa: tu página vuelve a tomar turnos"
                                  + (f"; le avisamos a {avisados} de tu lista de espera" if avisados else ""))
     return True
