@@ -46,6 +46,7 @@ assert "Encontrá a tu profesional" in html and "Para mi hijo/a" in html
 assert "Lic. Ana Pérez" in html and "/anaperez" in html and "Psicóloga clínica" in html
 assert "Lic. Oculto" not in html and "Sin Página" not in html
 assert html.index("Lic. Ana Pérez") < html.index("Lic. Beto Pausa")
+assert "vuelve a atender pronto" in html and ">lista de espera<" not in html   # Beto está pausado
 assert "/turnos?tema=ansiedad" in html and 'name="obra"' in html
 assert 'href="/sumate"' in html
 ld = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.S).group(1))
@@ -87,7 +88,7 @@ db.turnos_libres = lambda tid, desde, limite=8: LIBRES.get(tid, [])[:limite]
 app._proximos_cache.clear()
 html = client.get("/turnos").data.decode()
 assert "/anaperez/reservar/a1" in html and "Próximos libres" in html          # el horario lleva directo a reservar
-assert "Por ahora no toma turnos nuevos" in html                              # Beto está pausado
+assert "Vuelve a atender pronto" in html and "Por ahora no toma turnos nuevos" in html  # Beto está pausado
 assert html.index("Lic. Ana Pérez") < html.index("Lic. Beto Pausa")           # con turno, primero
 html = client.get("/turnos?especialidad=psicopedagogia").data.decode()
 assert "Lic. Beto Pausa" in html and "Lic. Ana Pérez" not in html and "Lectoescritura" in html
@@ -197,3 +198,8 @@ _gifs = _re.findall(r'\("([a-z-]+)", "[^"]+", "[^"]+"\)', _ayuda[_ayuda.index('i
 assert len(_gifs) >= 10 and all(os.path.exists(f"static/ayuda/{g}.gif") for g in _gifs), _gifs
 assert all(os.path.getsize(f"static/ayuda/{g}.gif") < 800_000 for g in _gifs), "GIF demasiado pesado"
 print("recorrido de la guía: cada GIF existe y pesa menos de 800 KB OK")
+
+# ---- pausados: la tarjeta dice cuándo vuelve, no «lista de espera»
+assert app._vuelve({"pausado": True}) == "Vuelve a atender pronto"
+assert app._vuelve({"pausado": True, "pausado_hasta": "2026-12-03"}) == "Vuelve el 3/12"
+print("pausados: «Vuelve a atender pronto» / «Vuelve el 3/12» OK")

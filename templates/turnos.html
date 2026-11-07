@@ -134,8 +134,8 @@
           </div>
           <div class="d-turnos">
             {% if t.pausado %}
-            <div class="rot">Por ahora no toma turnos nuevos</div>
-            <p class="pausa">Podés anotarte en la lista de espera y te avisa cuando vuelva a haber horarios.</p>
+            <div class="rot">{{ vuelve(t) }}</div>
+            <p class="pausa">Por ahora no toma turnos nuevos. Anotate en su lista de espera y te avisa por WhatsApp cuando vuelva a haber horarios.</p>
             <a class="ver" href="{{ url_for('publico', slug=t.slug) }}#espera">Anotarme →</a>
             {% elif t._proximos %}
             <div class="rot">Próximos libres</div>

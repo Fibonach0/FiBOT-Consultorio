@@ -1074,6 +1074,13 @@ Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
 - Respuestas del asistente en el buscador: los nombres completos de pacientes
   se vuelven botones que abren la ficha (`conFichas`; un nombre repetido en dos
   fichas no se enlaza).
+- Avisos de la página (`_avisos_pagina`, arriba de la agenda): pausada hace
+  `PAUSA_AVISAR_DIAS` o más sin fecha de vuelta (`tenants.pausado_desde`,
+  `migrations/074`, lo mantiene un trigger para todas las formas de pausar;
+  sin dato también avisa) con «Volver a tomar turnos» / «Poner fecha de
+  vuelta», y `en_directorio = false` con «Aparecer en el directorio». En el
+  directorio un pausado dice «Vuelve a atender pronto» o «Vuelve el D/M»
+  (global `vuelve`).
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
 - GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +

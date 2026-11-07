@@ -14,6 +14,38 @@
   <div class="error">El {{ bloqueo_reciente }} tu cuenta se bloqueó 15 minutos porque pusieron la clave mal varias veces. Si no fuiste vos, cambiá la clave en «Ajustes» → «Cuenta».</div>
   {% endif %}
 
+  {% if avisos_pagina and avisos_pagina.pausa_dias is not none %}
+  <div class="card aviso-pagina" id="aviso-pausa" role="status">
+    <p style="margin:0 0 8px"><strong>Tu página está pausada{% if avisos_pagina.pausa_dias > 0 %} hace {{ avisos_pagina.pausa_dias }} días{% endif %}, sin fecha de vuelta.</strong>
+      Nadie puede reservar, ni por la web ni por WhatsApp. En el directorio figurás como «Vuelve a atender pronto».</p>
+    <div class="fila" style="align-items:flex-end;gap:8px;flex-wrap:wrap">
+      <form method="post" action="{{ url_for('agenda_pausa') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="pausar" value="0">
+        <button class="btn chico" type="submit">Volver a tomar turnos</button>
+      </form>
+      <form method="post" action="{{ url_for('agenda_pausa') }}" class="fila" style="align-items:flex-end;gap:8px">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="pausar" value="1">
+        <input type="hidden" name="mensaje_pausa" value="{{ tenant.mensaje_pausa or '' }}">
+        <div><label style="margin:0 0 2px" for="aviso-vuelvo">Vuelvo el</label><input id="aviso-vuelvo" type="date" name="pausado_hasta" required></div>
+        <button class="btn chico secundario" type="submit">Poner fecha de vuelta</button>
+      </form>
+    </div>
+  </div>
+  {% endif %}
+  {% if avisos_pagina and avisos_pagina.fuera_directorio %}
+  <div class="card aviso-pagina" id="aviso-directorio" role="status">
+    <p style="margin:0 0 8px"><strong>No aparecés en el directorio de consultorio.fibot.ar.</strong>
+      Tu página funciona con su link, pero los pacientes que buscan profesional no te encuentran.</p>
+    <form method="post" action="{{ url_for('agenda_perfil') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <input type="hidden" name="casillas" value="en_directorio">
+      <input type="hidden" name="en_directorio" value="1">
+      <button class="btn chico" type="submit">Aparecer en el directorio</button>
+    </form>
+  </div>
+  {% endif %}
   {% if primeros_pasos %}
   <div class="card primeros-pasos" id="primeros-pasos">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
