@@ -671,8 +671,20 @@ def _cuenta_vuelta(tenant: dict) -> dict | None:
     ahora = datetime.now(tz)
     if vuelve <= ahora:
         return None
+    titulo, detalle = _evento_vuelta(tenant)
+    google = "https://calendar.google.com/calendar/render?" + urlencode({
+        "action": "TEMPLATE", "text": titulo, "details": detalle,
+        "dates": f"{hasta:%Y%m%d}/{hasta + timedelta(days=1):%Y%m%d}"})
     return {"iso": vuelve.isoformat(), "dias": (hasta - ahora.date()).days,
-            "fecha": f"{DIAS_LARGOS[hasta.weekday()]} {hasta.day}/{hasta.month}"}
+            "fecha": f"{DIAS_LARGOS[hasta.weekday()]} {hasta.day}/{hasta.month}",
+            "google": google, "ics": url_for("publico_vuelta_ics", slug=tenant["slug"])}
+
+
+def _evento_vuelta(tenant: dict) -> tuple[str, str]:
+    """Título y detalle del evento «vuelve a atender» para el calendario del paciente."""
+    return (f"Vuelve a atender {tenant['nombre']}",
+            f"Desde hoy {tenant['nombre']} vuelve a tomar turnos. Reservá acá: "
+            + url_for("publico", slug=tenant["slug"], _external=True))
 
 
 app.jinja_env.globals["cuenta_vuelta"] = _cuenta_vuelta
@@ -4223,6 +4235,22 @@ def agenda_pausa():
     return _volver_a_agenda()
 
 
+MAX_MENSAJE_VUELTA = 300
+app.jinja_env.globals["max_mensaje_vuelta"] = MAX_MENSAJE_VUELTA
+
+
+@app.post("/agenda/pausa/mensaje-vuelta")
+@login_required
+def agenda_mensaje_vuelta():
+    """Lo que le llega a la lista de espera 2 días antes de terminar una pausa
+    (`cancelaciones.avisar_vuelta_si_toca`). En una línea: va como parámetro de plantilla."""
+    texto = " ".join((request.form.get("mensaje_vuelta") or "").split())[:MAX_MENSAJE_VUELTA]
+    db.guardar_ajustes(session["tenant_id"], {"mensaje_vuelta": texto or None})
+    flash("Listo, guardado: tu lista de espera recibe ese mensaje antes de que vuelvas." if texto
+          else "Listo: tu lista de espera recibe el mensaje de siempre antes de que vuelvas.")
+    return _volver_a_agenda()
+
+
 @app.post("/agenda/perfil")
 @login_required
 def agenda_perfil():
@@ -4409,6 +4437,29 @@ self.addEventListener('fetch', e => {
 @app.get("/sin-conexion")
 def sin_conexion():
     return render_template("sin_conexion.html")
+
+
+@app.get("/<slug>/vuelta.ics")
+def publico_vuelta_ics(slug):
+    """El día que vuelve un profesional pausado, como evento de todo el día."""
+    tenant = db.get_tenant_by_slug(slug)
+    if not tenant or not tenant.get("activo", True) or not tenant.get("pausado"):
+        return ("", 404)
+    try:
+        hasta = date.fromisoformat((tenant.get("pausado_hasta") or "")[:10])
+    except ValueError:
+        return ("", 404)
+    titulo, detalle = _evento_vuelta(tenant)
+    escapar = lambda t: t.replace("\\", "\\\\").replace(";", "\\;").replace(",", "\\,").replace("\n", "\\n")
+    ics = "\r\n".join([
+        "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:-//FiBOT Consultorio//Turnos//ES", "BEGIN:VEVENT",
+        f"UID:vuelta-{tenant['id']}-{hasta:%Y%m%d}@fibot-consultorio", f"DTSTAMP:{datetime.now(ZoneInfo('UTC')):%Y%m%dT%H%M%SZ}",
+        f"DTSTART;VALUE=DATE:{hasta:%Y%m%d}", f"DTEND;VALUE=DATE:{hasta + timedelta(days=1):%Y%m%d}",
+        f"SUMMARY:{escapar(titulo)}", f"DESCRIPTION:{escapar(detalle)}",
+        "END:VEVENT", "END:VCALENDAR", ""])
+    r = app.response_class(ics, mimetype="text/calendar")
+    r.headers["Content-Disposition"] = 'attachment; filename="vuelta.ics"'
+    return _sin_indexar(r)
 
 
 @app.get("/<slug>/foto")

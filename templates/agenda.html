@@ -741,6 +741,14 @@
         <div class="al-pie"><button class="btn chico secundario" type="submit">Pausar</button></div>
       {% endif %}
     </form>
+    <form method="post" action="{{ url_for('agenda_mensaje_vuelta') }}" id="mensaje-vuelta" class="fila" style="align-items:flex-end;margin-bottom:10px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div style="flex:2"><label for="mv" style="margin:4px 0 2px">Mensaje a tu lista de espera 2 días antes de volver (si pausás con fecha)</label>
+        <input type="text" id="mv" name="mensaje_vuelta" maxlength="{{ max_mensaje_vuelta }}" value="{{ tenant.mensaje_vuelta or '' }}"
+               placeholder="Vuelvo a tomar turnos el jueves 12/11. Como estás en mi lista de espera, ese día te escribimos con el primer horario libre.">
+        <span class="tenue" style="font-size:.85rem">Vacío = el de arriba, con la fecha. Siempre va con el link a tu página.</span></div>
+      <div class="al-pie"><button class="btn chico secundario" type="submit">Guardar mensaje</button></div>
+    </form>
     {% endif %}
     {% for b in bloqueos %}
     <div class="ficha-item">

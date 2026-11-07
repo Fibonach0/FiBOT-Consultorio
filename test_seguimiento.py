@@ -3755,11 +3755,34 @@ chequear("vuelta: 2 días antes le avisa a la lista y al profesional",
          and "/marcos" in _men[0][1] and _t1["vuelta_avisada"] == _v10.isoformat()
          and "le avisamos a 1 de tu lista de espera" in _avs[-1], (_men, _avs))
 chequear("vuelta: una sola vez", _canc3.avisar_vuelta_si_toca(dict(_t1), _a10(9)) == 0 and len(_men) == 1)
+_canc3.whatsapp.enviar_texto = lambda numero, to, texto: _men.append((to, texto)) or True
+_t1.update(mensaje_vuelta="Vuelvo renovada después del congreso.", vuelta_avisada=None)
+chequear("vuelta: con mensaje propio va ese texto y el link",
+         _canc3.avisar_vuelta_si_toca(dict(_t1), _a10(8)) == 1
+         and _men[-1][1].endswith("*Lic. Marcos*: Vuelvo renovada después del congreso. Mi página: /marcos"), _men[-1:])
 _canc3.whatsapp.enviar_texto, _canc3.whatsapp.enviar_plantilla = _ve, _vt
+_r = panel_c.post("/agenda/pausa/mensaje-vuelta", data={"csrf_token": "tok", "mensaje_vuelta": "  Nos vemos\n pronto  "})
+chequear("mensaje de vuelta: se guarda en una línea", _r.status_code == 302 and _t1["mensaje_vuelta"] == "Nos vemos pronto")
+panel_c.post("/agenda/pausa/mensaje-vuelta", data={"csrf_token": "tok", "mensaje_vuelta": " "})
+chequear("mensaje de vuelta: vacío vuelve al de fábrica", _t1["mensaje_vuelta"] is None)
+_pag = app.app.test_client().get("/marcos").data.decode()
+chequear("cuenta regresiva: links para agregar al calendario",
+         "calendar.google.com" in _pag and f"{_v10:%Y%m%d}" in _pag and "/marcos/vuelta.ics" in _pag)
+_ics = app.app.test_client().get("/marcos/vuelta.ics")
+chequear("vuelta.ics: evento de todo el día", _ics.status_code == 200 and f"DTSTART;VALUE=DATE:{_v10:%Y%m%d}" in _ics.data.decode()
+         and "Vuelve a atender Lic. Marcos" in _ics.data.decode())
 chequear("pausa con fecha: antes no se reactiva", not _canc3.reactivar_si_toca(dict(_t1), _hoy_ar + timedelta(days=9)))
+TABLAS["turnos"] = [turno("r1", "t1", datetime.now(timezone.utc) + timedelta(days=12)),
+                    turno("r2", "t1", datetime.now(timezone.utc) + timedelta(days=13))]
+TABLAS["lista_espera"] += [{"id": f"e{i}", "tenant_id": "t1", "nombre": f"P{i}", "telefono": f"54911000000{i}", "ofrecido_en": None,
+                            "origen": "web", "created_at": (_b + timedelta(minutes=i)).isoformat()} for i in (2, 3)]
+_canc3.ofrecer_horario = lambda tenant, tel, cuando, link: _ofr.append((tel, cuando)) or True
 chequear("pausa con fecha: ese día se reactiva", _canc3.reactivar_si_toca(dict(_t1), _hoy_ar + timedelta(days=10))
          and _t1["pausado"] is False and _t1["pausado_hasta"] is None)
-chequear("pausa con fecha: avisa a la lista y al profesional", _ofr == ["5491144445555"] and "le avisamos a 1" in _avs[-1])
+chequear("pausa con fecha: a cada uno un horario distinto (y si faltan, se repite desde el primero)",
+         [t for t, _ in _ofr] == ["5491144445555", "549110000002", "549110000003"]
+         and _ofr[0][1] != _ofr[1][1] and _ofr[2][1] == _ofr[0][1] and "le avisamos a 3" in _avs[-1], _ofr)
+chequear("vuelta.ics: sin pausa no hay evento", app.app.test_client().get("/marcos/vuelta.ics").status_code == 404)
 _canc3.ofrecer_horario, scheduler.avisar_profesional = _vo, _va
 
 # horario semanal

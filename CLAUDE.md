@@ -1087,6 +1087,14 @@ Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
   antes, desde las 10, `cancelaciones.avisar_vuelta_si_toca` (tick) le escribe a
   la lista de espera que vuelve (`MENSAJE_PROFESIONAL_TEMPLATE` si está) y avisa
   al profesional; una vez por fecha (`tenants.vuelta_avisada`, `migrations/075`).
+  El texto lo puede cambiar el profesional («Mensaje a tu lista de espera…» en
+  Vacaciones, `/agenda/pausa/mensaje-vuelta`, `tenants.mensaje_vuelta`,
+  `migrations/076`, en una línea, siempre con el link). Junto a la cuenta,
+  «Agregar a mi calendario»: Google Calendar y `/<slug>/vuelta.ics` (evento de
+  todo el día; 404 si no está pausado con fecha). El día de la vuelta
+  `ofrecer_repartido` le ofrece a cada persona de la lista un horario libre
+  distinto (si faltan, vuelve a empezar por el primero);
+  `ofrecer_a_toda_la_espera` sigue para abrir un día bloqueado.
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
 - GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +
