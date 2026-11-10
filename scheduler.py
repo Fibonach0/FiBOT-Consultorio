@@ -513,7 +513,7 @@ def sincronizar_feriados(tenant: dict, hoy) -> int:
     import feriados
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     existentes = {datetime.fromisoformat(b["desde"]).astimezone(tz).date(): b
-                  for b in db.bloqueos_vigentes(tenant["id"], datetime.now(timezone.utc))
+                  for b in db.bloqueos_vigentes(tenant["id"], datetime.combine(hoy, datetime.min.time(), tzinfo=tz))
                   if (b.get("motivo") or "").startswith(PREFIJO_FERIADO)}
     cambios = 0
     atiende_feriados = (tenant.get("feriados") or "bloquear") == "atender"
