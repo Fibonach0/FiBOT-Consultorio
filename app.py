@@ -643,13 +643,19 @@ app.jinja_env.globals["colores_pagina"] = COLORES_PAGINA
 app.jinja_env.globals["anio_actual"] = lambda: datetime.now().year
 
 
-def _vuelve(t: dict) -> str:
-    """Lo que dice la tarjeta de un profesional pausado en el directorio."""
+def _vuelve(t: dict, hoy: date | None = None) -> str:
+    """Lo que dice la tarjeta de un profesional pausado en el directorio, con
+    los días que faltan (en la zona del profesional)."""
     try:
         hasta = date.fromisoformat((t.get("pausado_hasta") or "")[:10])
     except ValueError:
         return "Vuelve a atender pronto"
-    return f"Vuelve el {hasta.day}/{hasta.month}"
+    faltan = (hasta - (hoy or datetime.now(_tz_de(t)).date())).days
+    if faltan <= 0:
+        return "Vuelve hoy"
+    if faltan == 1:
+        return f"Vuelve mañana ({hasta.day}/{hasta.month})"
+    return f"Vuelve el {hasta.day}/{hasta.month} · faltan {faltan} días"
 
 
 app.jinja_env.globals["vuelve"] = _vuelve
@@ -5112,9 +5118,12 @@ def publico_reservar_form(slug, turno_id):
     i_tipo, tipo = _tipo_elegido(tenant, request.args.get("tipo"))
     if tipos_de(tenant) and tipo is None:
         return redirect(url_for("publico", slug=slug))
+    guardado = None
+    if db.guardado_para_otro(turno, ""):  # vigente (para cualquiera que no sea el de la lista)
+        guardado = f"{datetime.fromisoformat(str(turno['guardado_hasta']).replace('Z', '+00:00')).astimezone(tz):%H:%M}"
     turno = _con_hora_local([turno], tz)[0]
     return render_template("publico_reservar.html", tenant=tenant, turno=turno, tipo=tipo, i_tipo=i_tipo,
-                           serie_posible=pagos.activo(tenant))
+                           serie_posible=pagos.activo(tenant), guardado_hasta=guardado)
 
 
 def _parcial() -> bool:
@@ -5170,6 +5179,10 @@ def publico_reservar(slug, turno_id):
         turno = db.turno_por_id(tenant["id"], turno_id)
         if tenant.get("pausado") or not turno or turno["estado"] != "libre" or turno.get("hueco"):
             return _error_reserva("Ese horario ya no está disponible — elegí otro.", url_for("publico", slug=slug), otro=True)
+        if db.guardado_para_otro(turno, telefono):
+            return _error_reserva("Ese horario está guardado para otra persona por unas horas — elegí otro. "
+                                  "Si te lo ofrecieron a vos, revisá que el WhatsApp sea el mismo donde te llegó el mensaje.",
+                                  url_for("publico", slug=slug), otro=True)
         if len(telefono) < 10:
             return _error_reserva("Revisá el WhatsApp: tiene que ir completo, con código de país (ej. 5491123456789).",
                                   url_for("publico_reservar_form", slug=slug, turno_id=turno_id))

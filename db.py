@@ -103,6 +103,26 @@ def turnos_libres(tenant_id: str, desde: datetime, limite: int = 8) -> list[dict
     return res.data
 
 
+def _ultimos10(telefono) -> str:
+    return "".join(ch for ch in str(telefono or "") if ch.isdigit())[-10:]
+
+
+def guardado_para_otro(turno: dict, telefono: str, ahora: datetime | None = None) -> bool:
+    """True si el horario está guardado (todavía vigente) para OTRO teléfono.
+    Se comparan los últimos 10 dígitos: 549… y 54 9 11… son el mismo."""
+    hasta = turno.get("guardado_hasta")
+    if not hasta or not turno.get("guardado_tel"):
+        return False
+    if datetime.fromisoformat(str(hasta).replace("Z", "+00:00")) <= (ahora or datetime.now(timezone.utc)):
+        return False
+    return _ultimos10(turno["guardado_tel"]) != _ultimos10(telefono)
+
+
+def guardar_turno_para(tenant_id: str, turno_id: str, telefono: str, hasta: datetime) -> None:
+    _client.table("turnos").update({"guardado_tel": telefono, "guardado_hasta": hasta.isoformat()}).eq(
+        "tenant_id", tenant_id).eq("id", turno_id).eq("estado", "libre").execute()
+
+
 def turno_por_id(tenant_id: str, turno_id: str) -> dict | None:
     res = (
         _client.table("turnos")
@@ -363,6 +383,11 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
     # profesional, desde el panel, puede agendar igual: es su decisión.
     if not ignorar_bloqueo and not turno.get("abierto") and _esta_bloqueado(tenant_id, turno["inicio"], turno["fin"]):
         return False
+    # Guardado para alguien de la lista de espera (fin de una pausa): sólo ese
+    # teléfono lo puede reservar hasta que vence. El panel, igual que con un
+    # bloqueo, puede agendar a otro.
+    if not ignorar_bloqueo and guardado_para_otro(turno, telefono):
+        return False
     # Sin ficha explícita nadie pudo aclarar de quién es (página pública): se
     # reserva igual y lo revisa el profesional. Preguntarle a quien reserva
     # mostraría nombres de pacientes a cualquiera que escriba ese teléfono.
@@ -373,7 +398,7 @@ def reservar_turno(tenant_id: str, turno_id: str, telefono: str, nombre: str | N
         revisar = bool(nombre) and nombre_ambiguo(tenant_id, telefono, nombre)
     res = (
         _client.table("turnos")
-        .update({"estado": "reservado", "hueco": None, "paciente_telefono": telefono, "paciente_nombre": nombre, "ficha": ficha,
+        .update({"estado": "reservado", "hueco": None, "guardado_tel": None, "guardado_hasta": None, "paciente_telefono": telefono, "paciente_nombre": nombre, "ficha": ficha,
                  "revisar_ficha": revisar, "reserva_nueva": llego_sola, "reserva_avisada": False,
                  "valor": valor, "frecuencia": frecuencia, "modalidad": modalidad})
         .eq("tenant_id", tenant_id)
@@ -438,6 +463,8 @@ _LIBERADO = {
     "pago_web": None,
     "pago_vence": None,
     "pago_id": None,
+    "guardado_tel": None,
+    "guardado_hasta": None,
 }
 
 

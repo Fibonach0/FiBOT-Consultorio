@@ -98,28 +98,57 @@ def ofrecer_a_toda_la_espera(tenant: dict, turno: dict, hoy) -> int:
     return avisados
 
 
-def ofrecer_repartido(tenant: dict, hoy) -> int:
+HORAS_GUARDADO = 4
+MAX_EN_AVISO = 8  # el aviso va en un parámetro de plantilla: que no se pase de largo
+
+
+def ofrecer_repartido(tenant: dict, hoy) -> tuple[list[tuple[str, str]], bool]:
     """Al terminar una pausa: a cada persona de la lista de espera (en orden de
     anotación) le ofrece un horario libre DISTINTO, así no compiten todos por
-    el mismo. Si hay más personas que horarios, se vuelve a empezar por el
-    primero. Saltea a quien hoy ya recibió un ofrecimiento. Devuelve a cuántos
-    se les pudo escribir."""
+    el mismo. Si alcanzan los horarios, a cada uno se le GUARDA el suyo
+    `HORAS_GUARDADO` horas (nadie más lo ve ni lo reserva) y el link lleva
+    directo a ese horario. Si hay más personas que horarios, se vuelve a
+    empezar por el primero y no se guarda ninguno (competirían por el mismo).
+    Saltea a quien hoy ya recibió un ofrecimiento. Devuelve ([(nombre, cuándo)]
+    de los que se pudo escribir, si quedaron guardados), para el profesional."""
     if not tenant.get("slug"):
-        return 0
+        return [], False
     espera = [p for p in db.lista_de_espera(tenant["id"]) if p.get("ofrecido_en") != hoy.isoformat()]
     if not espera:
-        return 0
-    libres = db.turnos_libres(tenant["id"], datetime.now(ZoneInfo("UTC")), limite=len(espera))
+        return [], False
+    ahora = datetime.now(ZoneInfo("UTC"))
+    libres = db.turnos_libres(tenant["id"], ahora, limite=len(espera))
     if not libres:
-        return 0
+        return [], False
     tz = _tz(tenant)
-    link = f"{base_url()}/{tenant['slug']}"
-    avisados = 0
+    pagina = f"{base_url()}/{tenant['slug']}"
+    # Con varios tipos de turno el paciente tiene que elegir el tipo en la
+    # página, y ahí un horario guardado no se ve: no se guarda.
+    guardar = len(libres) >= len(espera) and len(tenant.get("tipos_turno") or []) <= 1
+    hasta = ahora + timedelta(hours=HORAS_GUARDADO)
+    ofrecidos = []
     for i, p in enumerate(espera):
+        turno = libres[i % len(libres)]
         db.marcar_ofrecido(tenant["id"], p["id"], hoy.isoformat())
-        if ofrecer_horario(tenant, p["telefono"], scheduler.cuando_de(libres[i % len(libres)], tenant, tz), link):
-            avisados += 1
-    return avisados
+        cuando = scheduler.cuando_de(turno, tenant, tz)
+        link, texto = pagina, cuando
+        if guardar:
+            fin = min(hasta, datetime.fromisoformat(str(turno["inicio"]).replace("Z", "+00:00")))
+            db.guardar_turno_para(tenant["id"], turno["id"], p["telefono"], fin)
+            link = f"{pagina}/reservar/{turno['id']}"
+            texto = f"{cuando} (te lo guardamos hasta las {fin.astimezone(tz):%H:%M})"
+        if ofrecer_horario(tenant, p["telefono"], texto, link):
+            ofrecidos.append((p.get("nombre") or "alguien", cuando))
+    return ofrecidos, guardar
+
+
+def texto_reparto(ofrecidos: list[tuple[str, str]], guardados: bool) -> str:
+    """Para el profesional (con el número vinculado): a quién se le ofreció qué."""
+    detalle = "; ".join(f"{nombre}: {cuando}" for nombre, cuando in ofrecidos[:MAX_EN_AVISO])
+    if len(ofrecidos) > MAX_EN_AVISO:
+        detalle += f" y {len(ofrecidos) - MAX_EN_AVISO} más (en el panel)"
+    return (f"terminó tu pausa: tu página vuelve a tomar turnos. A tu lista de espera le ofrecimos — {detalle}"
+            + (f". Cada horario queda guardado {HORAS_GUARDADO} h para esa persona" if guardados else ""))
 
 
 def tras_cancelar(tenant: dict, turno: dict, por: str) -> None:
@@ -297,7 +326,8 @@ def reactivar_si_toca(tenant: dict, hoy) -> bool:
         return False
     db.guardar_ajustes(tenant["id"], {"pausado": False, "pausado_hasta": None, "mensaje_pausa": None})
     tenant = {**tenant, "pausado": False}
-    avisados = ofrecer_repartido(tenant, hoy)
+    ofrecidos, guardados = ofrecer_repartido(tenant, hoy)
     scheduler.avisar_profesional(tenant, "terminó tu pausa: tu página vuelve a tomar turnos"
-                                 + (f"; le avisamos a {avisados} de tu lista de espera" if avisados else ""))
+                                 + (f"; le avisamos a {len(ofrecidos)} de tu lista de espera" if ofrecidos else ""),
+                                 con_nombre=texto_reparto(ofrecidos, guardados) if ofrecidos else None)
     return True
