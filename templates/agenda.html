@@ -783,7 +783,12 @@
     <summary><h3>Lista de espera{% if espera %} <span class="contador">{{ espera|length }}</span>{% endif %}</h3><span class="plegable-resumen">{{ 'Nadie esperando' if not espera }}</span></summary>
     {% for p in espera %}
     <div class="turno">
-      <span><strong>{{ p.nombre }}</strong>{% if p.origen == 'web' %} <span class="chip">se anotó en la web</span>{% endif %}{% if p.preferencia %} <span class="tenue">· {{ p.preferencia }}</span>{% endif %}</span>
+      <span><strong>{{ p.nombre }}</strong>{% if p.origen == 'web' %} <span class="chip">se anotó en la web</span>{% endif %}{% if p.preferencia %} <span class="tenue">· {{ p.preferencia }}</span>{% endif %}
+        {% set o = p._oferta %}{% if o %}<br><span class="tenue oferta-espera">Le ofrecimos {{ o.cuando }} ·
+          {% if o.estado == 'reservo' %}<span class="chip chip-ok">lo reservó</span>
+          {% elif o.estado == 'esperando' %}<span class="chip">guardado hasta las {{ o.hasta }}</span>
+          {% elif o.estado == 'vencio' %}<span class="chip">se le venció</span>
+          {% else %}<span class="chip">pidió otro y no había</span>{% endif %}</span>{% endif %}</span>
       <span class="acciones">
         <form method="post" action="{{ url_for('agenda_espera_ofrecer', espera_id=p.id) }}">
           <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

@@ -3716,6 +3716,7 @@ chequear("pausa: se reactiva", _t1["pausado"] is False and "reservar/z1" in web4
 
 # --- Pausa con fecha, horario semanal y tipos de turno ---
 import cancelaciones as _canc3  # noqa: E402
+_canc3._programar = lambda *a: None  # sin temporizadores de verdad: se llama pasar_vencidos a mano
 
 reset()
 TABLAS["lista_espera"] = []
@@ -3781,9 +3782,10 @@ TABLAS["lista_espera"] += [{"id": f"e{i}", "tenant_id": "t1", "nombre": f"P{i}",
 _canc3.ofrecer_horario = lambda tenant, tel, cuando, link: _ofr.append((tel, cuando)) or True
 chequear("pausa con fecha: ese día se reactiva", _canc3.reactivar_si_toca(dict(_t1), _hoy_ar + timedelta(days=10))
          and _t1["pausado"] is False and _t1["pausado_hasta"] is None)
-chequear("pausa con fecha: a cada uno un horario distinto (y si faltan, se repite desde el primero)",
-         [t for t, _ in _ofr] == ["5491144445555", "549110000002", "549110000003"]
-         and _ofr[0][1] != _ofr[1][1] and _ofr[2][1] == _ofr[0][1] and "le avisamos a 3" in _avs[-1], _ofr)
+chequear("pausa con fecha: a cada uno un horario distinto; si faltan, el resto queda en cola",
+         [t for t, _ in _ofr] == ["5491144445555", "549110000002"]
+         and _ofr[0][1] != _ofr[1][1] and "le avisamos a 2" in _avs[-1]
+         and not next(p for p in TABLAS["lista_espera"] if p["id"] == "e3").get("ofrecido_en"), _ofr)
 chequear("vuelta.ics: sin pausa no hay evento", app.app.test_client().get("/marcos/vuelta.ics").status_code == 404)
 # Si alcanzan los horarios, cada uno queda guardado para esa persona y el profesional sabe a quién se le ofreció qué.
 _t1.update(pausado=True, pausado_hasta=_hoy_ar.isoformat())
@@ -3799,10 +3801,11 @@ chequear("reparto: reactiva", _canc3.reactivar_si_toca(dict(_t1), _hoy_ar))
 _g = {t["id"]: t for t in TABLAS["turnos"]}
 chequear("reparto: cada horario queda guardado para su persona, con link directo",
          _g["g1"]["guardado_tel"] == "5491144445555" and _g["g2"]["guardado_tel"] == "5491166667777" and not _g["g3"].get("guardado_tel")
-         and _ofr[0][2].endswith("/marcos/reservar/g1") and "te lo guardamos hasta las" in _ofr[0][1], _ofr)
+         and f"/marcos/reservar/g1?g={_canc3.token_guardado('g1', '5491144445555')}" in _ofr[0][2]
+         and "te lo guardamos hasta las" in _ofr[0][1] and "pedís otro" in _ofr[0][1], _ofr)
 chequear("reparto: al profesional, a quién se le ofreció qué",
          "Nora:" in _avk[-1][1]["con_nombre"] and "Pía:" in _avk[-1][1]["con_nombre"]
-         and "guardado 4 h" in _avk[-1][1]["con_nombre"] and "le avisamos a 2" in _avk[-1][0], _avk)
+         and "guardado 60 min" in _avk[-1][1]["con_nombre"] and "le avisamos a 2" in _avk[-1][0], _avk)
 chequear("reparto: lo guardado no se ofrece a los demás",
          [t["id"] for t in db.turnos_libres("t1", _en)] == ["g3"])
 chequear("reparto: otro teléfono no lo puede reservar", not db.reservar_turno("t1", "g1", "5491100009999", "Otro"))
@@ -3817,6 +3820,56 @@ _g["g2"]["guardado_hasta"] = (_en - timedelta(minutes=1)).isoformat()
 chequear("reparto: vencido el plazo, lo puede tomar cualquiera", db.reservar_turno("t1", "g2", "5491100009999", "Otro"))
 _g["g3"].update(guardado_tel="5491100001111", guardado_hasta=(_en + timedelta(hours=1)).isoformat())
 chequear("reparto: el panel puede agendar igual", db.reservar_turno("t1", "g3", "5491100008888", "Fijo", ignorar_bloqueo=True))
+
+# Cola: más personas que horarios. Al vencer uno sin reservar, pasa al siguiente; «quiero otro» desde el link.
+_t1.update(pausado=True, pausado_hasta=_hoy_ar.isoformat())
+TABLAS["turnos"] = [turno(f"c{i}", "t1", _en + timedelta(days=2, hours=i)) for i in (1, 2)]
+TABLAS["lista_espera"] = [{"id": f"q{i}", "tenant_id": "t1", "nombre": n, "telefono": tel, "ofrecido_en": None, "origen": "web",
+                           "created_at": (_b + timedelta(minutes=i)).isoformat()}
+                          for i, (n, tel) in enumerate([("Ana", "5491150000001"), ("Beto", "5491150000002"), ("Cata", "5491150000003")])]
+_ofr, _avk = [], []
+_canc3.reactivar_si_toca(dict(_t1), _hoy_ar)
+_q = {p["id"]: p for p in TABLAS["lista_espera"]}
+_c = {t["id"]: t for t in TABLAS["turnos"]}
+chequear("cola: los dos primeros con su horario guardado, la tercera espera",
+         [t for t, *_ in _ofr] == ["5491150000001", "5491150000002"] and _q["q0"]["ofrecido_estado"] == "esperando"
+         and _q["q0"]["ofrecido_turno"] == "c1" and not _q["q2"].get("ofrecido_estado")
+         and "1 más quedan en cola" in _avk[-1][1]["con_nombre"], (_ofr, _avk))
+chequear("cola: antes de vencer no pasa nada", _canc3.pasar_vencidos(dict(_t1), _en + timedelta(minutes=30)) == 0)
+_ahora_v = _en + timedelta(minutes=61)
+db.reservar_turno("t1", "c2", "5491150000002", "Beto")
+chequear("cola: vencido sin reservar, pasa a la siguiente apenas vence",
+         _canc3.pasar_vencidos(dict(_t1), _ahora_v) == 1 and _q["q0"]["ofrecido_estado"] == "vencio"
+         and _q["q2"]["ofrecido_turno"] == "c1" and _c["c1"]["guardado_tel"] == "5491150000003"
+         and _ofr[-1][0] == "5491150000003" and "Ana se le venció" in _avk[-1][1]["con_nombre"]
+         and "a Cata" in _avk[-1][1]["con_nombre"], (_ofr[-1:], _avk[-1:]))
+chequear("cola: quien reservó queda «lo reservó» y no se pasa", _q["q1"]["ofrecido_estado"] == "reservo")
+# El panel muestra qué se le ofreció a cada uno y cómo terminó
+_esp = {p["id"]: p.get("_oferta") for p in app._espera_con_oferta(dict(_t1), app.ZoneInfo(TZ), _ahora_v)}
+chequear("panel: lista de espera con el horario ofrecido y su estado",
+         _esp["q0"]["estado"] == "vencio" and _esp["q1"]["estado"] == "reservo" and _esp["q2"]["estado"] == "esperando"
+         and _esp["q2"]["hasta"], _esp)
+_t1.update(pausado=False, pausado_hasta=None)
+_html = panel_c.get("/agenda").data.decode()
+chequear("panel: se ve en la agenda", "Le ofrecimos" in _html and "lo reservó" in _html and "se le venció" in _html)
+# «Quiero otro»: Cata no quiere c1. Hay un libre nuevo c3; c1 vuelve a la cola (no queda nadie sin ofrecer hoy).
+TABLAS["turnos"].append(turno("c3", "t1", _en + timedelta(days=3)))
+_c = {t["id"]: t for t in TABLAS["turnos"]}
+_c["c1"]["guardado_hasta"] = (datetime.now(timezone.utc) + timedelta(minutes=50)).isoformat()
+_w2 = app.app.test_client()
+_tok = _canc3.token_guardado("c1", "5491150000003")
+chequear("quiero otro: la página del horario muestra el botón sólo con el token",
+         "quiero otro horario" in _w2.get(f"/marcos/reservar/c1?g={_tok}").data.decode()
+         and "quiero otro horario" not in _w2.get("/marcos/reservar/c1?g=falso").data.decode())
+_r = _w2.post("/marcos/reservar/c1/otro", data={"g": "falso"})
+chequear("quiero otro: sin token no hace nada", _r.status_code == 302 and _c["c1"]["guardado_tel"] == "5491150000003")
+_r = _w2.post("/marcos/reservar/c1/otro", data={"g": _tok})
+chequear("quiero otro: suelta el suyo y le guarda el siguiente",
+         _r.status_code == 302 and "/marcos/reservar/c3?g=" in _r.headers["Location"]
+         and _c["c1"]["guardado_tel"] is None and _c["c3"]["guardado_tel"] == "5491150000003"
+         and _q["q2"]["ofrecido_turno"] == "c3", _r.headers.get("Location"))
+chequear("quiero otro: el horario nuevo dice hasta cuándo está guardado y deja pedir otro",
+         "Este horario está guardado hasta las" in _w2.get(_r.headers["Location"]).data.decode())
 _canc3.ofrecer_horario, scheduler.avisar_profesional = _vo, _va
 
 # horario semanal

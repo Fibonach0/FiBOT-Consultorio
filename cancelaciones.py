@@ -14,7 +14,10 @@ Los avisos al profesional llevan el nombre del paciente sólo si su WhatsApp
 de avisos está vinculado (asistente_profesional). Si hay lista de espera, el
 aviso deja preparada la oferta al primero: el profesional responde «sí».
 """
+import hashlib
+import hmac
 import logging
+import threading
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -98,57 +101,181 @@ def ofrecer_a_toda_la_espera(tenant: dict, turno: dict, hoy) -> int:
     return avisados
 
 
-HORAS_GUARDADO = 4
+MINUTOS_GUARDADO = 60
 MAX_EN_AVISO = 8  # el aviso va en un parámetro de plantilla: que no se pase de largo
+MARGEN_PASAR = timedelta(minutes=30)  # un horario que empieza antes de esto ya no se pasa
 
 
-def ofrecer_repartido(tenant: dict, hoy) -> tuple[list[tuple[str, str]], bool]:
+def _inicio(turno: dict) -> datetime:
+    return datetime.fromisoformat(str(turno["inicio"]).replace("Z", "+00:00"))
+
+
+def token_guardado(turno_id: str, telefono: str) -> str:
+    """Credencial del link «quiero otro»: sólo quien recibió el horario
+    guardado la tiene. No se guarda: se recalcula."""
+    clave = f"guardado:{turno_id}:{db._ultimos10(telefono)}".encode()
+    return hmac.new(config.FLASK_SECRET_KEY.encode(), clave, hashlib.sha256).hexdigest()[:24]
+
+
+def _programar(segundos: float, tenant_id: str) -> None:
+    """Apenas vence un horario guardado, pasarlo al siguiente (sin esperar el
+    tick de 10 min, que queda de respaldo si el proceso se reinicia)."""
+    def correr():
+        try:
+            tenant = db.get_tenant_by_id(tenant_id)
+            if tenant:
+                pasar_vencidos(tenant)
+        except Exception:
+            logger.exception("Fallo pasando horarios guardados vencidos de %s", tenant_id)
+    t = threading.Timer(max(segundos, 1) + 5, correr)
+    t.daemon = True
+    t.start()
+
+
+def guardar_y_ofrecer(tenant: dict, persona: dict, turno: dict, ahora: datetime, mandar: bool = True) -> datetime | None:
+    """Le guarda `turno` a `persona` `MINUTOS_GUARDADO` (o hasta que empiece)
+    y se lo ofrece con el link directo. Devuelve hasta cuándo, o None si no se
+    le pudo escribir."""
+    tz = _tz(tenant)
+    fin = min(ahora + timedelta(minutes=MINUTOS_GUARDADO), _inicio(turno))
+    db.guardar_turno_para(tenant["id"], turno["id"], persona["telefono"], fin)
+    db.marcar_oferta(tenant["id"], persona["id"], {
+        "ofrecido_en": ahora.astimezone(tz).date().isoformat(), "ofrecido_turno": turno["id"],
+        "ofrecido_hasta": fin.isoformat(), "ofrecido_estado": "esperando"})
+    _programar((fin - ahora).total_seconds(), tenant["id"])
+    if not mandar:
+        return fin
+    link = f"{base_url()}/{tenant['slug']}/reservar/{turno['id']}?g={token_guardado(turno['id'], persona['telefono'])}"
+    texto = (f"{scheduler.cuando_de(turno, tenant, tz)} (te lo guardamos hasta las {fin.astimezone(tz):%H:%M}; "
+             f"si no te sirve, desde el link pedís otro)")
+    return fin if ofrecer_horario(tenant, persona["telefono"], texto, link) else None
+
+
+def ofrecer_repartido(tenant: dict, hoy) -> tuple[list[tuple[str, str]], bool, int]:
     """Al terminar una pausa: a cada persona de la lista de espera (en orden de
-    anotación) le ofrece un horario libre DISTINTO, así no compiten todos por
-    el mismo. Si alcanzan los horarios, a cada uno se le GUARDA el suyo
-    `HORAS_GUARDADO` horas (nadie más lo ve ni lo reserva) y el link lleva
-    directo a ese horario. Si hay más personas que horarios, se vuelve a
-    empezar por el primero y no se guarda ninguno (competirían por el mismo).
-    Saltea a quien hoy ya recibió un ofrecimiento. Devuelve ([(nombre, cuándo)]
-    de los que se pudo escribir, si quedaron guardados), para el profesional."""
+    anotación) le ofrece un horario libre DISTINTO y se lo GUARDA
+    `MINUTOS_GUARDADO` (nadie más lo ve ni lo reserva); el link lleva directo a
+    ese horario. Si hay más personas que horarios, las que sobran quedan en
+    cola: apenas vence uno sin reservar, `pasar_vencidos` se lo ofrece a la
+    siguiente. Con varios tipos de turno no se guarda (el paciente elige el
+    tipo en la página, donde un guardado no se ve): a cada uno un horario
+    distinto, repitiendo desde el primero si faltan. Saltea a quien hoy ya
+    recibió un ofrecimiento. Devuelve ([(nombre, cuándo)], si se guardaron,
+    cuántos quedaron en cola), para el profesional."""
     if not tenant.get("slug"):
-        return [], False
+        return [], False, 0
     espera = [p for p in db.lista_de_espera(tenant["id"]) if p.get("ofrecido_en") != hoy.isoformat()]
     if not espera:
-        return [], False
+        return [], False, 0
     ahora = datetime.now(ZoneInfo("UTC"))
     libres = db.turnos_libres(tenant["id"], ahora, limite=len(espera))
     if not libres:
-        return [], False
+        return [], False, 0
     tz = _tz(tenant)
-    pagina = f"{base_url()}/{tenant['slug']}"
-    # Con varios tipos de turno el paciente tiene que elegir el tipo en la
-    # página, y ahí un horario guardado no se ve: no se guarda.
-    guardar = len(libres) >= len(espera) and len(tenant.get("tipos_turno") or []) <= 1
-    hasta = ahora + timedelta(hours=HORAS_GUARDADO)
     ofrecidos = []
-    for i, p in enumerate(espera):
-        turno = libres[i % len(libres)]
-        db.marcar_ofrecido(tenant["id"], p["id"], hoy.isoformat())
-        cuando = scheduler.cuando_de(turno, tenant, tz)
-        link, texto = pagina, cuando
-        if guardar:
-            fin = min(hasta, datetime.fromisoformat(str(turno["inicio"]).replace("Z", "+00:00")))
-            db.guardar_turno_para(tenant["id"], turno["id"], p["telefono"], fin)
-            link = f"{pagina}/reservar/{turno['id']}"
-            texto = f"{cuando} (te lo guardamos hasta las {fin.astimezone(tz):%H:%M})"
-        if ofrecer_horario(tenant, p["telefono"], texto, link):
-            ofrecidos.append((p.get("nombre") or "alguien", cuando))
-    return ofrecidos, guardar
+    if len(tenant.get("tipos_turno") or []) > 1:
+        for i, p in enumerate(espera):
+            turno = libres[i % len(libres)]
+            db.marcar_ofrecido(tenant["id"], p["id"], hoy.isoformat())
+            cuando = scheduler.cuando_de(turno, tenant, tz)
+            if ofrecer_horario(tenant, p["telefono"], cuando, f"{base_url()}/{tenant['slug']}"):
+                ofrecidos.append((p.get("nombre") or "alguien", cuando))
+        return ofrecidos, False, 0
+    for p, turno in zip(espera, libres):
+        if guardar_y_ofrecer(tenant, p, turno, ahora):
+            ofrecidos.append((p.get("nombre") or "alguien", scheduler.cuando_de(turno, tenant, tz)))
+    return ofrecidos, True, max(len(espera) - len(libres), 0)
 
 
-def texto_reparto(ofrecidos: list[tuple[str, str]], guardados: bool) -> str:
+def texto_reparto(ofrecidos: list[tuple[str, str]], guardados: bool, en_cola: int = 0) -> str:
     """Para el profesional (con el número vinculado): a quién se le ofreció qué."""
     detalle = "; ".join(f"{nombre}: {cuando}" for nombre, cuando in ofrecidos[:MAX_EN_AVISO])
     if len(ofrecidos) > MAX_EN_AVISO:
         detalle += f" y {len(ofrecidos) - MAX_EN_AVISO} más (en el panel)"
-    return (f"terminó tu pausa: tu página vuelve a tomar turnos. A tu lista de espera le ofrecimos — {detalle}"
-            + (f". Cada horario queda guardado {HORAS_GUARDADO} h para esa persona" if guardados else ""))
+    texto = f"terminó tu pausa: tu página vuelve a tomar turnos. A tu lista de espera le ofrecimos — {detalle}"
+    if guardados:
+        texto += f". Cada horario queda guardado {MINUTOS_GUARDADO} min para esa persona"
+    if en_cola:
+        texto += (f". {en_cola} más quedan en cola: apenas venza un horario sin reservar, "
+                  f"se lo ofrecemos al siguiente")
+    return texto
+
+
+def _siguiente(tenant: dict, hoy: str) -> dict | None:
+    """El primero de la lista (por anotación) sin un horario guardado ahora y
+    que hoy no recibió ofrecimiento."""
+    return next((p for p in db.lista_de_espera(tenant["id"])
+                 if p.get("ofrecido_estado") != "esperando" and p.get("ofrecido_en") != hoy), None)
+
+
+def pasar_al_siguiente(tenant: dict, turno: dict | None, ahora: datetime, excluir: str | None = None) -> str | None:
+    """Un horario guardado que quedó libre (venció o lo rechazaron) va al
+    siguiente de la lista. Si ese horario ya no sirve (lo tomaron o empieza ya),
+    el próximo libre. Devuelve el nombre de a quién se le ofreció."""
+    persona = _siguiente(tenant, ahora.astimezone(_tz(tenant)).date().isoformat())
+    if not persona or not tenant.get("slug") or tenant.get("pausado"):
+        return None
+    if not (turno and turno.get("estado") == "libre" and not turno.get("hueco") and turno["id"] != excluir
+            and _inicio(turno) > ahora + MARGEN_PASAR and not db.guardado_para_otro(turno, "", ahora)):
+        libres = [t for t in db.turnos_libres(tenant["id"], ahora + MARGEN_PASAR, limite=2) if t["id"] != excluir]
+        if not libres:
+            return None
+        turno = libres[0]
+    if not guardar_y_ofrecer(tenant, persona, turno, ahora):
+        return None
+    return persona.get("nombre") or "alguien"
+
+
+def pasar_vencidos(tenant: dict, ahora: datetime | None = None) -> int:
+    """Lo llaman el temporizador del guardado y el tick: cada ofrecimiento
+    guardado que venció queda «reservó» o «venció»; los vencidos pasan al
+    siguiente de la lista. Devuelve cuántos pasó."""
+    ahora = ahora or datetime.now(ZoneInfo("UTC"))
+    pasados = 0
+    for p in db.lista_de_espera(tenant["id"]):
+        if p.get("ofrecido_estado") != "esperando" or not p.get("ofrecido_hasta"):
+            continue
+        turno = db.turno_por_id(tenant["id"], p["ofrecido_turno"]) if p.get("ofrecido_turno") else None
+        if reservo(turno, p):
+            db.marcar_oferta(tenant["id"], p["id"], {"ofrecido_estado": "reservo"})
+            continue
+        if datetime.fromisoformat(str(p["ofrecido_hasta"]).replace("Z", "+00:00")) > ahora:
+            continue
+        db.marcar_oferta(tenant["id"], p["id"], {"ofrecido_estado": "vencio"})
+        a_quien = pasar_al_siguiente(tenant, turno, ahora)
+        if a_quien:
+            pasados += 1
+            scheduler.avisar_profesional(
+                tenant, "venció un horario guardado de tu lista de espera sin reservar; se lo ofrecimos al siguiente",
+                con_nombre=f"a {p.get('nombre') or 'alguien'} se le venció el horario guardado sin reservar; "
+                           f"se lo ofrecimos a {a_quien}")
+    return pasados
+
+
+def reservo(turno: dict | None, persona: dict) -> bool:
+    return bool(turno and turno.get("estado") == "reservado"
+                and db._ultimos10(turno.get("paciente_telefono")) == db._ultimos10(persona.get("telefono")))
+
+
+def quiero_otro(tenant: dict, turno: dict, ahora: datetime | None = None) -> tuple[dict | None, datetime | None]:
+    """«No me sirve, quiero otro» desde el link del horario guardado (el token
+    ya se verificó): suelta ese horario, que pasa al siguiente de la lista, y
+    le guarda otro a la misma persona (el siguiente en el tiempo, o si no hay,
+    cualquier otro). Devuelve (el nuevo, hasta cuándo) o (None, None)."""
+    ahora = ahora or datetime.now(ZoneInfo("UTC"))
+    persona = next((p for p in db.lista_de_espera(tenant["id"])
+                    if db._ultimos10(p["telefono"]) == db._ultimos10(turno.get("guardado_tel"))), None)
+    db.soltar_guardado(tenant["id"], turno["id"])
+    libres = [t for t in db.turnos_libres(tenant["id"], ahora + MARGEN_PASAR, limite=50) if t["id"] != turno["id"]]
+    nuevo = next((t for t in libres if _inicio(t) > _inicio(turno)), libres[0] if libres else None)
+    fin = None
+    if persona:
+        if nuevo:
+            fin = guardar_y_ofrecer(tenant, persona, nuevo, ahora, mandar=False)
+        else:
+            db.marcar_oferta(tenant["id"], persona["id"], {"ofrecido_estado": "otro"})
+    pasar_al_siguiente(tenant, {**turno, "guardado_tel": None, "guardado_hasta": None}, ahora, excluir=nuevo and nuevo["id"])
+    return (nuevo, fin) if fin else (None, None)
 
 
 def tras_cancelar(tenant: dict, turno: dict, por: str) -> None:
@@ -326,8 +453,8 @@ def reactivar_si_toca(tenant: dict, hoy) -> bool:
         return False
     db.guardar_ajustes(tenant["id"], {"pausado": False, "pausado_hasta": None, "mensaje_pausa": None})
     tenant = {**tenant, "pausado": False}
-    ofrecidos, guardados = ofrecer_repartido(tenant, hoy)
+    ofrecidos, guardados, en_cola = ofrecer_repartido(tenant, hoy)
     scheduler.avisar_profesional(tenant, "terminó tu pausa: tu página vuelve a tomar turnos"
                                  + (f"; le avisamos a {len(ofrecidos)} de tu lista de espera" if ofrecidos else ""),
-                                 con_nombre=texto_reparto(ofrecidos, guardados) if ofrecidos else None)
+                                 con_nombre=texto_reparto(ofrecidos, guardados, en_cola) if ofrecidos else None)
     return True
