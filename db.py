@@ -909,16 +909,18 @@ def bitacora(tenant_id: str, clave: str | None = None) -> list[dict]:
     return sorted(res.data, key=lambda e: (str(e["fecha"]), str(e.get("created_at") or "")), reverse=True)
 
 
-def agregar_bitacora(tenant_id: str, clave: str, fecha: str, texto: str) -> None:
+def agregar_bitacora(tenant_id: str, clave: str, fecha: str, texto: str, para_proxima: str | None = None) -> None:
     telefono, ficha = partir_clave(clave)
     _client.table("paciente_bitacora").insert(
-        {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha, "fecha": fecha, "texto": texto}
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha, "fecha": fecha, "texto": texto,
+         "para_proxima": para_proxima}
     ).execute()
 
 
-def editar_bitacora(tenant_id: str, entrada_id: str, fecha: str, texto: str) -> None:
+def editar_bitacora(tenant_id: str, entrada_id: str, fecha: str, texto: str, para_proxima: str | None = None) -> None:
     (_client.table("paciente_bitacora")
-     .update({"fecha": fecha, "texto": texto, "updated_at": datetime.now(timezone.utc).isoformat()})
+     .update({"fecha": fecha, "texto": texto, "para_proxima": para_proxima,
+              "updated_at": datetime.now(timezone.utc).isoformat()})
      .eq("tenant_id", tenant_id).eq("id", entrada_id).execute())
 
 

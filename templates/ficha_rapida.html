@@ -10,6 +10,7 @@
 <main class="rapida">
   {% for m in get_flashed_messages() %}<div class="aviso">{{ m }}</div>{% endfor %}
   {% if p.hoy or p.proxima %}<p class="tenue rapida-cuando">{% if p.hoy %}Hoy a las {{ p.hoy }}{% else %}Próxima: {{ p.proxima }}{% endif %}</p>{% endif %}
+  {% if para_hoy %}<div class="para-hoy"><strong>Para hoy</strong> <span class="tenue">(del {{ para_hoy._fecha }})</span><div>{{ para_hoy.para_proxima }}</div></div>{% endif %}
   <form method="post" action="{{ url_for('agenda_bitacora') }}" class="rapida-form">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="telefono" value="{{ p.clave }}">
@@ -18,6 +19,11 @@
     <input type="date" id="rapida-fecha" name="fecha" value="{{ hoy }}" required>
     <label for="rapida-texto">Qué hicimos</label>
     <textarea id="rapida-texto" name="texto" rows="6" required maxlength="10000" autofocus></textarea>
+    <button type="button" class="dictar" data-dictar="rapida-texto" hidden>🎤 Dictar</button>
+    <p class="dictar-estado tenue" hidden></p>
+    <p class="dictar-pista tenue" hidden>Para dictar, tocá el micrófono del teclado.</p>
+    <label for="rapida-proxima">Para la próxima <span class="tenue">(opcional)</span></label>
+    <input type="text" id="rapida-proxima" name="para_proxima" maxlength="1000" placeholder="Ej.: traer el cuaderno, seguir con la lámina 3" enterkeyhint="done">
     <button class="btn rapida-guardar" type="submit">Anotar</button>
   </form>
 
@@ -26,6 +32,7 @@
   <article class="bitacora-entrada">
     <div class="bitacora-fecha">{{ e._fecha }}</div>
     <div class="bitacora-texto">{{ e.texto }}</div>
+    {% if e.para_proxima %}<div class="bitacora-proxima"><strong>Para la próxima:</strong> {{ e.para_proxima }}</div>{% endif %}
     <details class="bitacora-editar">
       <summary class="tenue">Editar</summary>
       <form method="post" action="{{ url_for('agenda_bitacora_editar', entrada_id=e.id) }}">
@@ -33,6 +40,7 @@
         <input type="hidden" name="rapida" value="{{ p.ref }}">
         <input type="date" name="fecha" value="{{ e._iso }}" required aria-label="Fecha">
         <textarea name="texto" rows="5" required maxlength="10000" aria-label="Texto">{{ e.texto }}</textarea>
+        <input type="text" name="para_proxima" value="{{ e.para_proxima or '' }}" maxlength="1000" aria-label="Para la próxima" placeholder="Para la próxima (opcional)">
         <button class="btn chico" type="submit">Guardar</button>
       </form>
       <form method="post" action="{{ url_for('agenda_bitacora_borrar', entrada_id=e.id) }}">
@@ -47,4 +55,5 @@
   {% endfor %}
 </main>
 {% include "_rapida_estilo.html" %}
+{% include "_dictado.html" %}
 {% endblock %}

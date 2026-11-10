@@ -328,6 +328,7 @@
         {% for c in h.fechas %}
         <div class="{{ 'debe' if c.animo == 'mal' else 'tenue' }}">{{ c.titulo }}, {{ c._falta }}</div>
         {% endfor %}
+        {% if h.para_hoy %}<div class="hoy-para"><strong>Para hoy:</strong> {{ h.para_hoy.para_proxima|truncate(140) }}</div>{% endif %}
         {% if h.ficha.bitacora %}<div class="hoy-nota">{{ h.ficha.bitacora[0]._fecha }}: {{ h.ficha.bitacora[0].texto|truncate(110) }}</div>
         {% elif h.ficha.ultima_nota %}<div class="hoy-nota">{{ h.ficha.ultima_nota._dia }}: {{ h.ficha.ultima_nota.nota|truncate(110) }}</div>
         {% elif h.ficha.notas %}<div class="hoy-nota">{{ h.ficha.notas|truncate(110) }}</div>{% endif %}
@@ -1036,8 +1037,12 @@
         <div class="fila">
           <div style="flex:0 0 auto;min-width:0"><label>Fecha</label><input type="date" name="fecha" value="{{ hoy_iso }}" required></div>
         </div>
-        <label>Qué hicimos</label>
-        <textarea name="texto" rows="4" required maxlength="10000"></textarea>
+        <label for="{{ f.dom }}-bitacora-texto">Qué hicimos</label>
+        <textarea id="{{ f.dom }}-bitacora-texto" name="texto" rows="4" required maxlength="10000"></textarea>
+        <button type="button" class="dictar" data-dictar="{{ f.dom }}-bitacora-texto" hidden>🎤 Dictar</button>
+        <p class="dictar-estado tenue" hidden></p>
+        <label for="{{ f.dom }}-bitacora-proxima">Para la próxima <span class="tenue">(opcional)</span></label>
+        <input type="text" id="{{ f.dom }}-bitacora-proxima" name="para_proxima" maxlength="1000" placeholder="Ej.: traer el cuaderno, seguir con la lámina 3">
         <button class="btn chico" type="submit">Anotar</button>
         <a class="tenue" href="{{ url_for('fichas_rapida', ref=f.ref) }}" style="margin-left:8px">Abrir en modo rápido ↗</a>
       </form>
@@ -1046,12 +1051,14 @@
       <div class="bitacora-entrada">
         <div class="bitacora-fecha">{{ e._fecha }}</div>
         <div class="bitacora-texto">{{ e.texto }}</div>
+        {% if e.para_proxima %}<div class="bitacora-proxima"><strong>Para la próxima:</strong> {{ e.para_proxima }}</div>{% endif %}
         <details>
           <summary class="tenue">Editar ▾</summary>
           <form method="post" action="{{ url_for('agenda_bitacora_editar', entrada_id=e.id) }}">
             {{ ocultos(f.clave) }}
             <input type="date" name="fecha" value="{{ e._iso }}" required aria-label="Fecha" style="max-width:200px">
             <textarea name="texto" rows="4" required maxlength="10000" aria-label="Texto">{{ e.texto }}</textarea>
+            <input type="text" name="para_proxima" value="{{ e.para_proxima or '' }}" maxlength="1000" aria-label="Para la próxima" placeholder="Para la próxima (opcional)">
             <button class="btn chico" type="submit">Guardar</button>
           </form>
           <form method="post" action="{{ url_for('agenda_bitacora_borrar', entrada_id=e.id) }}">
@@ -1673,4 +1680,5 @@
 </script>
 {% include "_buscador.html" %}
 {% include "_barra_movil.html" %}
+{% include "_dictado.html" %}
 {% endblock %}

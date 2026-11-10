@@ -644,6 +644,13 @@ arriba, `_fichas_livianas` + `db.fichas_livianas`: NO arma `_fichas`, que es lo
 lento) y `/agenda/fichas/<ref>` (ref = `buscador._ref`, nunca el teléfono en la
 URL; `no-store`). Accesos: «Fichas» en la barra del celular, botón «Bitácora»
 en Hoy, atajo del manifest («Anotar en una ficha»).
+`para_proxima` (`migrations/080`, opcional, `MAX_PARA_PROXIMA`): `app._para_hoy`
+toma la última anotación ANTERIOR a hoy y, si dejó algo, sale como «Para hoy» en
+la tarjeta de Hoy y arriba de la página rápida (lo de anotaciones más viejas se
+da por hecho). Dictado (`templates/_dictado.html`): sólo con reconocimiento en
+el dispositivo (`SpeechRecognition.available/install` + `processLocally`); sin
+eso el botón no aparece (en el celular, pista del micrófono del teclado). Nunca
+usar el reconocimiento por servidor: la voz iría a Google/Apple.
 
 ### Psicopedagogía (`rubros.py`, `migrations/021`)
 

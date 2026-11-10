@@ -1,0 +1,76 @@
+{# Dictado de la bitácora. Sólo con reconocimiento EN EL DISPOSITIVO
+   (SpeechRecognition con processLocally): la voz no sale a ningún servicio.
+   Si el navegador no lo ofrece, el botón no aparece y en el celular queda la
+   pista del micrófono del teclado. Cada botón lleva data-dictar="<id del textarea>". #}
+<style>
+  .dictar { display:inline-flex; align-items:center; gap:6px; margin:6px 0 2px; padding:8px 14px; border-radius:999px; border:1px solid var(--rule);
+    background:var(--card); color:var(--ink); font:inherit; font-size:.95rem; cursor:pointer; }
+  .dictar[aria-pressed="true"] { background:var(--danger-bg); border-color:var(--warn); }
+  .dictar-estado, .dictar-pista { font-size:.85rem; margin:2px 0 0; }
+</style>
+<script>
+(function () {
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  var botones = Array.prototype.slice.call(document.querySelectorAll('[data-dictar]'));
+  if (!botones.length) return;
+  var IDIOMAS = ['es-AR', 'es-419', 'es-US', 'es-ES', 'es'];
+  function pista() {
+    if (!window.matchMedia || !matchMedia('(pointer: coarse)').matches) return;
+    document.querySelectorAll('.dictar-pista').forEach(function (p) { p.hidden = false; });
+  }
+  if (!SR || typeof SR.available !== 'function' || !('processLocally' in SR.prototype)) { pista(); return; }
+  var idioma = null, listo = false;
+  (function probar(i) {
+    if (i >= IDIOMAS.length) { pista(); return; }
+    SR.available({langs: [IDIOMAS[i]], processLocally: true}).then(function (estado) {
+      if (estado === 'unavailable') { probar(i + 1); return; }
+      idioma = IDIOMAS[i]; listo = estado === 'available';
+      botones.forEach(function (b) { b.hidden = false; });
+    }).catch(function () { probar(i + 1); });
+  })(0);
+
+  var activo = null;
+  function estado(b, txt) { var e = b.parentNode.querySelector('.dictar-estado'); if (e) { e.textContent = txt; e.hidden = !txt; } }
+  function parar() { if (activo) { activo.rec.stop(); } }
+  function arrancar(b) {
+    var area = document.getElementById(b.dataset.dictar);
+    var rec = new SR();
+    rec.lang = idioma; rec.processLocally = true; rec.continuous = true; rec.interimResults = true;
+    var base = area.value;
+    rec.onresult = function (ev) {
+      var finales = '', parcial = '';
+      for (var i = 0; i < ev.results.length; i++) {
+        if (ev.results[i].isFinal) finales += ev.results[i][0].transcript; else parcial += ev.results[i][0].transcript;
+      }
+      var sep = base && !/\s$/.test(base) ? ' ' : '';
+      area.value = base + sep + finales.trim();
+      estado(b, parcial ? '… ' + parcial : 'Escuchando…');
+    };
+    rec.onerror = function (ev) {
+      estado(b, ev.error === 'not-allowed' ? 'Hay que dar permiso al micrófono.' : 'No se pudo dictar. Probá de nuevo.');
+    };
+    rec.onend = function () {
+      b.setAttribute('aria-pressed', 'false'); b.textContent = '🎤 Dictar';
+      if (activo && activo.b === b) activo = null;
+      var e = b.parentNode.querySelector('.dictar-estado'); if (e && /^(…|Escuchando)/.test(e.textContent)) estado(b, '');
+      area.focus();
+    };
+    activo = {b: b, rec: rec};
+    b.setAttribute('aria-pressed', 'true'); b.textContent = '■ Listo';
+    estado(b, 'Escuchando…');
+    rec.start();
+  }
+  botones.forEach(function (b) {
+    b.addEventListener('click', function () {
+      if (activo) { var era = activo.b; parar(); if (era === b) return; }
+      if (listo) { arrancar(b); return; }
+      estado(b, 'Preparando el dictado en este celular (una sola vez)…');
+      SR.install({langs: [idioma], processLocally: true}).then(function (ok) {
+        if (!ok) { estado(b, 'No se pudo preparar el dictado. Usá el micrófono del teclado.'); return; }
+        listo = true; arrancar(b);
+      }).catch(function () { estado(b, 'No se pudo preparar el dictado. Usá el micrófono del teclado.'); });
+    });
+  });
+  document.addEventListener('submit', parar, true);
+})();
+</script>

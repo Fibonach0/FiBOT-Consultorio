@@ -5012,6 +5012,29 @@ chequear("bitácora: pide CSRF", r.status_code in (400, 403) and not any(e["text
 fc = cb.post("/agenda/paciente/ficha-completa", data={"csrf_token": "tok", "telefono": TELB}).data.decode()
 chequear("ficha completa: lleva la bitácora en orden", "Bitácora" in fc and fc.index("Trabajamos lectura") < fc.index("Juego de memoria"))
 chequear("barra del celular: lleva a las fichas", 'href="/agenda/fichas"' in html)
+# «Para la próxima»: sale como «Para hoy» desde la anotación anterior a hoy.
+_ayer_b = (_hoyb.date() - timedelta(days=1)).isoformat()
+cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": _ayer_b, "texto": "Lámina 2",
+                                  "para_proxima": "  Traer   el cuaderno  "})
+_pp = next(e for e in TABLAS["paciente_bitacora"] if e["texto"] == "Lámina 2")
+chequear("para la próxima: se guarda limpio", _pp["para_proxima"] == "Traer el cuaderno")
+pag = cb.get(f"/agenda/fichas/{ref_b}").data.decode()
+chequear("para la próxima: «Para hoy» en la página rápida", "Para hoy" in pag and "Traer el cuaderno" in pag)
+html = _panel(cb)
+chequear("para la próxima: «Para hoy» en la tarjeta de Hoy", "Para hoy:</strong> Traer el cuaderno" in html)
+chequear("dictado: botón (oculto hasta saber si hay dictado local) y script", 'data-dictar="rapida-texto" hidden' in pag
+         and "processLocally" in pag and "data-dictar=" in html)
+cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": _hoyb.date().isoformat(), "texto": "Hoy",
+                                  "para_proxima": "Para el jueves"})
+pag = cb.get(f"/agenda/fichas/{ref_b}").data.decode()
+chequear("para la próxima: lo de hoy no es «Para hoy»", "Traer el cuaderno" in pag and "<strong>Para hoy</strong>" in pag
+         and "Para el jueves" in pag and pag.index("Traer el cuaderno") < pag.index("Para el jueves"))
+cb.post(f"/agenda/bitacora/{_pp['id']}", data={"csrf_token": "tok", "rapida": ref_b, "fecha": _ayer_b, "texto": "Lámina 2", "para_proxima": ""})
+pag = cb.get(f"/agenda/fichas/{ref_b}").data.decode()
+chequear("para la próxima: al vaciarlo deja de salir", _pp["para_proxima"] is None and "<strong>Para hoy</strong>" not in pag)
+r = cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": _ayer_b, "texto": "x", "para_proxima": "a" * 1001},
+            follow_redirects=True)
+chequear("para la próxima: muy largo no se guarda", "muy largo" in r.data.decode() and not any(e["texto"] == "x" for e in TABLAS["paciente_bitacora"]))
 chequear("manifest: atajo a las fichas", any(x["url"] == "/agenda/fichas" for x in cb.get("/manifest.webmanifest").get_json()["shortcuts"]))
 db.get_tenant_by_id = _gtid_b
 
