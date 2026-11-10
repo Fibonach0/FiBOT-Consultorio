@@ -76,6 +76,11 @@ def _partes_del_resumen(tenant: dict, hoy) -> list[str]:
     if abiertas:
         partes.append(f"{abiertas} ficha{'s' if abiertas > 1 else ''} entregada{'s' if abiertas > 1 else ''} "
                       f"se abri{'eron' if abiertas > 1 else 'ó'} en las últimas 24 horas")
+    # Lista de espera sin un horario guardado ahora: si son varios, quizás
+    # conviene abrir más horarios. Sólo el número.
+    en_cola = sum(1 for p in db.lista_de_espera(tenant["id"]) if p.get("ofrecido_estado") not in ("esperando", "reservo"))
+    if en_cola:
+        partes.append(f"{en_cola} persona{'s' if en_cola > 1 else ''} en lista de espera esperando horario")
     sin_confirmar = len(db.sin_confirmar(tenant["id"]))
     if sin_confirmar:
         partes.append(f"{sin_confirmar} reserva{'s' if sin_confirmar > 1 else ''} web sin confirmar por WhatsApp")

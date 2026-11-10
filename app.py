@@ -3059,6 +3059,15 @@ def agenda_espera_ofrecer(espera_id):
         flash("No hay ningún horario libre para ofrecer.")
     elif not tenant.get("slug"):
         flash("Falta la página pública de reservas para mandarle el link.")
+    elif len(tipos_de(tenant)) <= 1:
+        # Mismo camino que la vuelta de una pausa: se lo guarda una hora, con
+        # link directo y «quiero otro»; si vence sin reservar, pasa al siguiente.
+        cuando = scheduler._fmt(libres[0]["inicio"], tz)
+        hasta = cancelaciones.guardar_y_ofrecer(tenant, persona, libres[0], datetime.now(ZoneInfo("UTC")))
+        if hasta:
+            flash(f"Le ofrecimos a {persona['nombre']} el {cuando} y se lo guardamos hasta las {hasta.astimezone(tz):%H:%M}.")
+        else:
+            flash(f"No se pudo escribirle a {persona['nombre']}.")
     else:
         db.marcar_ofrecido(tenant["id"], espera_id, hoy)
         cuando = scheduler._fmt(libres[0]["inicio"], tz)
@@ -4772,6 +4781,8 @@ def agenda_agendar(turno_id):
         flash("Ese horario ya no está libre.")
         return _volver_a_agenda()
     _avisar_si_bloqueado(tenant, turno["inicio"], turno["fin"])
+    if db.tiene_whatsapp(telefono) and cancelaciones.sacar_de_espera_al_reservar(tenant, turno, telefono, nombre, avisar=False):
+        flash(f"{nombre or 'Esa persona'} estaba en tu lista de espera: la sacamos.")
     clave = db.clave_de({"paciente_telefono": telefono, "ficha": ficha})
     if clave not in claves_previas:
         session["paciente_nuevo"] = {"clave": clave, "valor": bool(valor), "frecuencia": frecuencia}
@@ -5275,6 +5286,10 @@ def publico_reservar(slug, turno_id):
     if enviada:
         campos["confirmacion_enviada_at"] = datetime.now(ZoneInfo("UTC")).isoformat()
     db.actualizar_reserva(tenant["id"], turno_id, campos)
+    try:
+        cancelaciones.sacar_de_espera_al_reservar(tenant, {**turno, **campos}, telefono, nombre)
+    except Exception:
+        logger.exception("No se pudo sacar de la lista de espera")
     turno = _con_hora_local([{**turno, **campos}], tz)[0]
     return render_template("_reserva_lista.html" if _parcial() else "publico_confirmado.html",
                            tenant=tenant, turno=turno, enviada=enviada, token=token, nombre=nombre)

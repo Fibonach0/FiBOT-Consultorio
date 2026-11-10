@@ -148,6 +148,11 @@ def _reservar_elegido(tenant: dict, telefono: str, elegido: dict, indice: int, n
         cobro = _cobrar_reserva(tenant, elegido, nombre)
         if cobro:
             return cobro
+        import cancelaciones  # acá: cancelaciones importa scheduler
+        try:
+            cancelaciones.sacar_de_espera_al_reservar(tenant, elegido, telefono, nombre)
+        except Exception:
+            logger.exception("No se pudo sacar de la lista de espera")
         return (
             f"Listo, quedó reservado para el {_fmt(elegido['inicio'], tz)}. "
             "Te aviso antes por acá. Si necesitás cancelarlo, escribí *cancelar*."
