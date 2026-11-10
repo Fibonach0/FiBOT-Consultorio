@@ -2473,6 +2473,27 @@ def _se_superponen(a: dict, b: dict) -> bool:
     )
 
 
+def _espera_con_oferta(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
+    """La lista de espera con lo último que se le ofreció a cada uno (horario
+    guardado al terminar una pausa): `_oferta` = {cuando, estado, hasta}."""
+    espera = db.lista_de_espera(tenant["id"])
+    for p in espera:
+        if not p.get("ofrecido_turno") or not p.get("ofrecido_estado"):
+            continue
+        turno = db.turno_por_id(tenant["id"], p["ofrecido_turno"])
+        if not turno:
+            continue
+        estado = p["ofrecido_estado"]
+        hasta = datetime.fromisoformat(str(p["ofrecido_hasta"]).replace("Z", "+00:00")) if p.get("ofrecido_hasta") else None
+        if estado in ("esperando", "vencio") and cancelaciones.reservo(turno, p):
+            estado = "reservo"  # también si lo reservó después de vencido, mientras seguía libre
+        elif estado == "esperando" and hasta and hasta <= ahora:
+            estado = "vencio"
+        p["_oferta"] = {"cuando": scheduler._fmt(turno["inicio"], tz), "estado": estado,
+                        "hasta": f"{hasta.astimezone(tz):%H:%M}" if hasta else ""}
+    return espera
+
+
 def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
     """Lo que necesitan la agenda y la página de ajustes (los mismos bloques)."""
     pendientes = _con_hora_local(db.pendientes_de_pago(tenant["id"], ahora.astimezone(ZoneInfo("UTC"))), tz)
@@ -2527,7 +2548,7 @@ def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
         "ventana_aviso": tests_sugeridos.VENTANA_AVISO,
         "reservas_nuevas": sorted(({"ficha": f, "turno": t} for f in fichas for t in f["sesiones"] if t.get("reserva_nueva")),
                                   key=lambda r: r["turno"]["inicio"]),
-        "espera": db.lista_de_espera(tenant["id"]),
+        "espera": _espera_con_oferta(tenant, tz, ahora),
         "huecos": _con_hora_local(db.huecos(tenant["id"]), tz),
         "horario_por_dia": {d: [r for r in scheduler.rangos_horario(tenant) if r[0] == d] for d in range(7)},
         "dias_label": DIAS_LABEL,
@@ -5118,12 +5139,38 @@ def publico_reservar_form(slug, turno_id):
     i_tipo, tipo = _tipo_elegido(tenant, request.args.get("tipo"))
     if tipos_de(tenant) and tipo is None:
         return redirect(url_for("publico", slug=slug))
-    guardado = None
+    guardado, token = None, None
     if db.guardado_para_otro(turno, ""):  # vigente (para cualquiera que no sea el de la lista)
         guardado = f"{datetime.fromisoformat(str(turno['guardado_hasta']).replace('Z', '+00:00')).astimezone(tz):%H:%M}"
+        g = request.args.get("g") or ""
+        if g and hmac.compare_digest(g, cancelaciones.token_guardado(turno["id"], turno["guardado_tel"])):
+            token = g
     turno = _con_hora_local([turno], tz)[0]
     return render_template("publico_reservar.html", tenant=tenant, turno=turno, tipo=tipo, i_tipo=i_tipo,
-                           serie_posible=pagos.activo(tenant), guardado_hasta=guardado)
+                           serie_posible=pagos.activo(tenant), guardado_hasta=guardado, token_guardado=token)
+
+
+@app.post("/<slug>/reservar/<turno_id>/otro")
+def publico_quiero_otro(slug, turno_id):
+    """«No me sirve, quiero otro»: sólo con el token del link que le llegó a
+    quien tiene el horario guardado (sin sesión ni CSRF: el token es la
+    credencial, como en /agendar)."""
+    tenant = db.get_tenant_by_slug(slug)
+    if not tenant:
+        return "No encontrado.", 404
+    turno = db.turno_por_id(tenant["id"], turno_id)
+    g = request.form.get("g") or ""
+    if (tenant.get("pausado") or not turno or turno["estado"] != "libre" or not db.guardado_para_otro(turno, "")
+            or not hmac.compare_digest(g, cancelaciones.token_guardado(turno["id"], turno["guardado_tel"]))):
+        flash("Ese horario ya no está guardado para vos — elegí otro de la página.")
+        return redirect(url_for("publico", slug=slug))
+    nuevo, hasta = cancelaciones.quiero_otro(tenant, turno)
+    if not nuevo:
+        flash("Por ahora no hay otro horario libre. Seguís en la lista de espera: te escribimos cuando haya.")
+        return redirect(url_for("publico", slug=slug))
+    # La página del horario nuevo ya dice hasta cuándo está guardado.
+    return redirect(url_for("publico_reservar_form", slug=slug, turno_id=nuevo["id"],
+                            g=cancelaciones.token_guardado(nuevo["id"], turno["guardado_tel"])))
 
 
 def _parcial() -> bool:

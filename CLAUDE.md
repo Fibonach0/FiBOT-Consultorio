@@ -1094,15 +1094,25 @@ Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
   todo el día; 404 si no está pausado con fecha). El día de la vuelta
   `ofrecer_repartido` le ofrece a cada persona de la lista un horario libre
   distinto (si faltan, vuelve a empezar por el primero);
-  `ofrecer_a_toda_la_espera` sigue para abrir un día bloqueado. Si alcanzan los
-  horarios (y no hay varios tipos de turno), cada uno queda guardado
-  `HORAS_GUARDADO` (4) h para esa persona (`turnos.guardado_tel` /
-  `guardado_hasta`, `migrations/077`): la vista `turnos_disponibles` lo oculta,
-  `db.reservar_turno` lo rechaza a otro teléfono (últimos 10 dígitos,
-  `db.guardado_para_otro`; el panel con `ignorar_bloqueo` agenda igual) y el link
-  va directo a `/<slug>/reservar/<id>`, que dice hasta cuándo está guardado.
-  Vencido, vuelve solo. Al profesional vinculado le llega a quién se le ofreció
-  cada horario (`texto_reparto`, hasta `MAX_EN_AVISO`). En el directorio,
+  `ofrecer_a_toda_la_espera` sigue para abrir un día bloqueado. Sin varios
+  tipos de turno, cada horario queda guardado `MINUTOS_GUARDADO` (60) para esa
+  persona (`turnos.guardado_tel` / `guardado_hasta`, `migrations/077`): la vista
+  `turnos_disponibles` lo oculta, `db.reservar_turno` lo rechaza a otro teléfono
+  (últimos 10 dígitos, `db.guardado_para_otro`; el panel con `ignorar_bloqueo`
+  agenda igual) y el link va a `/<slug>/reservar/<id>?g=<token>`
+  (`cancelaciones.token_guardado`, HMAC, no se guarda), que dice hasta cuándo
+  está guardado y ofrece «No me sirve, quiero otro horario»
+  (`/<slug>/reservar/<id>/otro`, `quiero_otro`: le guarda el siguiente libre y
+  el suyo pasa a la cola). Si hay más personas que horarios, las que sobran
+  quedan en cola: `pasar_vencidos` (un `threading.Timer` al vencer, `_programar`,
+  y el tick de respaldo) marca cada oferta (`lista_espera.ofrecido_turno` /
+  `ofrecido_hasta` / `ofrecido_estado`: esperando / reservo / vencio / otro,
+  `migrations/078`) y le pasa el horario vencido al siguiente sin oferta hoy
+  (`pasar_al_siguiente`; si ya no sirve, el próximo libre), avisando al
+  profesional. La lista de espera del panel muestra qué se le ofreció a cada
+  uno y cómo terminó (`app._espera_con_oferta`). Al profesional vinculado le
+  llega a quién se le ofreció cada horario (`texto_reparto`, hasta
+  `MAX_EN_AVISO`). En el directorio,
   `vuelve` agrega los días que faltan («faltan 3 días», «mañana», «hoy»).
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.

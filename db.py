@@ -123,6 +123,11 @@ def guardar_turno_para(tenant_id: str, turno_id: str, telefono: str, hasta: date
         "tenant_id", tenant_id).eq("id", turno_id).eq("estado", "libre").execute()
 
 
+def soltar_guardado(tenant_id: str, turno_id: str) -> None:
+    _client.table("turnos").update({"guardado_tel": None, "guardado_hasta": None}).eq(
+        "tenant_id", tenant_id).eq("id", turno_id).execute()
+
+
 def turno_por_id(tenant_id: str, turno_id: str) -> dict | None:
     res = (
         _client.table("turnos")
@@ -1378,6 +1383,12 @@ def agregar_a_espera(tenant_id: str, nombre: str, telefono: str, preferencia: st
 
 def quitar_de_espera(tenant_id: str, espera_id: str) -> None:
     _client.table("lista_espera").delete().eq("tenant_id", tenant_id).eq("id", espera_id).execute()
+
+
+def marcar_oferta(tenant_id: str, espera_id: str, campos: dict) -> None:
+    """Qué horario se le guardó a alguien de la lista y cómo terminó
+    (`ofrecido_estado`: esperando / reservo / vencio / otro)."""
+    _client.table("lista_espera").update(campos).eq("tenant_id", tenant_id).eq("id", espera_id).execute()
 
 
 def marcar_ofrecido(tenant_id: str, espera_id: str, dia: str) -> None:

@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block titulo %}Confirmar turno — {{ tenant.nombre }}{% endblock %}
-{% block head %}{% include "_sitio.html" %}<style>main .card { border-radius:14px; } main h2 { font-family:var(--serif); font-weight:400; font-size:30px; }.pf-guardado { background:var(--green-bg); border-radius:8px; padding:8px 12px; }</style>{% endblock %}
+{% block head %}{% include "_sitio.html" %}<style>main .card { border-radius:14px; } main h2 { font-family:var(--serif); font-weight:400; font-size:30px; }.pf-guardado { background:var(--green-bg); border-radius:8px; padding:8px 12px; } .pf-otro { margin:0 0 12px; }</style>{% endblock %}
 {% block cuerpo %}{% include "_color_pagina.html" %}
 {% import "_sitio_macros.html" as sitio %}{{ sitio.barra(volver=(url_for('publico', slug=tenant.slug), tenant.nombre)) }}
 <main>
@@ -9,6 +9,10 @@
     <p>Turno con <strong>{{ tenant.nombre }}</strong>{% if tenant.rubro %} <span style="color:var(--muted);">({{ tenant.rubro }})</span>{% endif %}</p>
     <p><strong>{{ turno._dia }}</strong> — {{ turno._hora }}{% if tipo %} · {{ tipo.nombre }} ({{ tipo.minutos }} min){% endif %}</p>
     {% if guardado_hasta %}<p class="pf-guardado">Este horario está guardado hasta las <strong>{{ guardado_hasta }}</strong> para quien lo recibió por WhatsApp. Usá ese mismo número.</p>{% endif %}
+    {% if token_guardado %}<form method="post" action="{{ url_for('publico_quiero_otro', slug=tenant.slug, turno_id=turno.id) }}" class="pf-otro">
+      <input type="hidden" name="g" value="{{ token_guardado }}">
+      <button class="btn secundario" type="submit">No me sirve, quiero otro horario</button>
+    </form>{% endif %}
     {% if turno.sede %}{% set sd = (tenant.sedes or [])|selectattr('nombre', 'equalto', turno.sede)|first %}<p>En <strong>{{ turno.sede }}</strong>{% if sd and sd.direccion %} — {{ sd.direccion }}{% endif %}</p>{% endif %}
     {% with mensajes = get_flashed_messages() %}{% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}{% endwith %}
 

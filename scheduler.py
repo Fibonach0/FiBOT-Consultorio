@@ -282,6 +282,11 @@ def _tick() -> None:
         except Exception:
             logger.exception("Fallo venciendo horarios retenidos de tenant %s", tenant["id"])
         try:
+            import cancelaciones  # acá: cancelaciones importa este módulo
+            cancelaciones.pasar_vencidos(tenant)
+        except Exception:
+            logger.exception("Fallo pasando horarios guardados vencidos de tenant %s", tenant["id"])
+        try:
             import pagos  # acá: pagos importa db y config, y de acá sólo esto
             pagos.vencer(tenant)
             pagos.verificar_conexion(tenant, datetime.now(tz).date())
