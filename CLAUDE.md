@@ -1094,7 +1094,16 @@ Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
   todo el día; 404 si no está pausado con fecha). El día de la vuelta
   `ofrecer_repartido` le ofrece a cada persona de la lista un horario libre
   distinto (si faltan, vuelve a empezar por el primero);
-  `ofrecer_a_toda_la_espera` sigue para abrir un día bloqueado.
+  `ofrecer_a_toda_la_espera` sigue para abrir un día bloqueado. Si alcanzan los
+  horarios (y no hay varios tipos de turno), cada uno queda guardado
+  `HORAS_GUARDADO` (4) h para esa persona (`turnos.guardado_tel` /
+  `guardado_hasta`, `migrations/077`): la vista `turnos_disponibles` lo oculta,
+  `db.reservar_turno` lo rechaza a otro teléfono (últimos 10 dígitos,
+  `db.guardado_para_otro`; el panel con `ignorar_bloqueo` agenda igual) y el link
+  va directo a `/<slug>/reservar/<id>`, que dice hasta cuándo está guardado.
+  Vencido, vuelve solo. Al profesional vinculado le llega a quién se le ofreció
+  cada horario (`texto_reparto`, hasta `MAX_EN_AVISO`). En el directorio,
+  `vuelve` agrega los días que faltan («faltan 3 días», «mañana», «hoy»).
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
 - GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +

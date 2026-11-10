@@ -149,7 +149,9 @@ class _Query:
         filas = TABLAS["turnos"] if self.tabla == "turnos_disponibles" else TABLAS[self.tabla]
         if self.tabla == "turnos_disponibles":
             reservados = [r for r in filas if r["estado"] == "reservado"]
-            filas = [{**t, "abierto": t.get("abierto", False)} for t in filas if t["estado"] == "libre" and not t.get("hueco") and not any(
+            _ya = datetime.now(timezone.utc)
+            filas = [{**t, "abierto": t.get("abierto", False)} for t in filas if t["estado"] == "libre" and not t.get("hueco")
+                     and not (t.get("guardado_hasta") and _norm(t["guardado_hasta"]) > _ya) and not any(
                 r["tenant_id"] == t["tenant_id"] and _norm(r["inicio"]) < _norm(t["fin"])
                 and _norm(r["fin"]) > _norm(t["inicio"]) for r in reservados)
                 and (t.get("abierto") or not any(b["tenant_id"] == t["tenant_id"] and _norm(b["desde"]) < _norm(t["fin"])
@@ -3783,6 +3785,38 @@ chequear("pausa con fecha: a cada uno un horario distinto (y si faltan, se repit
          [t for t, _ in _ofr] == ["5491144445555", "549110000002", "549110000003"]
          and _ofr[0][1] != _ofr[1][1] and _ofr[2][1] == _ofr[0][1] and "le avisamos a 3" in _avs[-1], _ofr)
 chequear("vuelta.ics: sin pausa no hay evento", app.app.test_client().get("/marcos/vuelta.ics").status_code == 404)
+# Si alcanzan los horarios, cada uno queda guardado para esa persona y el profesional sabe a quién se le ofreció qué.
+_t1.update(pausado=True, pausado_hasta=_hoy_ar.isoformat())
+_en = datetime.now(timezone.utc)
+TABLAS["turnos"] = [turno(f"g{i}", "t1", _en + timedelta(days=1, hours=i)) for i in (1, 2, 3)]
+TABLAS["lista_espera"] = [{"id": f"w{i}", "tenant_id": "t1", "nombre": n, "telefono": tel, "ofrecido_en": None, "origen": "web",
+                           "created_at": (_b + timedelta(minutes=i)).isoformat()}
+                          for i, (n, tel) in enumerate([("Nora", "5491144445555"), ("Pía", "5491166667777")])]
+_ofr, _avk = [], []
+_canc3.ofrecer_horario = lambda tenant, tel, cuando, link: _ofr.append((tel, cuando, link)) or True
+scheduler.avisar_profesional = lambda tenant, texto, **kw: _avk.append((texto, kw)) or True
+chequear("reparto: reactiva", _canc3.reactivar_si_toca(dict(_t1), _hoy_ar))
+_g = {t["id"]: t for t in TABLAS["turnos"]}
+chequear("reparto: cada horario queda guardado para su persona, con link directo",
+         _g["g1"]["guardado_tel"] == "5491144445555" and _g["g2"]["guardado_tel"] == "5491166667777" and not _g["g3"].get("guardado_tel")
+         and _ofr[0][2].endswith("/marcos/reservar/g1") and "te lo guardamos hasta las" in _ofr[0][1], _ofr)
+chequear("reparto: al profesional, a quién se le ofreció qué",
+         "Nora:" in _avk[-1][1]["con_nombre"] and "Pía:" in _avk[-1][1]["con_nombre"]
+         and "guardado 4 h" in _avk[-1][1]["con_nombre"] and "le avisamos a 2" in _avk[-1][0], _avk)
+chequear("reparto: lo guardado no se ofrece a los demás",
+         [t["id"] for t in db.turnos_libres("t1", _en)] == ["g3"])
+chequear("reparto: otro teléfono no lo puede reservar", not db.reservar_turno("t1", "g1", "5491100009999", "Otro"))
+_w = app.app.test_client()
+_r = _w.post("/marcos/reservar/g1", data={"nombre": "Otro", "telefono": "5491100009999"}, headers={"X-Parcial": "1"})
+chequear("reparto: la web explica que está guardado", _r.status_code == 409 and "guardado para otra persona" in _r.data.decode())
+chequear("reparto: la página del horario dice hasta cuándo está guardado",
+         "Este horario está guardado hasta las" in _w.get("/marcos/reservar/g1").data.decode())
+chequear("reparto: la persona lo reserva aunque escriba el número distinto",
+         db.reservar_turno("t1", "g1", "+54 9 11 4444-5555", "Nora") and _g["g1"]["guardado_hasta"] is None)
+_g["g2"]["guardado_hasta"] = (_en - timedelta(minutes=1)).isoformat()
+chequear("reparto: vencido el plazo, lo puede tomar cualquiera", db.reservar_turno("t1", "g2", "5491100009999", "Otro"))
+_g["g3"].update(guardado_tel="5491100001111", guardado_hasta=(_en + timedelta(hours=1)).isoformat())
+chequear("reparto: el panel puede agendar igual", db.reservar_turno("t1", "g3", "5491100008888", "Fijo", ignorar_bloqueo=True))
 _canc3.ofrecer_horario, scheduler.avisar_profesional = _vo, _va
 
 # horario semanal

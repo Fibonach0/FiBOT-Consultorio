@@ -201,5 +201,9 @@ print("recorrido de la guía: cada GIF existe y pesa menos de 800 KB OK")
 
 # ---- pausados: la tarjeta dice cuándo vuelve, no «lista de espera»
 assert app._vuelve({"pausado": True}) == "Vuelve a atender pronto"
-assert app._vuelve({"pausado": True, "pausado_hasta": "2026-12-03"}) == "Vuelve el 3/12"
-print("pausados: «Vuelve a atender pronto» / «Vuelve el 3/12» OK")
+from datetime import date as _date
+_p = {"pausado": True, "pausado_hasta": "2026-12-03"}
+assert app._vuelve(_p, _date(2026, 11, 30)) == "Vuelve el 3/12 · faltan 3 días"
+assert app._vuelve(_p, _date(2026, 12, 2)) == "Vuelve mañana (3/12)"
+assert app._vuelve(_p, _date(2026, 12, 3)) == "Vuelve hoy"
+print("pausados: «Vuelve a atender pronto» / «Vuelve el 3/12 · faltan 3 días» / mañana / hoy OK")
