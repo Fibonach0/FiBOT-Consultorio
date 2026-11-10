@@ -48,7 +48,7 @@
 
     {% if bitacora %}
     <h3>Bitácora</h3>
-    {% for e in bitacora|reverse %}<h4>{{ e._fecha }}</h4><p class="texto">{{ e.texto }}</p>{% endfor %}
+    {% for e in bitacora|reverse %}<h4>{{ e._fecha }}</h4><p class="texto">{{ e.texto }}</p>{% if e.para_proxima %}<p class="texto"><em>Para la próxima:</em> {{ e.para_proxima }}</p>{% endif %}{% endfor %}
     {% endif %}
 
     {% if ficha.personas %}

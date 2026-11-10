@@ -2232,7 +2232,8 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
             nacimiento = f["fecha_nacimiento"]
             edad = (hoy - date.fromisoformat(nacimiento)).days / 365.25 if nacimiento else None
             textos = [f["motivo_consulta"], f["objetivos"], f["como_viene"], f["notas"], *[t.get("nota") for t in f["sesiones"]],
-                      *[e["texto"] for e in f["bitacora"]]]
+                      *[e["texto"] for e in f["bitacora"]],
+                      *[e.get("para_proxima") or "" for e in f["bitacora"]]]
             f["tests_sugeridos"] = tests_sugeridos.sugerir(textos, edad, f["tests_tomados"], hoy,
                                                              tenant.get("plazos_tests"))
     if rubros.de(tenant)["cuestionarios"]:
@@ -2353,7 +2354,8 @@ def _hoy(tenant: dict, fichas: list[dict], tz: ZoneInfo, ahora: datetime) -> lis
         if ficha:
             cerca = [c for c in ficha["fechas"] if c["_dias"] <= DIAS_FECHA_CERCA]
             filas.append({"hora": t["_hora"], "asistencia": t.get("asistencia"), "ficha": ficha, "fechas": cerca,
-                          "id": t["id"], "pago": t.get("pago"), "valor": t.get("valor"), "nota": t.get("nota")})
+                          "id": t["id"], "pago": t.get("pago"), "valor": t.get("valor"), "nota": t.get("nota"),
+                          "para_hoy": _para_hoy(ficha.get("bitacora") or [], ahora.date())})
     return filas
 
 
@@ -3157,6 +3159,7 @@ def agenda_paciente():
 
 
 MAX_BITACORA = 10000
+MAX_PARA_PROXIMA = 1000
 DIAS_SEMANA_CORTO = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
 
@@ -3165,8 +3168,17 @@ def _entrada_bitacora(e: dict) -> dict:
     return {**e, "_fecha": f"{DIAS_SEMANA_CORTO[d.weekday()]} {d:%d/%m/%Y}", "_iso": d.isoformat()}
 
 
-def _datos_bitacora() -> tuple[str, str] | None:
-    """Fecha y texto del form, o None (con el flash) si no sirven."""
+def _para_hoy(entradas: list[dict], hoy: date) -> dict | None:
+    """Lo que quedó «para la próxima» en la última anotación ANTERIOR a hoy
+    (la de hoy es para la sesión que viene). Si esa no dejó nada, no hay
+    pendiente: lo de anotaciones más viejas se da por hecho."""
+    previa = next((e for e in entradas if e["_iso"] < hoy.isoformat()), None)
+    return previa if previa and (previa.get("para_proxima") or "").strip() else None
+
+
+def _datos_bitacora() -> tuple[str, str, str | None] | None:
+    """Fecha, texto y «para la próxima» del form, o None (con el flash) si no sirven."""
+    para_proxima = " ".join((request.form.get("para_proxima") or "").split()) or None
     texto = (request.form.get("texto") or "").strip()
     fecha = request.form.get("fecha") or ""
     try:
@@ -3180,7 +3192,10 @@ def _datos_bitacora() -> tuple[str, str] | None:
     if len(texto) > MAX_BITACORA:
         flash(f"Es muy largo: hasta {MAX_BITACORA} letras por anotación.")
         return None
-    return fecha, texto
+    if para_proxima and len(para_proxima) > MAX_PARA_PROXIMA:
+        flash(f"«Para la próxima» es muy largo: hasta {MAX_PARA_PROXIMA} letras.")
+        return None
+    return fecha, texto, para_proxima
 
 
 def _volver_de_bitacora():
@@ -3276,6 +3291,7 @@ def fichas_rapida(ref):
         return redirect(url_for("fichas_rapidas"))
     entradas = [_entrada_bitacora(e) for e in db.bitacora(tenant["id"], paciente["clave"])]
     return _sin_cache(app.make_response(render_template("ficha_rapida.html", tenant=tenant, p=paciente, entradas=entradas,
+                                                        para_hoy=_para_hoy(entradas, ahora.date()),
                                                         hoy=ahora.date().isoformat(), rubro=rubros.de(tenant))))
 
 
