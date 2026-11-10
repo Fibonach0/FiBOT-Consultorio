@@ -240,6 +240,7 @@ def reset():
     TABLAS["cancelaciones"] = []
     TABLAS["bloqueos"] = []
     TABLAS["paciente_tests"] = []
+    TABLAS["paciente_bitacora"] = []
     TABLAS["textos_lectura"] = []
     TABLAS["lecturas"] = []
     TABLAS["cuestionarios"] = []
@@ -4946,6 +4947,73 @@ chequear("con quién: un profesional que no es suyo no se elige", TABLAS["elecci
 (app.whatsapp.enviar_texto, app.whatsapp._interactivo, app.config.PLATAFORMA_PHONE_NUMBER_ID, db.get_tenant_by_phone_number_id,
  scheduler.avisar_profesional) = _sv
 db.get_tenant_by_id = _gtid
+
+# ---------- bitácora de la ficha ----------
+print("Bitácora")
+reset()
+_gtid_b = db.get_tenant_by_id
+db.get_tenant_by_id = lambda tid: next((dict(t) for t in TABLAS["tenants"] if t["id"] == tid), None)
+cb = app.app.test_client()
+with cb.session_transaction() as s:
+    s["tenant_id"] = "t1"
+    s["sesion_id"] = _sesion_de("t1")
+    s["csrf_token"] = "tok"
+TELB = "5491133334444"
+_hoyb = datetime.now(app.ZoneInfo(TZ))
+TABLAS["turnos"] += [turno("bt1", "t1", (_hoyb.replace(hour=23, minute=0) if _hoyb.hour < 22 else _hoyb + timedelta(minutes=30)).astimezone(timezone.utc),
+                           estado="reservado", paciente_nombre="Mía Sol", paciente_telefono=TELB),
+                     turno("bt2", "t1", datetime.now(timezone.utc) + timedelta(days=9), estado="reservado", paciente_nombre="Teo Bravo",
+                           paciente_telefono="5491155550000"),
+                     turno("bt3", "t2", datetime.now(timezone.utc) + timedelta(days=2), estado="reservado", paciente_nombre="De Otra Cuenta",
+                           paciente_telefono="5491166660000")]
+r = cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": "2026-11-03", "texto": "Trabajamos lectura de sílabas."})
+r = cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": "2026-11-10", "texto": "Juego de memoria.\nMuy concentrada."})
+chequear("bitácora: guarda dos entradas con su fecha", len(TABLAS["paciente_bitacora"]) == 2
+         and TABLAS["paciente_bitacora"][0]["fecha"] == "2026-11-03" and TABLAS["paciente_bitacora"][0]["ficha"] == "")
+html = cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": "2026-13-40", "texto": "x"}, follow_redirects=True).data.decode()
+chequear("bitácora: fecha inválida no se guarda", "no es válida" in html and len(TABLAS["paciente_bitacora"]) == 2)
+cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": "2026-11-10", "texto": "   "})
+chequear("bitácora: vacío no se guarda", len(TABLAS["paciente_bitacora"]) == 2)
+html = _panel(cb)
+_ficha_b = html[html.index("Mía Sol</h4>"):]
+chequear("bitácora: en la ficha, la más nueva primero", "Juego de memoria" in _ficha_b
+         and _ficha_b.index("Juego de memoria") < _ficha_b.index("Trabajamos lectura"))
+chequear("bitácora: la fecha se ve con el día", "mar 10/11/2026" in _ficha_b and "mar 03/11/2026" in _ficha_b)
+chequear("bitácora: los campos de antes quedan plegados", "objetivos y notas generales" in _ficha_b)
+lista = cb.get("/agenda/fichas").data.decode()
+chequear("rápida: lista los pacientes de la cuenta", "Mía Sol" in lista and "Teo Bravo" in lista and "De Otra Cuenta" not in lista)
+chequear("rápida: los de hoy van arriba", lista.index("Mía Sol") < lista.index("Teo Bravo") and ">Hoy<" in lista)
+chequear("rápida: el teléfono no va en la página", TELB not in lista)
+import buscador as _bus  # noqa: E402
+ref_b = _bus._ref("t1", TELB)
+r = cb.get(f"/agenda/fichas/{ref_b}")
+pag = r.data.decode()
+chequear("rápida: abre la bitácora del paciente", r.status_code == 200 and "Mía Sol" in pag and "Juego de memoria" in pag
+         and pag.index("Juego de memoria") < pag.index("Trabajamos lectura"))
+chequear("rápida: sin caché y la fecha de hoy ya puesta", r.headers.get("Cache-Control") == "no-store"
+         and f'value="{_hoyb.date().isoformat()}"' in pag)
+r = cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "rapida": ref_b, "fecha": "2026-11-09", "texto": "Desde el celu"})
+chequear("rápida: al anotar vuelve a la misma página", r.status_code == 302 and r.headers["Location"].endswith(f"/agenda/fichas/{ref_b}"))
+r = cb.get(f"/agenda/fichas/{_bus._ref('t2', '5491166660000')}")
+chequear("rápida: una ficha de otra cuenta no se abre", r.status_code == 302 and r.headers["Location"].endswith("/agenda/fichas"))
+TABLAS["paciente_bitacora"].append({"id": "ajena-b", "tenant_id": "t2", "paciente_telefono": TELB, "ficha": "", "fecha": "2026-11-01",
+                                    "texto": "Secreto de otra cuenta", "created_at": "0"})
+chequear("rápida: no muestra lo de otra cuenta", "Secreto de otra cuenta" not in cb.get(f"/agenda/fichas/{ref_b}").data.decode())
+cb.post("/agenda/bitacora/ajena-b", data={"csrf_token": "tok", "fecha": "2026-11-01", "texto": "pisado"})
+cb.post("/agenda/bitacora/ajena-b/borrar", data={"csrf_token": "tok"})
+chequear("bitácora: no edita ni borra lo de otra cuenta", next(e for e in TABLAS["paciente_bitacora"] if e["id"] == "ajena-b")["texto"] == "Secreto de otra cuenta")
+mia = next(e for e in TABLAS["paciente_bitacora"] if e["texto"] == "Desde el celu")
+cb.post(f"/agenda/bitacora/{mia['id']}", data={"csrf_token": "tok", "rapida": ref_b, "fecha": "2026-11-08", "texto": "Corregido"})
+chequear("bitácora: edita fecha y texto", mia["texto"] == "Corregido" and mia["fecha"] == "2026-11-08" and mia.get("updated_at"))
+cb.post(f"/agenda/bitacora/{mia['id']}/borrar", data={"csrf_token": "tok", "rapida": ref_b})
+chequear("bitácora: borra la propia", not any(e["id"] == mia["id"] for e in TABLAS["paciente_bitacora"]))
+r = cb.post("/agenda/bitacora", data={"telefono": TELB, "fecha": "2026-11-10", "texto": "sin token"})
+chequear("bitácora: pide CSRF", r.status_code in (400, 403) and not any(e["texto"] == "sin token" for e in TABLAS["paciente_bitacora"]))
+fc = cb.post("/agenda/paciente/ficha-completa", data={"csrf_token": "tok", "telefono": TELB}).data.decode()
+chequear("ficha completa: lleva la bitácora en orden", "Bitácora" in fc and fc.index("Trabajamos lectura") < fc.index("Juego de memoria"))
+chequear("barra del celular: lleva a las fichas", 'href="/agenda/fichas"' in html)
+chequear("manifest: atajo a las fichas", any(x["url"] == "/agenda/fichas" for x in cb.get("/manifest.webmanifest").get_json()["shortcuts"]))
+db.get_tenant_by_id = _gtid_b
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
