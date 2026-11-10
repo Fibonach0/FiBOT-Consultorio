@@ -359,7 +359,12 @@ publico*, pago, agendar*, espera_listo). Foto y portada pasan por un recorte
 `noche`, `app._horas_noche` valida; por defecto 20-8; cruza la medianoche si D > H).
 Compartir: `/<slug>` lleva Open Graph (`{% block meta %}` de base): título,
 descripción e imagen = `/<slug>/foto` (la foto data URL servida como imagen), o la
-portada, o el ícono. App instalable: `/manifest.webmanifest` (inicio `/agenda`),
+portada, o el ícono. App instalable: `/manifest.webmanifest` (inicio `/agenda/abrir`, `app.abrir_app`:
+una sola consulta chica; con una sesión reservada de ahora, de `MINUTOS_ANTES_SESION`
+antes a `MINUTOS_DESPUES_SESION` después, va a la bitácora rápida de ese paciente;
+si no, celular (`CELULAR`, por User-Agent) → `/agenda/fichas` y compu → `/agenda`.
+Nunca arrancar la app en `/agenda`: arma todas las fichas y tarda 4-6 s, que en el
+celular se ven como pantalla negra),
 íconos en `static/`, y `/sw.js`, que se registra sólo con sesión y **no guarda
 páginas** (hay datos de pacientes): sólo `/sin-conexion`, una página suelta sin
 sesión. «Tené el panel como una app» en Ajustes usa `beforeinstallprompt`;
@@ -651,6 +656,16 @@ da por hecho). Dictado (`templates/_dictado.html`): sólo con reconocimiento en
 el dispositivo (`SpeechRecognition.available/install` + `processLocally`); sin
 eso el botón no aparece (en el celular, pista del micrófono del teclado). Nunca
 usar el reconocimiento por servidor: la voz iría a Google/Apple.
+`migrations/081`: `proxima_hecha_at` (tilde táctil `_bitacora_macros.tilde`, POST
+`/agenda/bitacora/<id>/hecho`; con `X-Parcial` contesta 204 y el JS de
+`_bitacora_js.html` cambia en el acto) y `bitacora_fotos` (cuelga de la
+anotación por `entrada_id` con cascada, sin teléfono: NO va en
+`TABLAS_DEL_PACIENTE`). El navegador achica a 1600 px JPEG; el servidor valida
+PNG/JPG por bytes (`FIRMA_TIPOS`), `FOTO_MAX`, `FOTOS_POR_ENTRADA`, y las sirve
+en `/agenda/bitacora/foto/<id>` con sesión y `no-store`. Las listas traen sólo
+id + entrada (`db.fotos_bitacora`), nunca la imagen. Las fotos no van en la
+ficha completa ni en la entrega. Informe: «Sumar la bitácora» (en el navegador,
+desde/hasta) agrega la sección «Evolución».
 
 ### Psicopedagogía (`rubros.py`, `migrations/021`)
 
@@ -1077,6 +1092,9 @@ Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
   referencias opacas (`buscador._ref`: HMAC con `FLASK_SECRET_KEY`), nunca
   nombre ni teléfono; se borran al tocar «Salir». `?ficha=` usa esa misma
   referencia (`r`), no la clave (que lleva el teléfono).
+- En el celular (< 640 px) la agenda abre con la tarjeta «Pacientes»
+  (`#pacientes-movil`: los de hoy con su hora, después por nombre; altas y sin
+  sesiones sólo al buscar) y oculta la tarjeta grande de fichas de abajo.
 - Barra fija del celular (`templates/_barra_movil.html`, < 640 px): Hoy,
   Para resolver (con el total), Buscar, Ajustes. Sube «Aa», «Hubo novedades»
   y «Guardar cambios» por encima.

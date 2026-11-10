@@ -909,12 +909,13 @@ def bitacora(tenant_id: str, clave: str | None = None) -> list[dict]:
     return sorted(res.data, key=lambda e: (str(e["fecha"]), str(e.get("created_at") or "")), reverse=True)
 
 
-def agregar_bitacora(tenant_id: str, clave: str, fecha: str, texto: str, para_proxima: str | None = None) -> None:
+def agregar_bitacora(tenant_id: str, clave: str, fecha: str, texto: str, para_proxima: str | None = None) -> str | None:
     telefono, ficha = partir_clave(clave)
-    _client.table("paciente_bitacora").insert(
+    res = _client.table("paciente_bitacora").insert(
         {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha, "fecha": fecha, "texto": texto,
          "para_proxima": para_proxima}
     ).execute()
+    return res.data[0]["id"] if res.data else None
 
 
 def editar_bitacora(tenant_id: str, entrada_id: str, fecha: str, texto: str, para_proxima: str | None = None) -> None:
@@ -925,7 +926,43 @@ def editar_bitacora(tenant_id: str, entrada_id: str, fecha: str, texto: str, par
 
 
 def borrar_bitacora(tenant_id: str, entrada_id: str) -> None:
+    # La base ya borra las fotos en cascada; se borran igual por si acaso.
+    _client.table("bitacora_fotos").delete().eq("tenant_id", tenant_id).eq("entrada_id", entrada_id).execute()
     _client.table("paciente_bitacora").delete().eq("tenant_id", tenant_id).eq("id", entrada_id).execute()
+
+
+def marcar_proxima_hecha(tenant_id: str, entrada_id: str, hecha: bool) -> None:
+    (_client.table("paciente_bitacora")
+     .update({"proxima_hecha_at": datetime.now(timezone.utc).isoformat() if hecha else None})
+     .eq("tenant_id", tenant_id).eq("id", entrada_id).execute())
+
+
+def entrada_bitacora(tenant_id: str, entrada_id: str) -> dict | None:
+    res = _client.table("paciente_bitacora").select("*").eq("tenant_id", tenant_id).eq("id", entrada_id).execute()
+    return res.data[0] if res.data else None
+
+
+def fotos_bitacora(tenant_id: str, entrada_ids: list[str] | None = None) -> list[dict]:
+    """Sólo id y anotación (sin la imagen, que es pesada): para listar."""
+    q = _client.table("bitacora_fotos").select("id,entrada_id,created_at").eq("tenant_id", tenant_id)
+    if entrada_ids is not None:
+        if not entrada_ids:
+            return []
+        q = q.in_("entrada_id", entrada_ids)
+    return sorted(q.execute().data, key=lambda f: str(f.get("created_at") or ""))
+
+
+def foto_bitacora(tenant_id: str, foto_id: str) -> dict | None:
+    res = _client.table("bitacora_fotos").select("*").eq("tenant_id", tenant_id).eq("id", foto_id).execute()
+    return res.data[0] if res.data else None
+
+
+def agregar_foto_bitacora(tenant_id: str, entrada_id: str, imagen: str) -> None:
+    _client.table("bitacora_fotos").insert({"tenant_id": tenant_id, "entrada_id": entrada_id, "imagen": imagen}).execute()
+
+
+def borrar_foto_bitacora(tenant_id: str, foto_id: str) -> None:
+    _client.table("bitacora_fotos").delete().eq("tenant_id", tenant_id).eq("id", foto_id).execute()
 
 
 def fichas_livianas(tenant_id: str) -> tuple[list[dict], list[dict]]:

@@ -241,6 +241,7 @@ def reset():
     TABLAS["bloqueos"] = []
     TABLAS["paciente_tests"] = []
     TABLAS["paciente_bitacora"] = []
+    TABLAS["bitacora_fotos"] = []
     TABLAS["textos_lectura"] = []
     TABLAS["lecturas"] = []
     TABLAS["cuestionarios"] = []
@@ -5021,7 +5022,7 @@ chequear("para la próxima: se guarda limpio", _pp["para_proxima"] == "Traer el 
 pag = cb.get(f"/agenda/fichas/{ref_b}").data.decode()
 chequear("para la próxima: «Para hoy» en la página rápida", "Para hoy" in pag and "Traer el cuaderno" in pag)
 html = _panel(cb)
-chequear("para la próxima: «Para hoy» en la tarjeta de Hoy", "Para hoy:</strong> Traer el cuaderno" in html)
+chequear("para la próxima: «Para hoy» en la tarjeta de Hoy", "<strong>Para hoy</strong>" in html and "Traer el cuaderno" in html)
 chequear("dictado: botón (oculto hasta saber si hay dictado local) y script", 'data-dictar="rapida-texto" hidden' in pag
          and "processLocally" in pag and "data-dictar=" in html)
 cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": _hoyb.date().isoformat(), "texto": "Hoy",
@@ -5035,6 +5036,94 @@ chequear("para la próxima: al vaciarlo deja de salir", _pp["para_proxima"] is N
 r = cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": _ayer_b, "texto": "x", "para_proxima": "a" * 1001},
             follow_redirects=True)
 chequear("para la próxima: muy largo no se guarda", "muy largo" in r.data.decode() and not any(e["texto"] == "x" for e in TABLAS["paciente_bitacora"]))
+# Tilde del «para la próxima».
+_pp2_id = db.agregar_bitacora("t1", TELB, _ayer_b, "Lámina 3", "Repasar la r")
+_pp2 = next(e for e in TABLAS["paciente_bitacora"] if e["id"] == _pp2_id)
+pag = cb.get(f"/agenda/fichas/{ref_b}").data.decode()
+chequear("tilde: el «Para hoy» es un tilde táctil sin marcar", 'role="checkbox" aria-checked="false"' in pag and "Repasar la r" in pag)
+r = cb.post(f"/agenda/bitacora/{_pp2_id}/hecho", data={"csrf_token": "tok", "hecho": "1", "rapida": ref_b}, headers={"X-Parcial": "1"})
+chequear("tilde: con X-Parcial contesta 204 y queda hecho", r.status_code == 204 and _pp2.get("proxima_hecha_at"))
+pag = cb.get(f"/agenda/fichas/{ref_b}").data.decode()
+chequear("tilde: se ve tildado (y se puede destildar)", 'aria-checked="true"' in pag and 'name="hecho" value="0"' in pag)
+html = _panel(cb)
+chequear("tilde: también en la tarjeta de Hoy", "Repasar la r" in html and 'aria-checked="true"' in html)
+r = cb.post(f"/agenda/bitacora/{_pp2_id}/hecho", data={"csrf_token": "tok", "hecho": "0", "rapida": ref_b})
+chequear("tilde: sin JS vuelve a la página y destilda", r.status_code == 302 and _pp2.get("proxima_hecha_at") is None)
+TABLAS["paciente_bitacora"].append({"id": "ajena-h", "tenant_id": "t2", "paciente_telefono": TELB, "ficha": "", "fecha": "2026-11-01",
+                                    "texto": "otra", "para_proxima": "x", "created_at": "0"})
+cb.post("/agenda/bitacora/ajena-h/hecho", data={"csrf_token": "tok", "hecho": "1"})
+chequear("tilde: no toca lo de otra cuenta", not TABLAS["paciente_bitacora"][-1].get("proxima_hecha_at"))
+r = cb.post(f"/agenda/bitacora/{_pp2_id}/hecho", data={"hecho": "1"}, headers={"X-Parcial": "1"})
+chequear("tilde: pide CSRF", r.status_code in (400, 403) and _pp2.get("proxima_hecha_at") is None)
+
+# Fotos de la anotación.
+import io as _io_b  # noqa: E402
+JPG = b"\xff\xd8\xff\xe0" + b"0" * 200
+PNG = b"\x89PNG\r\n\x1a\n" + b"0" * 100
+r = cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "rapida": ref_b, "fecha": _hoyb.date().isoformat(),
+                                      "texto": "Con fotos", "fotos": [(_io_b.BytesIO(JPG), "a.jpg"), (_io_b.BytesIO(PNG), "b.png"),
+                                                                     (_io_b.BytesIO(b"<svg onload=alert(1)>"), "c.svg")]},
+            content_type="multipart/form-data", follow_redirects=True)
+_cf = next(e for e in TABLAS["paciente_bitacora"] if e["texto"] == "Con fotos")
+_fotos = [f for f in TABLAS["bitacora_fotos"] if f["entrada_id"] == _cf["id"]]
+chequear("fotos: guarda JPG y PNG, rechaza lo demás", len(_fotos) == 2 and "no se pudo guardar" in r.data.decode()
+         and _fotos[0]["imagen"].startswith("data:image/jpeg;base64,") and _fotos[0]["tenant_id"] == "t1")
+pag = cb.get(f"/agenda/fichas/{ref_b}").data.decode()
+chequear("fotos: miniaturas en la página rápida, sin la imagen adentro", f"/agenda/bitacora/foto/{_fotos[0]['id']}" in pag and "base64" not in pag)
+r = cb.get(f"/agenda/bitacora/foto/{_fotos[0]['id']}")
+chequear("fotos: se sirven con su tipo y sin caché", r.status_code == 200 and r.data == JPG and r.headers["Content-Type"] == "image/jpeg"
+         and r.headers.get("Cache-Control") == "no-store")
+TABLAS["bitacora_fotos"].append({"id": "foto-ajena", "tenant_id": "t2", "entrada_id": "ajena-h", "imagen": "data:image/png;base64,AAAA"})
+chequear("fotos: la de otra cuenta no se ve", cb.get("/agenda/bitacora/foto/foto-ajena").status_code == 404)
+cb.post("/agenda/bitacora/foto/foto-ajena/borrar", data={"csrf_token": "tok"})
+chequear("fotos: la de otra cuenta no se borra", any(f["id"] == "foto-ajena" for f in TABLAS["bitacora_fotos"]))
+cb.post("/agenda/bitacora/ajena-h/fotos", data={"csrf_token": "tok", "fotos": [(_io_b.BytesIO(JPG), "a.jpg")]}, content_type="multipart/form-data")
+chequear("fotos: no se suman a una anotación de otra cuenta", not any(f["entrada_id"] == "ajena-h" and f["tenant_id"] == "t1" for f in TABLAS["bitacora_fotos"]))
+cb.post(f"/agenda/bitacora/{_cf['id']}/fotos", data={"csrf_token": "tok", "rapida": ref_b,
+        "fotos": [(_io_b.BytesIO(JPG), f"{i}.jpg") for i in range(6)]}, content_type="multipart/form-data")
+chequear("fotos: hasta 6 por anotación", len([f for f in TABLAS["bitacora_fotos"] if f["entrada_id"] == _cf["id"]]) == app.FOTOS_POR_ENTRADA)
+html = _panel(cb)
+chequear("fotos: miniaturas en la ficha del panel, sin la imagen adentro", f"/agenda/bitacora/foto/{_fotos[0]['id']}" in html
+         and "data:image/jpeg;base64,/9j" not in html)
+cb.post(f"/agenda/bitacora/foto/{_fotos[0]['id']}/borrar", data={"csrf_token": "tok", "rapida": ref_b})
+chequear("fotos: borra una", not any(f["id"] == _fotos[0]["id"] for f in TABLAS["bitacora_fotos"]))
+cb.post(f"/agenda/bitacora/{_cf['id']}/borrar", data={"csrf_token": "tok", "rapida": ref_b})
+chequear("fotos: al borrar la anotación se van sus fotos", not any(f["entrada_id"] == _cf["id"] for f in TABLAS["bitacora_fotos"]))
+fc = cb.post("/agenda/paciente/ficha-completa", data={"csrf_token": "tok", "telefono": TELB}).data.decode()
+chequear("fotos: no van en la ficha completa", "/agenda/bitacora/foto/" not in fc)
+
+# La bitácora en el borrador de informe.
+inf = cb.post("/agenda/paciente/informe", data={"csrf_token": "tok", "telefono": TELB}).data.decode()
+chequear("informe: «Sumar la bitácora» con desde/hasta", "Sumar la bitácora" in inf and 'id="bit-desde" value="2026-11-03"' in inf
+         and "Trabajamos lectura de s" in inf and "bitacora-textos" in inf)
+chequear("informe: los textos van escapados", "</script><" not in inf.split('id="bitacora-textos">')[1].split("</script>")[0])
+# Abrir la app: rápido, y durante una sesión directo a ese paciente.
+MOVIL = {"User-Agent": "Mozilla/5.0 (Linux; Android 14; Pixel 8) AppleWebKit/537.36 Chrome/131 Mobile Safari/537.36"}
+_ahora_u = datetime.now(timezone.utc)
+_bt1 = next(t for t in TABLAS["turnos"] if t["id"] == "bt1")
+_guardo = (_bt1["inicio"], _bt1["fin"])
+_bt1["inicio"], _bt1["fin"] = (_ahora_u - timedelta(minutes=10)).isoformat(), (_ahora_u + timedelta(minutes=35)).isoformat()
+r = cb.get("/agenda/abrir", headers=MOVIL)
+chequear("abrir app: durante la sesión va a la bitácora de ese paciente", r.status_code == 302 and r.headers["Location"].endswith(f"/agenda/fichas/{ref_b}")
+         and r.headers.get("Cache-Control") == "no-store")
+_bt1["inicio"], _bt1["fin"] = (_ahora_u - timedelta(minutes=80)).isoformat(), (_ahora_u - timedelta(minutes=35)).isoformat()
+r = cb.get("/agenda/abrir", headers=MOVIL)
+chequear("abrir app: sin sesión, en el celular va a la lista de pacientes", r.status_code == 302 and r.headers["Location"].endswith("/agenda/fichas"))
+_bt1["inicio"], _bt1["fin"] = (_ahora_u + timedelta(minutes=10)).isoformat(), (_ahora_u + timedelta(minutes=55)).isoformat()
+r = cb.get("/agenda/abrir", headers=MOVIL)
+chequear("abrir app: 10 minutos antes ya abre ese paciente", r.headers["Location"].endswith(f"/agenda/fichas/{ref_b}"))
+_bt1["inicio"], _bt1["fin"] = _guardo
+r = cb.get("/agenda/abrir", headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0) Chrome/131"})
+chequear("abrir app: en la compu va al panel", r.status_code == 302 and "/agenda?app=1" in r.headers["Location"])
+TABLAS["turnos"].append(turno("bt-ajeno", "t2", _ahora_u - timedelta(minutes=5), estado="reservado", paciente_nombre="Ajeno",
+                              paciente_telefono="5491166660000"))
+r = cb.get("/agenda/abrir", headers=MOVIL)
+chequear("abrir app: la sesión de otra cuenta no cuenta", r.headers["Location"].endswith("/agenda/fichas"))
+TABLAS["turnos"].pop()
+chequear("manifest: la app arranca en /agenda/abrir", cb.get("/manifest.webmanifest").get_json()["start_url"] == "/agenda/abrir")
+html = _panel(cb)
+chequear("celular: los pacientes van primero en la agenda", 'id="pacientes-movil"' in html
+         and html.index('id="pacientes-movil"') < html.index('id="hoy"') and "Mía Sol</span><span class=\"chip\">hoy" in html)
 chequear("manifest: atajo a las fichas", any(x["url"] == "/agenda/fichas" for x in cb.get("/manifest.webmanifest").get_json()["shortcuts"]))
 db.get_tenant_by_id = _gtid_b
 

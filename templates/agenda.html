@@ -1,6 +1,7 @@
 {% extends "base.html" %}
 {% block titulo %}Agenda — {{ tenant.nombre }}{% endblock %}
 {% block cuerpo %}
+{% import "_bitacora_macros.html" as bm %}
 <header>
   <span>FiBOT Consultorio · {{ tenant.nombre }}</span>
   <span style="display:flex;align-items:center;flex-wrap:wrap;justify-content:flex-end;column-gap:6px"><button class="buscar-boton" type="button" data-buscar-abrir aria-label="Buscar en tu panel">🔍 Buscar <kbd>Ctrl K</kbd></button><a href="{{ url_for('ajustes') }}">Ajustes</a> · <a href="{{ url_for('ayuda') }}">Cómo se usa</a> · <a href="{{ url_for('logout') }}">Salir</a></span>
@@ -9,6 +10,52 @@
   {% with mensajes = get_flashed_messages() %}
     {% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}
   {% endwith %}
+
+  {# En el celular lo primero son los pacientes: los de hoy con su hora y el resto por nombre.
+     Tocar uno abre su ficha (el mismo popup). En la compu esta tarjeta no se ve. #}
+  {% if fichas %}
+  {% set _hora_hoy = {} %}{% for h in hoy %}{% if h.ficha.dom not in _hora_hoy %}{% set _ = _hora_hoy.update({h.ficha.dom: h.hora}) %}{% endif %}{% endfor %}
+  <div class="card solo-movil" id="pacientes-movil">
+    <h3>Pacientes <span class="contador">{{ fichas|length }}</span></h3>
+    <input type="search" id="buscar-paciente-movil" placeholder="Buscar paciente" autocomplete="off" aria-label="Buscar paciente">
+    <ul class="pacientes-movil">
+      {% for h in hoy if _hora_hoy[h.ficha.dom] == h.hora %}{# por hora; cada paciente una vez #}
+      <li data-ficha="{{ h.ficha.dom }}" role="button" tabindex="0" data-buscar="{{ h.ficha.nombre }}"><span>{{ h.ficha.nombre }}</span><span class="chip">hoy {{ h.hora }}</span></li>
+      {% endfor %}
+      {% for f in fichas|sort(attribute='nombre') if f.dom not in _hora_hoy %}
+      <li data-ficha="{{ f.dom }}" role="button" tabindex="0" data-buscar="{{ f.nombre }}"{% if f.estado != 'activo' or f.sin_sesiones %} data-aparte hidden{% endif %}><span>{{ f.nombre }}</span><span class="tenue">{{ f.proxima or ('alta/pausa' if f.estado != 'activo' else '') }}</span></li>
+      {% endfor %}
+    </ul>
+    <div class="tenue" id="sin-paciente-movil" hidden>No hay ningún paciente con ese nombre.</div>
+  </div>
+  <style>
+    .solo-movil { display:none; }
+    @media (max-width: 640px) {
+      .solo-movil { display:block; }
+      #fichas-pacientes { display:none; }
+      .pacientes-movil { list-style:none; margin:8px 0 0; padding:0; max-height:50vh; overflow-y:auto; }
+      .pacientes-movil li { display:flex; justify-content:space-between; align-items:center; gap:8px; min-height:48px; padding:8px 4px;
+        border-top:1px solid var(--rule); cursor:pointer; -webkit-tap-highlight-color:transparent; }
+      .pacientes-movil li:active { background:var(--hover); }
+      .pacientes-movil li span:first-child { font-weight:600; }
+      #buscar-paciente-movil { font-size:1rem; padding:10px; }
+    }
+  </style>
+  <script>
+    (() => {
+      const normal = t => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+      document.getElementById('buscar-paciente-movil').addEventListener('input', e => {
+        const q = normal(e.target.value.trim());
+        let n = 0;
+        document.querySelectorAll('.pacientes-movil li').forEach(li => {
+          li.hidden = q ? !normal(li.dataset.buscar).includes(q) : li.hasAttribute('data-aparte');
+          n += !li.hidden;
+        });
+        document.getElementById('sin-paciente-movil').hidden = n > 0;
+      });
+    })();
+  </script>
+  {% endif %}
 
   {% if bloqueo_reciente %}
   <div class="error">El {{ bloqueo_reciente }} tu cuenta se bloqueó 15 minutos porque pusieron la clave mal varias veces. Si no fuiste vos, cambiá la clave en «Ajustes» → «Cuenta».</div>
@@ -328,7 +375,7 @@
         {% for c in h.fechas %}
         <div class="{{ 'debe' if c.animo == 'mal' else 'tenue' }}">{{ c.titulo }}, {{ c._falta }}</div>
         {% endfor %}
-        {% if h.para_hoy %}<div class="hoy-para"><strong>Para hoy:</strong> {{ h.para_hoy.para_proxima|truncate(140) }}</div>{% endif %}
+        {% if h.para_hoy %}{% set oc %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="ancla" value="hoy">{% endset %}{{ bm.tilde(h.para_hoy, oc) }}{% endif %}
         {% if h.ficha.bitacora %}<div class="hoy-nota">{{ h.ficha.bitacora[0]._fecha }}: {{ h.ficha.bitacora[0].texto|truncate(110) }}</div>
         {% elif h.ficha.ultima_nota %}<div class="hoy-nota">{{ h.ficha.ultima_nota._dia }}: {{ h.ficha.ultima_nota.nota|truncate(110) }}</div>
         {% elif h.ficha.notas %}<div class="hoy-nota">{{ h.ficha.notas|truncate(110) }}</div>{% endif %}
@@ -942,7 +989,7 @@
   </a>
   </div>
 
-  <div class="card">
+  <div class="card" id="fichas-pacientes">
     <h3>Fichas de pacientes <span class="contador">{{ fichas|length }}</span></h3>
     {% if fichas %}<input type="search" id="buscar-ficha" placeholder="Buscar por nombre o teléfono" autocomplete="off">{% endif %}
     <div class="tenue" id="sin-resultados" hidden>No hay ninguna ficha con ese nombre.</div>
@@ -1032,7 +1079,7 @@
         {% endfor %}
       </div>
       <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-terapia" aria-labelledby="{{ f.dom }}-tab-terapia" data-panel="terapia">
-      <form method="post" action="{{ url_for('agenda_bitacora') }}" class="bitacora-nueva">
+      <form method="post" action="{{ url_for('agenda_bitacora') }}" class="bitacora-nueva" enctype="multipart/form-data">
         {{ ocultos(f.clave) }}
         <div class="fila">
           <div style="flex:0 0 auto;min-width:0"><label>Fecha</label><input type="date" name="fecha" value="{{ hoy_iso }}" required></div>
@@ -1043,6 +1090,7 @@
         <p class="dictar-estado tenue" hidden></p>
         <label for="{{ f.dom }}-bitacora-proxima">Para la próxima <span class="tenue">(opcional)</span></label>
         <input type="text" id="{{ f.dom }}-bitacora-proxima" name="para_proxima" maxlength="1000" placeholder="Ej.: traer el cuaderno, seguir con la lámina 3">
+        <div>{{ bm.elegir_fotos() }}</div>
         <button class="btn chico" type="submit">Anotar</button>
         <a class="tenue" href="{{ url_for('fichas_rapida', ref=f.ref) }}" style="margin-left:8px">Abrir en modo rápido ↗</a>
       </form>
@@ -1051,7 +1099,8 @@
       <div class="bitacora-entrada">
         <div class="bitacora-fecha">{{ e._fecha }}</div>
         <div class="bitacora-texto">{{ e.texto }}</div>
-        {% if e.para_proxima %}<div class="bitacora-proxima"><strong>Para la próxima:</strong> {{ e.para_proxima }}</div>{% endif %}
+        {% if e.para_proxima %}{{ bm.tilde(e, ocultos(f.clave), 'Para la próxima') }}{% endif %}
+        {{ bm.fotos(e) }}
         <details>
           <summary class="tenue">Editar ▾</summary>
           <form method="post" action="{{ url_for('agenda_bitacora_editar', entrada_id=e.id) }}">
@@ -1060,6 +1109,12 @@
             <textarea name="texto" rows="4" required maxlength="10000" aria-label="Texto">{{ e.texto }}</textarea>
             <input type="text" name="para_proxima" value="{{ e.para_proxima or '' }}" maxlength="1000" aria-label="Para la próxima" placeholder="Para la próxima (opcional)">
             <button class="btn chico" type="submit">Guardar</button>
+          </form>
+          {{ bm.fotos(e, ocultos(f.clave), editar=True) }}
+          <form method="post" action="{{ url_for('agenda_bitacora_fotos', entrada_id=e.id) }}" enctype="multipart/form-data">
+            {{ ocultos(f.clave) }}
+            {{ bm.elegir_fotos(auto=True) }}
+            <noscript><button class="btn chico secundario" type="submit">Subir</button></noscript>
           </form>
           <form method="post" action="{{ url_for('agenda_bitacora_borrar', entrada_id=e.id) }}">
             {{ ocultos(f.clave) }}
@@ -1681,4 +1736,5 @@
 {% include "_buscador.html" %}
 {% include "_barra_movil.html" %}
 {% include "_dictado.html" %}
+{% include "_bitacora_js.html" %}
 {% endblock %}
