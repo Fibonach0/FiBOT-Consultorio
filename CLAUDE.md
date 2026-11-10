@@ -1112,7 +1112,13 @@ Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
   profesional. La lista de espera del panel muestra qué se le ofreció a cada
   uno y cómo terminó (`app._espera_con_oferta`). Al profesional vinculado le
   llega a quién se le ofreció cada horario (`texto_reparto`, hasta
-  `MAX_EN_AVISO`). En el directorio,
+  `MAX_EN_AVISO`). Quien reserva sale solo de la lista
+  (`sacar_de_espera_al_reservar`: web, bot, panel sin aviso y `pagos.aprobar`
+  si la reserva esperaba pago; mismo teléfono y, si hay nombres, la misma
+  persona; si tenía otro horario guardado, ese pasa al siguiente) y el
+  profesional recibe «Cata reservó…: lo sacamos de tu lista». «Ofrecer horario»
+  del panel usa `guardar_y_ofrecer` (sin varios tipos de turno). El resumen de
+  la mañana cuenta los de la lista sin horario guardado ni reserva. En el directorio,
   `vuelve` agrega los días que faltan («faltan 3 días», «mañana», «hoy»).
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.

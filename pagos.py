@@ -421,6 +421,13 @@ def aprobar(tenant: dict, pago: dict, mp_pago_id: str | None = None) -> str:
     db.actualizar_pago(pago["id"], {"estado": "aprobado", "mp_pago_id": mp_pago_id, "resuelto": ahora, "comprobante": None})
     _numerar(tenant, pago)
     _confirmar_al_paciente(tenant, vigentes)
+    if vigentes:
+        try:
+            import cancelaciones  # acá: cancelaciones importa scheduler
+            cancelaciones.sacar_de_espera_al_reservar(tenant, {**vigentes[0], "pago_web": "aprobado"},
+                                                     vigentes[0].get("paciente_telefono"), vigentes[0].get("paciente_nombre"))
+        except Exception:
+            logger.exception("No se pudo sacar de la lista de espera tras el pago")
     if mp_pago_id:
         _avisar_pago_mp(tenant, pago, vigentes)
     try:

@@ -278,6 +278,39 @@ def quiero_otro(tenant: dict, turno: dict, ahora: datetime | None = None) -> tup
     return (nuevo, fin) if fin else (None, None)
 
 
+def sacar_de_espera_al_reservar(tenant: dict, turno: dict | None, telefono: str, nombre: str | None = None,
+                                avisar: bool = True) -> list[str]:
+    """Quien reserva sale solo de la lista de espera (mismo teléfono, últimos
+    10 dígitos; si los dos tienen nombre, tiene que ser la misma persona: un
+    WhatsApp puede ser de una familia). Si tenía guardado OTRO horario, ese
+    pasa al siguiente de la cola. Una reserva web esperando pago todavía no
+    cuenta: se saca al aprobarse (`pagos.aprobar`). Con `avisar`, le cuenta al
+    profesional. Devuelve los nombres que sacó."""
+    if turno and turno.get("pago_web") in ("esperando", "comprobante"):
+        return []
+    sacados = []
+    ahora = datetime.now(ZoneInfo("UTC"))
+    for p in db.lista_de_espera(tenant["id"]):
+        if db._ultimos10(p.get("telefono")) != db._ultimos10(telefono) or not db._ultimos10(telefono):
+            continue
+        if nombre and p.get("nombre") and not db.mismo_nombre(nombre, p["nombre"]):
+            continue
+        db.quitar_de_espera(tenant["id"], p["id"])
+        sacados.append(p.get("nombre") or nombre or "alguien")
+        otro = p.get("ofrecido_turno")
+        if p.get("ofrecido_estado") == "esperando" and otro and (not turno or otro != turno.get("id")):
+            guardado = db.turno_por_id(tenant["id"], otro)
+            if guardado and guardado.get("estado") == "libre":
+                db.soltar_guardado(tenant["id"], otro)
+                pasar_al_siguiente(tenant, {**guardado, "guardado_tel": None, "guardado_hasta": None}, ahora)
+    if sacados and avisar:
+        cuando = f" el {scheduler.cuando_de(turno, tenant, _tz(tenant))}" if turno else ""
+        scheduler.avisar_profesional(
+            tenant, f"alguien de tu lista de espera reservó{cuando}: lo sacamos de la lista",
+            con_nombre=f"{', '.join(sacados)} reservó{cuando}: lo sacamos de tu lista de espera")
+    return sacados
+
+
 def tras_cancelar(tenant: dict, turno: dict, por: str) -> None:
     """Después de que el paciente canceló `turno` (ya liberado). `por` es
     «la web» o «WhatsApp», para el aviso."""

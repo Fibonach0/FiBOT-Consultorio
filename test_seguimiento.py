@@ -3870,6 +3870,48 @@ chequear("quiero otro: suelta el suyo y le guarda el siguiente",
          and _q["q2"]["ofrecido_turno"] == "c3", _r.headers.get("Location"))
 chequear("quiero otro: el horario nuevo dice hasta cuándo está guardado y deja pedir otro",
          "Este horario está guardado hasta las" in _w2.get(_r.headers["Location"]).data.decode())
+# Quien reserva sale solo de la lista de espera, y el profesional se entera.
+chequear("resumen: cuántos esperan horario en la lista (sólo el número; no cuenta guardados ni reservados)",
+         "1 persona en lista de espera esperando horario" in scheduler._partes_del_resumen(dict(_t1), _hoy_ar),
+         scheduler._partes_del_resumen(dict(_t1), _hoy_ar))
+TABLAS["lista_espera"].append({"id": "q9", "tenant_id": "t1", "nombre": "Eva", "telefono": "5491150000009", "ofrecido_en": None,
+                               "origen": "web", "created_at": (_b + timedelta(minutes=9)).isoformat()})
+chequear("resumen: «2 personas en lista de espera esperando horario»",
+         "2 personas en lista de espera esperando horario" in scheduler._partes_del_resumen(dict(_t1), _hoy_ar),
+         scheduler._partes_del_resumen(dict(_t1), _hoy_ar))
+_r = _w2.post("/marcos/reservar/c3", data={"nombre": "Cata", "telefono": "5491150000003", "confirmado": "1"})
+chequear("al reservar sale de la lista de espera y se le avisa al profesional",
+         _c["c3"]["estado"] == "reservado" and not any(p["id"] == "q2" for p in TABLAS["lista_espera"])
+         and "Cata reservó" in _avk[-1][1]["con_nombre"] and "lo sacamos de tu lista de espera" in _avk[-1][1]["con_nombre"], _avk[-1:])
+TABLAS["lista_espera"].append({"id": "q8", "tenant_id": "t1", "nombre": "Lola", "telefono": "5491150000009", "ofrecido_en": None,
+                               "origen": "web", "created_at": (_b + timedelta(minutes=10)).isoformat()})
+chequear("mismo WhatsApp con otro nombre: no saca a la otra persona",
+         _canc3.sacar_de_espera_al_reservar(dict(_t1), None, "5491150000009", "Eva", avisar=False) == ["Eva"]
+         and any(p["id"] == "q8" for p in TABLAS["lista_espera"]))
+# Si reserva otro horario teniendo uno guardado, el guardado pasa al siguiente.
+TABLAS["turnos"] += [turno("x1", "t1", _en + timedelta(days=4)), turno("y1", "t1", _en + timedelta(days=5))]
+_c = {t["id"]: t for t in TABLAS["turnos"]}
+TABLAS["lista_espera"] = [
+    {"id": "d1", "tenant_id": "t1", "nombre": "Dani", "telefono": "5491150000011", "ofrecido_en": _hoy_ar.isoformat(), "origen": "web",
+     "ofrecido_turno": "x1", "ofrecido_estado": "esperando", "ofrecido_hasta": (_en + timedelta(minutes=40)).isoformat(),
+     "created_at": _b.isoformat()},
+    {"id": "d2", "tenant_id": "t1", "nombre": "Fede", "telefono": "5491150000012", "ofrecido_en": None, "origen": "web",
+     "created_at": (_b + timedelta(minutes=1)).isoformat()}]
+_c["x1"].update(guardado_tel="5491150000011", guardado_hasta=(_en + timedelta(minutes=40)).isoformat())
+db.reservar_turno("t1", "y1", "5491150000011", "Dani")
+_canc3.sacar_de_espera_al_reservar(dict(_t1), _c["y1"], "5491150000011", "Dani")
+chequear("reservó otro: su horario guardado pasa al siguiente",
+         [p["id"] for p in TABLAS["lista_espera"]] == ["d2"] and _c["x1"]["guardado_tel"] == "5491150000012"
+         and TABLAS["lista_espera"][0]["ofrecido_turno"] == "x1", _c["x1"])
+# «Ofrecer horario» del panel: entra en la misma cola (guardado 1 h, link directo).
+TABLAS["lista_espera"].append({"id": "d3", "tenant_id": "t1", "nombre": "Gabi", "telefono": "5491150000013", "ofrecido_en": None,
+                               "origen": "panel", "created_at": (_b + timedelta(minutes=2)).isoformat()})
+_ofr.clear()
+panel_c.post("/agenda/espera/d3/ofrecer", data={"csrf_token": "tok"})
+_d3 = next(p for p in TABLAS["lista_espera"] if p["id"] == "d3")
+chequear("ofrecer desde el panel: queda guardado una hora con link directo",
+         _d3.get("ofrecido_estado") == "esperando" and _c[_d3["ofrecido_turno"]]["guardado_tel"] == "5491150000013"
+         and "?g=" in _ofr[-1][2], (_d3, _ofr))
 _canc3.ofrecer_horario, scheduler.avisar_profesional = _vo, _va
 
 # horario semanal
