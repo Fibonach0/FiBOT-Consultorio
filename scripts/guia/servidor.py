@@ -76,7 +76,8 @@ for n, tel in pacientes[:6]:
 for dias, texto in ((14, "Primera entrevista con la mamá. Viene por dificultades en la lectura."),
                     (7, "Lectura de sílabas con tarjetas. Se cansa a los 20 minutos."),
                     (0, "Juego de memoria y lectura en voz alta.\nMucho mejor: leyó el cuento entero.")):
-    A.db.agregar_bitacora("t1", pacientes[0][1], (ahora - timedelta(days=dias)).date().isoformat(), texto)
+    A.db.agregar_bitacora("t1", pacientes[0][1], (ahora - timedelta(days=dias)).date().isoformat(), texto,
+                          "Traer el cuaderno de lectura" if dias == 7 else None)
 A.db.agregar_fecha("t1", pacientes[0][1], "Cumpleaños", min(28, ahora.day + 5), ahora.month, None, "Lo vive con alegría")
 # mensajes y pagos para revisar
 TABLAS["mensajes_pacientes"] += [

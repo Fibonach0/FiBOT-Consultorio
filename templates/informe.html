@@ -43,6 +43,23 @@
       <div class="tenue">Guarda los títulos de las secciones, no el texto. Cambiá, sumá o quitá secciones antes de guardarla.</div>
     </details>
   </div>
+  {% set bit = (ficha.bitacora or [])|reverse|list %}
+  {% if bit and not guardado %}
+  <details class="card no-imprimir" id="panel-bitacora" open>
+    <summary><strong>Sumar la bitácora</strong> <span class="tenue">({{ bit|length }} anotaciones)</span></summary>
+    <p class="tenue" style="margin:6px 0">Elegí las fechas y se suma como una sección más, de la más vieja a la más nueva. Después la editás como el resto.</p>
+    <div class="fila">
+      <div><label for="bit-desde">Desde</label><input type="date" id="bit-desde" value="{{ bit[0]._iso }}"></div>
+      <div><label for="bit-hasta">Hasta</label><input type="date" id="bit-hasta" value="{{ bit[-1]._iso }}"></div>
+    </div>
+    <label style="display:block;margin:6px 0"><input type="checkbox" id="bit-proxima"> Incluir lo de «Para la próxima»</label>
+    <button class="btn chico" type="button" id="sumar-bitacora">Sumar como sección</button>
+    <span class="tenue" id="bit-cuantas"></span>
+  </details>
+  <script type="application/json" id="bitacora-datos">{{ bit|map(attribute='_iso')|list|tojson }}</script>
+  <script type="application/json" id="bitacora-textos">{{ bit|map(attribute='texto')|list|tojson }}</script>
+  <script type="application/json" id="bitacora-proximas">{{ bit|map(attribute='para_proxima')|list|tojson }}</script>
+  {% endif %}
   <div class="card informe constancia">
     <h2 contenteditable="true" id="titulo-informe">{{ inf.titulo }}</h2>
     <div class="datos" id="datos">
@@ -72,6 +89,34 @@
       e.target.before(div);
       div.querySelector('h3').focus();
     });
+    const panelBit = document.getElementById('panel-bitacora');
+    if (panelBit) {
+      const isos = JSON.parse(document.getElementById('bitacora-datos').textContent);
+      const textos = JSON.parse(document.getElementById('bitacora-textos').textContent);
+      const proximas = JSON.parse(document.getElementById('bitacora-proximas').textContent);
+      const desde = document.getElementById('bit-desde'), hasta = document.getElementById('bit-hasta');
+      const dma = iso => iso.split('-').reverse().join('/');
+      const elegidas = () => isos.map((iso, i) => i).filter(i => (!desde.value || isos[i] >= desde.value) && (!hasta.value || isos[i] <= hasta.value));
+      const contar = () => { const n = elegidas().length; document.getElementById('bit-cuantas').textContent = n === 1 ? '1 anotación' : n + ' anotaciones'; };
+      desde.addEventListener('change', contar); hasta.addEventListener('change', contar); contar();
+      document.getElementById('sumar-bitacora').addEventListener('click', () => {
+        const idx = elegidas();
+        if (!idx.length) { document.getElementById('bit-cuantas').textContent = 'No hay anotaciones entre esas fechas.'; return; }
+        const conProxima = document.getElementById('bit-proxima').checked;
+        const texto = idx.map(i => dma(isos[i]) + ': ' + textos[i] + (conProxima && proximas[i] ? '\nPara la próxima: ' + proximas[i] : '')).join('\n\n');
+        const div = document.createElement('div');
+        div.className = 'seccion';
+        const quitar = document.createElement('button');
+        quitar.className = 'quitar quitar-seccion no-imprimir'; quitar.type = 'button'; quitar.textContent = 'Quitar sección';
+        quitar.addEventListener('click', () => div.remove());
+        const h3 = document.createElement('h3'); h3.contentEditable = 'true';
+        h3.textContent = 'Evolución (del ' + dma(isos[idx[0]]) + ' al ' + dma(isos[idx[idx.length - 1]]) + ')';
+        const cuerpo = document.createElement('div'); cuerpo.className = 'editable'; cuerpo.contentEditable = 'true'; cuerpo.textContent = texto;
+        div.append(quitar, h3, cuerpo);
+        document.getElementById('sumar-seccion').before(div);
+        div.scrollIntoView({behavior: 'smooth', block: 'start'});
+      });
+    }
     document.getElementById('guardar-plantilla').addEventListener('submit', () => {
       document.getElementById('titulos-plantilla').value = JSON.stringify(
         [...document.querySelectorAll('.seccion h3')].map(h => h.innerText.trim()));

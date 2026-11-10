@@ -1,0 +1,42 @@
+{# Piezas de la bitácora que comparten la ficha del panel, Hoy y la página
+   rápida. `oc` = los campos ocultos de cada lugar (csrf + volver), ya armados. #}
+
+{# El «para la próxima» como un tilde grande, para tocarlo con el dedo. #}
+{% macro tilde(e, oc, titulo='Para hoy') %}
+{% set hecha = e.proxima_hecha_at %}
+<form method="post" action="{{ url_for('agenda_bitacora_hecho', entrada_id=e.id) }}" class="tilde-form" data-tilde data-sin-ficha>
+  {{ oc }}
+  <input type="hidden" name="hecho" value="{{ '0' if hecha else '1' }}">
+  <button type="submit" class="tilde" role="checkbox" aria-checked="{{ 'true' if hecha else 'false' }}">
+    <span class="tilde-caja" aria-hidden="true">✓</span>
+    <span class="tilde-texto"><strong>{{ titulo }}</strong>{% if titulo == 'Para hoy' %} <span class="tenue">(del {{ e._fecha }})</span>{% endif %}<br>{{ e.para_proxima }}</span>
+  </button>
+</form>
+{% endmacro %}
+
+{# Miniaturas; con `oc` y editar=True, cada una con su «Borrar». #}
+{% macro fotos(e, oc=None, editar=False) %}
+{% if e.fotos %}
+<div class="bitacora-fotos">
+  {% for fid in e.fotos %}
+  <div class="bitacora-foto">
+    <a href="{{ url_for('agenda_bitacora_foto', foto_id=fid) }}" target="_blank" rel="noopener"><img src="{{ url_for('agenda_bitacora_foto', foto_id=fid) }}" alt="Foto {{ loop.index }} del {{ e._fecha }}" loading="lazy"></a>
+    {% if editar %}
+    <form method="post" action="{{ url_for('agenda_bitacora_foto_borrar', foto_id=fid) }}">
+      {{ oc }}
+      <button class="quitar-texto" type="submit" onclick="return confirm('¿Borrar esta foto?')">Borrar</button>
+    </form>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endmacro %}
+
+{# Botón para elegir o sacar fotos. El JS las achica antes de mandarlas. #}
+{% macro elegir_fotos(auto=False) %}
+<label class="fotos-boton">📷 {{ 'Sumar fotos' if auto else 'Fotos' }}
+  <input type="file" name="fotos" accept="image/jpeg,image/png,image/*" multiple data-fotos{% if auto %} data-fotos-auto{% endif %}>
+</label>
+<span class="fotos-previa" aria-live="polite"></span>
+{% endmacro %}

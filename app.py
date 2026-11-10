@@ -2134,8 +2134,9 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     for f in db.fechas_de_pacientes(tenant["id"]):
         fechas.setdefault(db.clave_de(f), []).append(f)
     bitacoras: dict[str, list[dict]] = {}
+    fotos_por_entrada = _fotos_por_entrada(db.fotos_bitacora(tenant["id"]))
     for e in db.bitacora(tenant["id"]):
-        bitacoras.setdefault(db.clave_de(e), []).append(_entrada_bitacora(e))
+        bitacoras.setdefault(db.clave_de(e), []).append(_entrada_bitacora(e, fotos_por_entrada))
     hoy = ahora.date()
     corte = ahora - timedelta(days=DIAS_DE_ASISTENCIA)
     canceladas: dict[str, int] = {}
@@ -3163,9 +3164,41 @@ MAX_PARA_PROXIMA = 1000
 DIAS_SEMANA_CORTO = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
 
 
-def _entrada_bitacora(e: dict) -> dict:
+FOTO_MAX = 1_500_000        # por foto, ya achicada en el navegador (sin JS llega tal cual)
+FOTOS_POR_ENTRADA = 6
+
+
+def _fotos_por_entrada(fotos: list[dict]) -> dict[str, list[str]]:
+    por: dict[str, list[str]] = {}
+    for f in fotos:
+        por.setdefault(str(f["entrada_id"]), []).append(f["id"])
+    return por
+
+
+def _entrada_bitacora(e: dict, fotos: dict[str, list[str]] | None = None) -> dict:
     d = date.fromisoformat(str(e["fecha"])[:10])
-    return {**e, "_fecha": f"{DIAS_SEMANA_CORTO[d.weekday()]} {d:%d/%m/%Y}", "_iso": d.isoformat()}
+    return {**e, "_fecha": f"{DIAS_SEMANA_CORTO[d.weekday()]} {d:%d/%m/%Y}", "_iso": d.isoformat(),
+            "fotos": (fotos or {}).get(str(e["id"]), [])}
+
+
+def _guardar_fotos(tenant_id: str, entrada_id: str, ya: int = 0) -> None:
+    """Las fotos del form (`fotos`), PNG o JPG por sus primeros bytes, como
+    data URL. Avisa con flash lo que no entró."""
+    archivos = [a for a in request.files.getlist("fotos") if a and a.filename]
+    guardadas, malas = 0, 0
+    for a in archivos:
+        if ya + guardadas >= FOTOS_POR_ENTRADA:
+            flash(f"Hasta {FOTOS_POR_ENTRADA} fotos por anotación: las demás no se guardaron.")
+            break
+        crudo = a.read(FOTO_MAX + 1)
+        tipo = next((t for firma, t in FIRMA_TIPOS.items() if crudo.startswith(firma)), None)
+        if not tipo or len(crudo) > FOTO_MAX:
+            malas += 1
+            continue
+        db.agregar_foto_bitacora(tenant_id, entrada_id, f"data:{tipo};base64,{base64.b64encode(crudo).decode()}")
+        guardadas += 1
+    if malas:
+        flash(f"{malas} foto{'s' if malas > 1 else ''} no se pudo guardar: tiene que ser JPG o PNG y de menos de 1,5 MB.")
 
 
 def _para_hoy(entradas: list[dict], hoy: date) -> dict | None:
@@ -3213,8 +3246,10 @@ def agenda_bitacora():
     clave = request.form.get("telefono") or ""
     datos = _datos_bitacora()
     if clave and datos:
-        db.agregar_bitacora(session["tenant_id"], clave, *datos)
+        entrada_id = db.agregar_bitacora(session["tenant_id"], clave, *datos)
         flash("Anotado.")
+        if entrada_id:
+            _guardar_fotos(session["tenant_id"], entrada_id)
     return _volver_de_bitacora()
 
 
@@ -3225,6 +3260,54 @@ def agenda_bitacora_editar(entrada_id):
     if datos:
         db.editar_bitacora(session["tenant_id"], entrada_id, *datos)
         flash("Se guardó el cambio.")
+    return _volver_de_bitacora()
+
+
+@app.post("/agenda/bitacora/<entrada_id>/hecho")
+@login_required
+def agenda_bitacora_hecho(entrada_id):
+    """Tilda (o destilda) el «para la próxima». Con X-Parcial (el toque en el
+    celular) contesta 204 y la página cambia sola, sin recargar."""
+    hecha = request.form.get("hecho") == "1"
+    db.marcar_proxima_hecha(session["tenant_id"], entrada_id, hecha)
+    if request.headers.get("X-Parcial"):
+        return "", 204
+    return _volver_de_bitacora()
+
+
+@app.post("/agenda/bitacora/<entrada_id>/fotos")
+@login_required
+def agenda_bitacora_fotos(entrada_id):
+    if not db.entrada_bitacora(session["tenant_id"], entrada_id):
+        flash("No se encontró esa anotación.")
+        return _volver_de_bitacora()
+    ya = len(db.fotos_bitacora(session["tenant_id"], [entrada_id]))
+    _guardar_fotos(session["tenant_id"], entrada_id, ya)
+    return _volver_de_bitacora()
+
+
+@app.get("/agenda/bitacora/foto/<foto_id>")
+@login_required
+def agenda_bitacora_foto(foto_id):
+    """La foto se sirve sólo con sesión de su cuenta y sin caché."""
+    foto = db.foto_bitacora(session["tenant_id"], foto_id)
+    if not foto:
+        return "No encontrada.", 404
+    cabecera, _, datos = foto["imagen"].partition(",")
+    tipo = cabecera.removeprefix("data:").removesuffix(";base64")
+    if tipo not in FIRMA_TIPOS.values():
+        return "No encontrada.", 404
+    resp = app.make_response(base64.b64decode(datos))
+    resp.headers["Content-Type"] = tipo
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    return _sin_cache(resp)
+
+
+@app.post("/agenda/bitacora/foto/<foto_id>/borrar")
+@login_required
+def agenda_bitacora_foto_borrar(foto_id):
+    db.borrar_foto_bitacora(session["tenant_id"], foto_id)
+    flash("Se borró la foto.")
     return _volver_de_bitacora()
 
 
@@ -3267,6 +3350,42 @@ def _fichas_livianas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     return lista
 
 
+MINUTOS_ANTES_SESION = 15    # «durante una sesión» = desde 15 min antes
+MINUTOS_DESPUES_SESION = 20  # hasta 20 min después de que termina (para anotar)
+CELULAR = re.compile(r"Android|iPhone|iPad|iPod|Mobile", re.I)
+
+
+def _sesion_en_curso(tenant: dict, ahora: datetime) -> dict | None:
+    """La sesión reservada de este momento (con margen), o None. Una sola
+    consulta chica: es lo primero que corre al abrir la app."""
+    utc = ZoneInfo("UTC")
+    desde = (ahora - timedelta(hours=4)).astimezone(utc)
+    hasta = (ahora + timedelta(minutes=MINUTOS_ANTES_SESION)).astimezone(utc)
+    en_curso = [t for t in db.agenda_semana(tenant["id"], desde, hasta)
+                if t["estado"] == "reservado"
+                and datetime.fromisoformat(t["inicio"]) - timedelta(minutes=MINUTOS_ANTES_SESION) <= ahora
+                <= datetime.fromisoformat(t["fin"]) + timedelta(minutes=MINUTOS_DESPUES_SESION)]
+    # Si se pisan (una termina, la otra empieza), la que empieza.
+    return max(en_curso, key=lambda t: t["inicio"]) if en_curso else None
+
+
+@app.get("/agenda/abrir")
+@login_required
+def abrir_app():
+    """Donde arranca la app instalada (start_url). Tiene que ser rápido: el
+    panel entero arma todas las fichas y tarda. Durante una sesión abre la
+    bitácora de ese paciente; si no, en el celular la lista liviana de
+    pacientes y en la compu el panel."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    ahora = datetime.now(_tz_de(tenant))
+    t = _sesion_en_curso(tenant, ahora)
+    if t:
+        return _sin_cache(redirect(url_for("fichas_rapida", ref=buscador._ref(tenant["id"], db.clave_de(t)))))
+    if CELULAR.search(request.headers.get("User-Agent") or ""):
+        return _sin_cache(redirect(url_for("fichas_rapidas")))
+    return _sin_cache(redirect(url_for("agenda", app=1)))
+
+
 @app.get("/agenda/fichas")
 @login_required
 def fichas_rapidas():
@@ -3289,7 +3408,9 @@ def fichas_rapida(ref):
     if not paciente:
         flash("No se encontró esa ficha.")
         return redirect(url_for("fichas_rapidas"))
-    entradas = [_entrada_bitacora(e) for e in db.bitacora(tenant["id"], paciente["clave"])]
+    filas = db.bitacora(tenant["id"], paciente["clave"])
+    fotos = _fotos_por_entrada(db.fotos_bitacora(tenant["id"], [str(e["id"]) for e in filas]))
+    entradas = [_entrada_bitacora(e, fotos) for e in filas]
     return _sin_cache(app.make_response(render_template("ficha_rapida.html", tenant=tenant, p=paciente, entradas=entradas,
                                                         para_hoy=_para_hoy(entradas, ahora.date()),
                                                         hoy=ahora.date().isoformat(), rubro=rubros.de(tenant))))
@@ -4584,7 +4705,7 @@ def manifest():
     r = jsonify({
         "name": "FiBOT Consultorio", "short_name": "Consultorio", "lang": "es-AR",
         "description": "Tu agenda, tus pacientes y tus cobros.",
-        "start_url": "/agenda?app=1", "scope": "/", "display": "standalone",
+        "start_url": "/agenda/abrir", "scope": "/", "display": "standalone",
         "shortcuts": [{"name": "Anotar en una ficha", "short_name": "Fichas", "url": "/agenda/fichas"}],
         "background_color": "#faf6ef", "theme_color": "#2f5233",
         "icons": [

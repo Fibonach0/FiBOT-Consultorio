@@ -1,0 +1,90 @@
+{# Tilde táctil del «para la próxima» y fotos de la bitácora (achicar antes de subir). #}
+<style>
+  .tilde-form { margin:6px 0; }
+  .tilde { display:flex; align-items:flex-start; gap:12px; width:100%; min-height:52px; padding:12px 14px; text-align:left;
+    border:1px solid var(--warn); border-left-width:4px; border-radius:10px; background:var(--warn-bg); color:var(--ink);
+    font:inherit; cursor:pointer; touch-action:manipulation; -webkit-tap-highlight-color:transparent; user-select:none;
+    transition:transform .08s, background .15s; overflow-wrap:anywhere; }
+  .tilde:active { transform:scale(.98); }
+  .tilde-caja { flex:0 0 30px; height:30px; border:2px solid var(--warn); border-radius:8px; display:grid; place-items:center;
+    font-weight:700; font-size:1.1rem; color:transparent; background:var(--card); transition:background .15s, color .15s; }
+  .tilde[aria-checked="true"] { background:var(--card); border-color:var(--rule); border-left-color:var(--green-solid); }
+  .tilde[aria-checked="true"] .tilde-caja { background:var(--green-solid); border-color:var(--green-solid); color:var(--on-green); }
+  .tilde[aria-checked="true"] .tilde-texto { text-decoration:line-through; color:var(--muted); }
+  .bitacora-fotos { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 2px; }
+  .bitacora-foto { display:flex; flex-direction:column; align-items:center; }
+  .bitacora-foto img { width:88px; height:88px; object-fit:cover; border-radius:8px; border:1px solid var(--rule); display:block; }
+  .fotos-boton { display:inline-flex; align-items:center; gap:6px; margin:6px 8px 2px 0; padding:8px 14px; border-radius:999px;
+    border:1px solid var(--rule); background:var(--card); color:var(--ink); font-size:.95rem; cursor:pointer; min-height:40px; }
+  .fotos-boton input { position:absolute; width:1px; height:1px; opacity:0; }
+  .fotos-boton:focus-within { outline:2px solid var(--green); }
+  .fotos-previa { display:inline-flex; flex-wrap:wrap; gap:6px; vertical-align:middle; font-size:.85rem; color:var(--muted); }
+  .fotos-previa img { width:44px; height:44px; object-fit:cover; border-radius:6px; }
+</style>
+<script>
+(function () {
+  // Tilde: cambia en el acto, vibra apenas y guarda por detrás. Si falla, vuelve atrás.
+  document.addEventListener('submit', function (ev) {
+    var form = ev.target.closest && ev.target.closest('[data-tilde]');
+    if (!form || !window.fetch) return;
+    ev.preventDefault();
+    var marcar = form.querySelector('[name=hecho]').value === '1';
+    // La misma anotación puede estar dos veces (arriba como «Para hoy» y en la lista).
+    var gemelos = document.querySelectorAll('[data-tilde][action="' + form.getAttribute('action') + '"]');
+    function poner(hecha) {
+      gemelos.forEach(function (f) {
+        f.querySelector('.tilde').setAttribute('aria-checked', hecha ? 'true' : 'false');
+        f.querySelector('[name=hecho]').value = hecha ? '0' : '1';
+      });
+    }
+    poner(marcar);
+    if (navigator.vibrate) navigator.vibrate(marcar ? 15 : 8);
+    var datos = new FormData(form); datos.set('hecho', marcar ? '1' : '0');
+    fetch(form.action, {method: 'POST', body: datos, headers: {'X-Parcial': '1'}, credentials: 'same-origin'})
+      .then(function (r) { if (!r.ok) throw r; })
+      .catch(function () {
+        poner(!marcar);
+        alert('No se pudo guardar. Revisá la conexión y probá de nuevo.');
+      });
+  }, true);
+
+  // Fotos: se achican a 1600 px en JPEG antes de subir (una foto del celular pesa 3-6 MB).
+  var LADO = 1600, CALIDAD = 0.82;
+  function achicar(archivo) {
+    return new Promise(function (ok, mal) {
+      var img = new Image(), url = URL.createObjectURL(archivo);
+      img.onload = function () {
+        var k = Math.min(1, LADO / Math.max(img.naturalWidth, img.naturalHeight));
+        var c = document.createElement('canvas');
+        c.width = Math.round(img.naturalWidth * k); c.height = Math.round(img.naturalHeight * k);
+        c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) { b ? ok(new File([b], 'foto.jpg', {type: 'image/jpeg'})) : mal(); }, 'image/jpeg', CALIDAD);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); mal(); };
+      img.src = url;
+    });
+  }
+  document.querySelectorAll('[data-fotos]').forEach(function (input) {
+    var form = input.form, previa = input.closest('label').nextElementSibling;
+    var enviar = form.querySelector('[type=submit]');
+    input.addEventListener('change', function () {
+      var elegidas = Array.prototype.slice.call(input.files || []);
+      if (!elegidas.length || !window.DataTransfer) return;
+      previa.textContent = 'Preparando ' + elegidas.length + (elegidas.length > 1 ? ' fotos…' : ' foto…');
+      if (enviar) enviar.disabled = true;
+      Promise.all(elegidas.map(function (a) { return achicar(a).catch(function () { return a; }); })).then(function (listas) {
+        var dt = new DataTransfer();
+        listas.forEach(function (f) { dt.items.add(f); });
+        input.files = dt.files;
+        previa.textContent = '';
+        listas.forEach(function (f) {
+          var i = document.createElement('img'); i.alt = ''; i.src = URL.createObjectURL(f); previa.appendChild(i);
+        });
+        if (enviar) enviar.disabled = false;
+        if (input.hasAttribute('data-fotos-auto')) form.submit();
+      });
+    });
+  });
+})();
+</script>
