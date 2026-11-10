@@ -1,0 +1,42 @@
+{# «Falta anotar»: sesiones de hoy que terminaron sin nota ni bitácora. «Ahora no»
+   la esconde en este navegador (sólo comodidad; la lista sale del servidor). #}
+{% if falta_anotar %}
+<div class="falta-anotar" id="falta-anotar" role="status">
+  <strong>📝 Falta anotar</strong>
+  <ul>
+    {% for s in falta_anotar %}
+    <li data-falta="{{ s.id }}">
+      <span>{{ s.nombre }} <span class="tenue">· {{ s.hora }}</span></span>
+      <span class="falta-botones">
+        <a class="btn chico" href="{{ url_for('fichas_rapida', ref=s.ref) }}">Anotar</a>
+        <button type="button" class="quitar-texto" data-falta-no>Ahora no</button>
+      </span>
+    </li>
+    {% endfor %}
+  </ul>
+</div>
+<style>
+  .falta-anotar { background:var(--warn-bg); border:1px solid var(--warn); border-radius:10px; padding:10px 14px; margin:0 0 12px; }
+  .falta-anotar ul { list-style:none; margin:6px 0 0; padding:0; }
+  .falta-anotar li { display:flex; justify-content:space-between; align-items:center; gap:8px; min-height:44px; flex-wrap:wrap; }
+  .falta-anotar li + li { border-top:1px solid var(--rule); }
+  .falta-botones { display:flex; gap:10px; align-items:center; }
+  .falta-anotar .btn.chico { min-height:38px; display:inline-flex; align-items:center; text-decoration:none; }
+</style>
+<script>
+(function () {
+  var caja = document.getElementById('falta-anotar');
+  function clave(id) { return 'fibot-sin-anotar-' + id; }
+  function revisar() { if (!caja.querySelector('li:not([hidden])')) caja.hidden = true; }
+  caja.querySelectorAll('[data-falta]').forEach(function (li) {
+    try { if (localStorage.getItem(clave(li.dataset.falta))) li.hidden = true; } catch (e) {}
+    li.querySelector('[data-falta-no]').addEventListener('click', function () {
+      li.hidden = true;
+      try { localStorage.setItem(clave(li.dataset.falta), '1'); } catch (e) {}
+      revisar();
+    });
+  });
+  revisar();
+})();
+</script>
+{% endif %}
