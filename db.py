@@ -186,7 +186,8 @@ def clave_de(fila: dict) -> str:
 # todos dígitos, y whatsapp.py no manda nada a algo que no lo sea.
 SIN_WHATSAPP = "sin-"
 TABLAS_DEL_PACIENTE = ("turnos", "pacientes", "paciente_personas", "paciente_fechas", "cancelaciones",
-                       "paciente_tests", "lecturas", "cuestionarios", "informes", "entregas")
+                       "paciente_tests", "lecturas", "cuestionarios", "informes", "entregas",
+                       "paciente_bitacora")
 
 
 def tiene_whatsapp(telefono: str | None) -> bool:
@@ -895,6 +896,55 @@ def guardar_plazos_tests(tenant_id: str, plazos: dict[str, int]) -> None:
 def tests_tomados(tenant_id: str) -> list[dict]:
     res = _client.table("paciente_tests").select("*").eq("tenant_id", tenant_id).order("fecha", desc=True).execute()
     return res.data
+
+
+def bitacora(tenant_id: str, clave: str | None = None) -> list[dict]:
+    """Entradas de la bitácora, de la más nueva a la más vieja. Con `clave`,
+    sólo las de esa ficha (la página rápida del celular no trae las demás)."""
+    q = _client.table("paciente_bitacora").select("*").eq("tenant_id", tenant_id)
+    if clave is not None:
+        telefono, ficha = partir_clave(clave)
+        q = q.eq("paciente_telefono", telefono).eq("ficha", ficha)
+    res = q.order("fecha", desc=True).execute()
+    return sorted(res.data, key=lambda e: (str(e["fecha"]), str(e.get("created_at") or "")), reverse=True)
+
+
+def agregar_bitacora(tenant_id: str, clave: str, fecha: str, texto: str) -> None:
+    telefono, ficha = partir_clave(clave)
+    _client.table("paciente_bitacora").insert(
+        {"tenant_id": tenant_id, "paciente_telefono": telefono, "ficha": ficha, "fecha": fecha, "texto": texto}
+    ).execute()
+
+
+def editar_bitacora(tenant_id: str, entrada_id: str, fecha: str, texto: str) -> None:
+    (_client.table("paciente_bitacora")
+     .update({"fecha": fecha, "texto": texto, "updated_at": datetime.now(timezone.utc).isoformat()})
+     .eq("tenant_id", tenant_id).eq("id", entrada_id).execute())
+
+
+def borrar_bitacora(tenant_id: str, entrada_id: str) -> None:
+    _client.table("paciente_bitacora").delete().eq("tenant_id", tenant_id).eq("id", entrada_id).execute()
+
+
+def fichas_livianas(tenant_id: str) -> tuple[list[dict], list[dict]]:
+    """Lo mínimo para listar pacientes rápido en el celular: de las sesiones
+    sólo teléfono, ficha, nombre e inicio; de las fichas, nombre y estado."""
+    filas: list[dict] = []
+    while True:
+        res = (
+            _client.table("turnos")
+            .select("paciente_telefono,ficha,paciente_nombre,inicio")
+            .eq("tenant_id", tenant_id)
+            .eq("estado", "reservado")
+            .order("inicio")
+            .range(len(filas), len(filas) + 999)
+            .execute()
+        )
+        filas += res.data
+        if len(res.data) < 1000:
+            break
+    datos = _client.table("pacientes").select("paciente_telefono,ficha,nombre,estado").eq("tenant_id", tenant_id).execute()
+    return filas, datos.data
 
 
 def agregar_test(tenant_id: str, clave: str, test: str, fecha: str) -> None:

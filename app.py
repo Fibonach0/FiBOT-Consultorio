@@ -2133,6 +2133,9 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     fechas: dict[str, list[dict]] = {}
     for f in db.fechas_de_pacientes(tenant["id"]):
         fechas.setdefault(db.clave_de(f), []).append(f)
+    bitacoras: dict[str, list[dict]] = {}
+    for e in db.bitacora(tenant["id"]):
+        bitacoras.setdefault(db.clave_de(e), []).append(_entrada_bitacora(e))
     hoy = ahora.date()
     corte = ahora - timedelta(days=DIAS_DE_ASISTENCIA)
     canceladas: dict[str, int] = {}
@@ -2143,7 +2146,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     # Quien se quedó sin sesiones sigue teniendo ficha si hay algo anotado. Si
     # sólo queda el nombre (una ficha abierta por error) no hay nada que mostrar.
     sin_sesiones = [clave for clave, d in datos.items() if clave not in por_paciente
-                    and (any(d.get(c) for c in CAMPOS_ANOTADOS) or clave in personas or clave in fechas)]
+                    and (any(d.get(c) for c in CAMPOS_ANOTADOS) or clave in personas or clave in fechas or clave in bitacoras)]
     for clave in [*por_paciente, *sin_sesiones]:
         sesiones = por_paciente.get(clave, [])
         telefono = db.partir_clave(clave)[0]
@@ -2188,6 +2191,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                 "numero_afiliado": datos.get(clave, {}).get("numero_afiliado"),
                 "personas": personas.get(clave, []),
                 "fechas": _con_cuenta_regresiva(fechas.get(clave, []), hoy),
+                "bitacora": bitacoras.get(clave, []),
                 "desde": datetime.fromisoformat(sesiones[0]["inicio"]).astimezone(tz).strftime("%d/%m/%Y") if sesiones else None,
                 "proxima": f"{futuras[0]['_dia']} {futuras[0]['_hora']}" if futuras else None,
                 "asistio": sum(t.get("asistencia") == "vino" for t in pasadas),
@@ -2227,7 +2231,8 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
                                  if f["estado"] == "activo" else [])
             nacimiento = f["fecha_nacimiento"]
             edad = (hoy - date.fromisoformat(nacimiento)).days / 365.25 if nacimiento else None
-            textos = [f["motivo_consulta"], f["objetivos"], f["como_viene"], f["notas"], *[t.get("nota") for t in f["sesiones"]]]
+            textos = [f["motivo_consulta"], f["objetivos"], f["como_viene"], f["notas"], *[t.get("nota") for t in f["sesiones"]],
+                      *[e["texto"] for e in f["bitacora"]]]
             f["tests_sugeridos"] = tests_sugeridos.sugerir(textos, edad, f["tests_tomados"], hoy,
                                                              tenant.get("plazos_tests"))
     if rubros.de(tenant)["cuestionarios"]:
@@ -2256,6 +2261,7 @@ def _fichas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
     lista.sort(key=lambda f: f["nombre"].casefold())
     for i, f in enumerate(lista, start=1):
         f["dom"] = f"ficha-{i}"
+        f["ref"] = buscador._ref(tenant["id"], f["clave"])
         f["hermanos"] = [{"clave": o["clave"], "nombre": o["nombre"], "desde": o["desde"]} for o in lista
                          if o["telefono"] == f["telefono"] and o is not f]
     return lista
@@ -3148,6 +3154,129 @@ def agenda_paciente():
             campos[campo] = request.form[campo].strip() or None
     db.guardar_paciente(session["tenant_id"], telefono, campos)
     return _volver_a_agenda()
+
+
+MAX_BITACORA = 10000
+DIAS_SEMANA_CORTO = ("lun", "mar", "mié", "jue", "vie", "sáb", "dom")
+
+
+def _entrada_bitacora(e: dict) -> dict:
+    d = date.fromisoformat(str(e["fecha"])[:10])
+    return {**e, "_fecha": f"{DIAS_SEMANA_CORTO[d.weekday()]} {d:%d/%m/%Y}", "_iso": d.isoformat()}
+
+
+def _datos_bitacora() -> tuple[str, str] | None:
+    """Fecha y texto del form, o None (con el flash) si no sirven."""
+    texto = (request.form.get("texto") or "").strip()
+    fecha = request.form.get("fecha") or ""
+    try:
+        date.fromisoformat(fecha)
+    except ValueError:
+        flash("La fecha no es válida.")
+        return None
+    if not texto:
+        flash("Escribí algo para anotar.")
+        return None
+    if len(texto) > MAX_BITACORA:
+        flash(f"Es muy largo: hasta {MAX_BITACORA} letras por anotación.")
+        return None
+    return fecha, texto
+
+
+def _volver_de_bitacora():
+    """Desde la página rápida del celular vuelve a esa misma página; desde la
+    ficha del panel, a la agenda (la ficha se reabre en su pestaña)."""
+    ref = request.form.get("rapida") or ""
+    if ref.isalnum():
+        return redirect(url_for("fichas_rapida", ref=ref))
+    return _volver_a_agenda()
+
+
+@app.post("/agenda/bitacora")
+@login_required
+def agenda_bitacora():
+    clave = request.form.get("telefono") or ""
+    datos = _datos_bitacora()
+    if clave and datos:
+        db.agregar_bitacora(session["tenant_id"], clave, *datos)
+        flash("Anotado.")
+    return _volver_de_bitacora()
+
+
+@app.post("/agenda/bitacora/<entrada_id>")
+@login_required
+def agenda_bitacora_editar(entrada_id):
+    datos = _datos_bitacora()
+    if datos:
+        db.editar_bitacora(session["tenant_id"], entrada_id, *datos)
+        flash("Se guardó el cambio.")
+    return _volver_de_bitacora()
+
+
+@app.post("/agenda/bitacora/<entrada_id>/borrar")
+@login_required
+def agenda_bitacora_borrar(entrada_id):
+    db.borrar_bitacora(session["tenant_id"], entrada_id)
+    flash("Se borró la anotación.")
+    return _volver_de_bitacora()
+
+
+def _fichas_livianas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
+    """Pacientes para la página rápida: nombre, a qué hora viene hoy y la
+    próxima sesión. No arma la ficha entera (eso es lo que hace lenta la agenda)."""
+    sesiones, datos = db.fichas_livianas(tenant["id"])
+    hoy = ahora.date()
+    por_clave: dict[str, dict] = {}
+    for t in sesiones:
+        f = por_clave.setdefault(db.clave_de(t), {"clave": db.clave_de(t), "nombre": None, "hoy": None, "proxima": None})
+        if t.get("paciente_nombre"):
+            f["nombre"] = t["paciente_nombre"]
+        inicio = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+        if inicio.date() == hoy and not f["hoy"]:
+            f["hoy"] = inicio.strftime("%H:%M")
+        if inicio > ahora and not f["proxima"]:
+            f["proxima"] = f"{DIAS_SEMANA_CORTO[inicio.weekday()]} {inicio:%d/%m %H:%M}"
+    estados = {}
+    for p in datos:
+        clave = db.clave_de(p)
+        estados[clave] = p.get("estado") or "activo"
+        if clave not in por_clave and p.get("nombre"):
+            por_clave[clave] = {"clave": clave, "nombre": p["nombre"], "hoy": None, "proxima": None}
+    lista = []
+    for f in por_clave.values():
+        f["nombre"] = f["nombre"] or "Sin nombre"
+        f["estado"] = estados.get(f["clave"], "activo")
+        f["ref"] = buscador._ref(tenant["id"], f["clave"])
+        lista.append(f)
+    lista.sort(key=lambda f: (f["hoy"] is None, f["hoy"] or "", f["estado"] != "activo", f["nombre"].casefold()))
+    return lista
+
+
+@app.get("/agenda/fichas")
+@login_required
+def fichas_rapidas():
+    """Para el celular: la lista de pacientes (los de hoy arriba) y, al tocar
+    uno, su bitácora para escribir enseguida."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    pacientes = _fichas_livianas(tenant, tz, datetime.now(tz))
+    return _sin_cache(app.make_response(render_template("fichas_rapidas.html", tenant=tenant, pacientes=pacientes,
+                                                        rubro=rubros.de(tenant))))
+
+
+@app.get("/agenda/fichas/<ref>")
+@login_required
+def fichas_rapida(ref):
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    ahora = datetime.now(tz)
+    paciente = next((f for f in _fichas_livianas(tenant, tz, ahora) if f["ref"] == ref), None)
+    if not paciente:
+        flash("No se encontró esa ficha.")
+        return redirect(url_for("fichas_rapidas"))
+    entradas = [_entrada_bitacora(e) for e in db.bitacora(tenant["id"], paciente["clave"])]
+    return _sin_cache(app.make_response(render_template("ficha_rapida.html", tenant=tenant, p=paciente, entradas=entradas,
+                                                        hoy=ahora.date().isoformat(), rubro=rubros.de(tenant))))
 
 
 @app.post("/agenda/paciente/whatsapp")
@@ -4440,6 +4569,7 @@ def manifest():
         "name": "FiBOT Consultorio", "short_name": "Consultorio", "lang": "es-AR",
         "description": "Tu agenda, tus pacientes y tus cobros.",
         "start_url": "/agenda?app=1", "scope": "/", "display": "standalone",
+        "shortcuts": [{"name": "Anotar en una ficha", "short_name": "Fichas", "url": "/agenda/fichas"}],
         "background_color": "#faf6ef", "theme_color": "#2f5233",
         "icons": [
             {"src": url_for("static", filename="icono-192.png"), "sizes": "192x192", "type": "image/png"},
@@ -4671,7 +4801,7 @@ def _contexto_ficha_completa(tenant: dict, clave: str) -> dict | None:
     sesiones = [{"fecha": datetime.fromisoformat(t["inicio"]).astimezone(tz).strftime("%d/%m/%Y %H:%M"),
                  "asistencia": asistencia.get(t.get("asistencia"), "—" if datetime.fromisoformat(t["inicio"]) <= ahora else "próxima"),
                  "nota": t.get("nota") or ""} for t in ficha["sesiones"]]
-    return dict(tenant=tenant, ficha=ficha, rubro=rubro, hoy=ahora.strftime("%d/%m/%Y"),
+    return dict(tenant=tenant, ficha=ficha, rubro=rubro, hoy=ahora.strftime("%d/%m/%Y"), bitacora=ficha.get("bitacora") or [],
                 datos=[(k, v) for k, v in datos if v], textos=[(k, v) for k, v in textos if v], sesiones=sesiones,
                 inf=informe.armar(ficha, rubro, ahora.date()))
 

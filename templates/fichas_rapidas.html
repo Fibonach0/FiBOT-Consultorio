@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block titulo %}Fichas · {{ tenant.nombre }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block cuerpo %}
+<header class="rapida-barra">
+  <a href="{{ url_for('agenda') }}">← Panel</a>
+  <strong>Fichas</strong>
+  <span></span>
+</header>
+<main class="rapida">
+  {% for m in get_flashed_messages() %}<div class="aviso">{{ m }}</div>{% endfor %}
+  <input type="search" id="rapida-buscar" placeholder="Buscar paciente…" aria-label="Buscar paciente" autocomplete="off" autofocus>
+  {% set de_hoy = pacientes|selectattr('hoy')|list %}
+  {% if de_hoy %}
+  <h3 class="rapida-titulo">Hoy</h3>
+  <ul class="rapida-lista">
+    {% for p in de_hoy %}
+    <li data-nombre="{{ p.nombre|lower }}"><a href="{{ url_for('fichas_rapida', ref=p.ref) }}"><strong>{{ p.nombre }}</strong><span class="tenue">{{ p.hoy }}</span></a></li>
+    {% endfor %}
+  </ul>
+  {% endif %}
+  <h3 class="rapida-titulo">{{ 'Todos' if de_hoy else 'Pacientes' }}</h3>
+  <ul class="rapida-lista">
+    {% for p in pacientes if not p.hoy %}
+    <li data-nombre="{{ p.nombre|lower }}"><a href="{{ url_for('fichas_rapida', ref=p.ref) }}"><strong>{{ p.nombre }}</strong>
+      <span class="tenue">{% if p.estado != 'activo' %}{{ 'en pausa' if p.estado == 'pausa' else 'de alta' }}{% elif p.proxima %}{{ p.proxima }}{% endif %}</span></a></li>
+    {% else %}
+    {% if not de_hoy %}<li class="tenue">Todavía no hay pacientes. Agendalos desde el panel.</li>{% endif %}
+    {% endfor %}
+  </ul>
+  <p class="tenue" id="rapida-nada" hidden>No hay nadie con ese nombre.</p>
+</main>
+{% include "_rapida_estilo.html" %}
+<script>
+(() => {
+  const campo = document.getElementById('rapida-buscar');
+  const nada = document.getElementById('rapida-nada');
+  const sin = s => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+  campo.addEventListener('input', () => {
+    const q = sin(campo.value.trim());
+    let hay = 0;
+    document.querySelectorAll('.rapida-lista li[data-nombre]').forEach(li => {
+      const ve = !q || sin(li.dataset.nombre).includes(q);
+      li.hidden = !ve; hay += ve;
+    });
+    nada.hidden = hay > 0;
+  });
+  // Enter abre el primero que quedó.
+  campo.addEventListener('keydown', e => {
+    if (e.key !== 'Enter') return;
+    const a = document.querySelector('.rapida-lista li:not([hidden]) a');
+    if (a) { e.preventDefault(); location.href = a.href; }
+  });
+})();
+</script>
+{% endblock %}

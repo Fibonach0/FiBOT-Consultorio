@@ -1,0 +1,25 @@
+{# Páginas rápidas del celular (lista de fichas y bitácora): livianas, sin el panel entero. #}
+<style>
+  .rapida-barra { position:sticky; top:0; z-index:5; display:grid; grid-template-columns:auto 1fr auto; gap:10px; align-items:center; padding:12px 16px; }
+  .rapida-barra strong { text-align:center; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .rapida { max-width:640px; padding:14px 16px 40px; }
+  .rapida-titulo { font-size:.8rem; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:20px 0 6px; }
+  .rapida-lista { list-style:none; margin:0; padding:0; background:var(--card); border:1px solid var(--rule); border-radius:10px; overflow:hidden; }
+  .rapida-lista li + li { border-top:1px solid var(--rule); }
+  .rapida-lista a { display:flex; justify-content:space-between; gap:10px; align-items:center; padding:14px 14px; min-height:52px; color:var(--ink); text-decoration:none; }
+  .rapida-lista a:active { background:var(--hover); }
+  .rapida-lista li.tenue { padding:14px; }
+  #rapida-buscar { font-size:1.05rem; padding:12px; }
+  .rapida-cuando { margin:0 0 4px; }
+  .rapida-form textarea, .bitacora-editar textarea { width:100%; padding:10px; border:1px solid var(--rule); border-radius:8px; font:inherit; font-size:1rem;
+    background:var(--card); color:var(--ink); resize:vertical; }
+  .rapida-form input[type=date] { max-width:220px; font-size:1rem; }
+  .rapida-guardar { width:100%; margin-top:10px; padding:13px; font-size:1.05rem; }
+  .bitacora-entrada { background:var(--card); border:1px solid var(--rule); border-radius:10px; padding:10px 14px; margin-bottom:10px; }
+  .bitacora-fecha { font-weight:700; font-size:.88rem; color:var(--green); margin-bottom:4px; }
+  .bitacora-texto { white-space:pre-line; overflow-wrap:anywhere; }
+  .bitacora-editar { margin-top:6px; }
+  .bitacora-editar form { margin-top:6px; }
+  .bitacora-editar input[type=date] { max-width:200px; margin-bottom:6px; }
+  .quitar-texto { background:none; border:none; color:var(--warn); font:inherit; font-size:.85rem; padding:6px 0; cursor:pointer; }
+</style>

@@ -1,0 +1,50 @@
+{% extends "base.html" %}
+{% block titulo %}{{ p.nombre }} · Bitácora{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block cuerpo %}
+<header class="rapida-barra">
+  <a href="{{ url_for('fichas_rapidas') }}">← Fichas</a>
+  <strong>{{ p.nombre }}</strong>
+  <a href="{{ url_for('agenda', ficha=p.ref) }}" class="rapida-mas">Ficha</a>
+</header>
+<main class="rapida">
+  {% for m in get_flashed_messages() %}<div class="aviso">{{ m }}</div>{% endfor %}
+  {% if p.hoy or p.proxima %}<p class="tenue rapida-cuando">{% if p.hoy %}Hoy a las {{ p.hoy }}{% else %}Próxima: {{ p.proxima }}{% endif %}</p>{% endif %}
+  <form method="post" action="{{ url_for('agenda_bitacora') }}" class="rapida-form">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="telefono" value="{{ p.clave }}">
+    <input type="hidden" name="rapida" value="{{ p.ref }}">
+    <label for="rapida-fecha">Fecha</label>
+    <input type="date" id="rapida-fecha" name="fecha" value="{{ hoy }}" required>
+    <label for="rapida-texto">Qué hicimos</label>
+    <textarea id="rapida-texto" name="texto" rows="6" required maxlength="10000" autofocus></textarea>
+    <button class="btn rapida-guardar" type="submit">Anotar</button>
+  </form>
+
+  <h3 class="rapida-titulo">Bitácora</h3>
+  {% for e in entradas %}
+  <article class="bitacora-entrada">
+    <div class="bitacora-fecha">{{ e._fecha }}</div>
+    <div class="bitacora-texto">{{ e.texto }}</div>
+    <details class="bitacora-editar">
+      <summary class="tenue">Editar</summary>
+      <form method="post" action="{{ url_for('agenda_bitacora_editar', entrada_id=e.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="rapida" value="{{ p.ref }}">
+        <input type="date" name="fecha" value="{{ e._iso }}" required aria-label="Fecha">
+        <textarea name="texto" rows="5" required maxlength="10000" aria-label="Texto">{{ e.texto }}</textarea>
+        <button class="btn chico" type="submit">Guardar</button>
+      </form>
+      <form method="post" action="{{ url_for('agenda_bitacora_borrar', entrada_id=e.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="rapida" value="{{ p.ref }}">
+        <button class="quitar-texto" type="submit" onclick="return confirm('¿Borrar esta anotación?')">Borrar</button>
+      </form>
+    </details>
+  </article>
+  {% else %}
+  <p class="tenue">Todavía no hay nada anotado. Lo que escribas queda acá, con su fecha, de lo más nuevo a lo más viejo.</p>
+  {% endfor %}
+</main>
+{% include "_rapida_estilo.html" %}
+{% endblock %}

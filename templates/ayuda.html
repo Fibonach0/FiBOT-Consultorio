@@ -113,7 +113,7 @@
     <p>Tocá una ficha para abrirla. Arriba siempre ves la próxima sesión y la deuda.</p>
     <ul>
       {% set p = dict(rubro.pestanias) %}
-      <li><strong>{{ p.terapia }}:</strong> motivo, qué están trabajando, cómo viene y notas.{% if rubro.tests %} Abajo aparecen los tests para considerar.{% endif %}</li>
+      <li><strong>{{ p.terapia }}:</strong> la bitácora: ponés la fecha (viene la de hoy) y qué hicieron, y queda la lista de todo lo anotado día por día, lo más nuevo arriba. Cada anotación se puede editar o borrar. Más abajo, plegado, el motivo, qué están trabajando, cómo viene y notas generales.{% if rubro.tests %} Abajo aparecen los tests para considerar.{% endif %}</li>
       <li><strong>{{ p.sesiones }}:</strong> asistencia, notas de cada sesión y constancia.</li>
       {% if rubro.escuela %}
       <li><strong>{{ p.crisis }}:</strong> escuela, docente y equipo de orientación, otros profesionales, medicación y contactos de emergencia.</li>
@@ -123,6 +123,7 @@
       <li><strong>{{ p.personas }}:</strong> personas importantes y fechas para tener presentes.</li>
       <li><strong>{{ p.datos }}:</strong> datos, obra social, recordar un pago, y pausa o alta.</li>
     </ul>
+    <p><strong>Anotar rápido desde el celular:</strong> tocá «Fichas» en la barra de abajo (o, con el panel instalado como app, mantené apretado el ícono → «Anotar en una ficha»). Arriba están los pacientes de hoy; tocás uno y ya podés escribir. También desde la tarjeta de «Hoy», con el botón «Bitácora».</p>
     <p>Quien se queda sin sesiones sigue en el desplegable «Sin sesiones», y su ficha se recupera cuando vuelve.</p>
   </div>
 

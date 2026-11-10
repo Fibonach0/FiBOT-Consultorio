@@ -6,6 +6,7 @@
 <nav class="barra-movil" aria-label="Accesos rápidos">
   <a href="{{ url_for('agenda') }}#hoy" data-barra="hoy"{% if _en_agenda %} aria-current="page"{% endif %}><span aria-hidden="true">📅</span>Hoy</a>
   {% if _hay %}<a href="{{ url_for('agenda') }}#para-resolver" data-barra="resolver"><span aria-hidden="true">📥</span>Para resolver{% if _pend %}<b class="barra-num">{{ _pend }}</b>{% endif %}</a>{% endif %}
+  <a href="{{ url_for('fichas_rapidas') }}"><span aria-hidden="true">📝</span>Fichas</a>
   <button type="button" data-buscar-abrir><span aria-hidden="true">🔍</span>Buscar</button>
   <a href="{{ url_for('ajustes') }}"{% if request.endpoint == 'ajustes' %} aria-current="page"{% endif %}><span aria-hidden="true">⚙️</span>Ajustes</a>
 </nav>

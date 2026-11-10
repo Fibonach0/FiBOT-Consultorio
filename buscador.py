@@ -151,7 +151,8 @@ def indice(tenant: dict, comunes: dict, rubro: dict, url_for) -> dict:
             # Lo que se busca «adentro» de la ficha; se muestra un pedacito alrededor de lo encontrado.
             "x": _texto(f.get("motivo_consulta"), f.get("objetivos"), f.get("notas"), f.get("como_viene"), f.get("psiquiatra"),
                         f.get("medicacion"), f.get("plan_crisis"), f.get("escuela"), f.get("docente"), f.get("numero_afiliado"),
-                        *[p.get("nombre") for p in f.get("personas") or []], *notas_sesion[-30:])[:6000],
+                        *[p.get("nombre") for p in f.get("personas") or []], *[e.get("texto") for e in (f.get("bitacora") or [])[:30]],
+                        *notas_sesion[-30:])[:6000],
         })
         for t in (f.get("proximas") or [])[:6]:
             sesiones.append({"d": f.get("dom"), "n": f.get("nombre") or "Sin nombre", "w": f"{t.get('_dia', '')} {t.get('_hora', '')}".strip(),

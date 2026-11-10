@@ -46,6 +46,11 @@
     <h3>{{ titulo }}</h3><p class="texto">{{ texto }}</p>
     {% endfor %}
 
+    {% if bitacora %}
+    <h3>Bitácora</h3>
+    {% for e in bitacora|reverse %}<h4>{{ e._fecha }}</h4><p class="texto">{{ e.texto }}</p>{% endfor %}
+    {% endif %}
+
     {% if ficha.personas %}
     <h3>{{ 'Familia' if rubro.tests else 'Personas' }}</h3>
     {% for p in ficha.personas %}<div>{{ p.nombre }}{% if p.vinculo %} <span class="tenue">· {{ p.vinculo }}</span>{% endif %}{% if p.telefono %} · {{ p.telefono }}{% endif %}{% if p.emergencia %} · contacto de emergencia{% endif %}</div>{% endfor %}

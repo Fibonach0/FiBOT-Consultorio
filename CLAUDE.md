@@ -630,6 +630,21 @@ El popup se divide en cinco pestañas: Terapia, Sesiones, Crisis, Personas (con
 las fechas) y Datos. Próxima sesión y deuda quedan siempre a la vista arriba.
 Abre en Terapia, y al guardar vuelve a la pestaña donde estaba.
 
+### Bitácora de la ficha (`migrations/079`)
+
+Pedido de psicopedagogía: en vez de campos sueltos, fecha + texto día a día.
+`paciente_bitacora` (una fila por anotación, nunca se pisa; está en
+`TABLAS_DEL_PACIENTE`). Va arriba de la pestaña Terapia/Trabajo; motivo,
+objetivos, cómo viene y notas quedan plegados abajo. Rutas `/agenda/bitacora`
+(+ `/<id>` editar, `/<id>/borrar`); con `rapida=<ref>` vuelven a la página rápida.
+Entra en tests sugeridos, buscador, «Hoy» (la última) y la ficha completa;
+nunca sale por WhatsApp, constancias ni exportaciones.
+Modo rápido para el celular: `/agenda/fichas` (lista liviana, los de hoy
+arriba, `_fichas_livianas` + `db.fichas_livianas`: NO arma `_fichas`, que es lo
+lento) y `/agenda/fichas/<ref>` (ref = `buscador._ref`, nunca el teléfono en la
+URL; `no-store`). Accesos: «Fichas» en la barra del celular, botón «Bitácora»
+en Hoy, atajo del manifest («Anotar en una ficha»).
+
 ### Psicopedagogía (`rubros.py`, `migrations/021`)
 
 No es otro deploy: `tenants.rubro` elige textos y pestañas de la ficha. Con

@@ -328,7 +328,8 @@
         {% for c in h.fechas %}
         <div class="{{ 'debe' if c.animo == 'mal' else 'tenue' }}">{{ c.titulo }}, {{ c._falta }}</div>
         {% endfor %}
-        {% if h.ficha.ultima_nota %}<div class="hoy-nota">{{ h.ficha.ultima_nota._dia }}: {{ h.ficha.ultima_nota.nota|truncate(110) }}</div>
+        {% if h.ficha.bitacora %}<div class="hoy-nota">{{ h.ficha.bitacora[0]._fecha }}: {{ h.ficha.bitacora[0].texto|truncate(110) }}</div>
+        {% elif h.ficha.ultima_nota %}<div class="hoy-nota">{{ h.ficha.ultima_nota._dia }}: {{ h.ficha.ultima_nota.nota|truncate(110) }}</div>
         {% elif h.ficha.notas %}<div class="hoy-nota">{{ h.ficha.notas|truncate(110) }}</div>{% endif %}
         {# Lo de cada sesión sin abrir la semana. data-sin-ficha: tocar acá no abre la ficha. #}
         <div class="hoy-acciones" data-sin-ficha>
@@ -356,6 +357,7 @@
               <button class="btn chico" type="submit">Guardar nota</button>
             </form>
           </details>
+          <a class="btn chico secundario" href="{{ url_for('fichas_rapida', ref=h.ficha.ref) }}">Bitácora</a>
         </div>
       </div>
       {% endfor %}
@@ -1029,18 +1031,54 @@
         {% endfor %}
       </div>
       <section class="ficha-panel" role="tabpanel" id="{{ f.dom }}-terapia" aria-labelledby="{{ f.dom }}-tab-terapia" data-panel="terapia">
-      <form method="post" action="{{ url_for('agenda_paciente') }}">
+      <form method="post" action="{{ url_for('agenda_bitacora') }}" class="bitacora-nueva">
         {{ ocultos(f.clave) }}
-        <label>{{ rubro.motivo }}</label>
-        <textarea name="motivo_consulta" rows="2">{{ f.motivo_consulta or '' }}</textarea>
-        <label>Qué estamos trabajando</label>
-        <textarea name="objetivos" rows="2">{{ f.objetivos or '' }}</textarea>
-        <label>Cómo viene</label>
-        <textarea name="como_viene" rows="2">{{ f.como_viene or '' }}</textarea>
-        <label>Notas</label>
-        <textarea name="notas" rows="5">{{ f.notas or '' }}</textarea>
-        <button class="btn chico" type="submit">Guardar</button>
+        <div class="fila">
+          <div style="flex:0 0 auto;min-width:0"><label>Fecha</label><input type="date" name="fecha" value="{{ hoy_iso }}" required></div>
+        </div>
+        <label>Qué hicimos</label>
+        <textarea name="texto" rows="4" required maxlength="10000"></textarea>
+        <button class="btn chico" type="submit">Anotar</button>
+        <a class="tenue" href="{{ url_for('fichas_rapida', ref=f.ref) }}" style="margin-left:8px">Abrir en modo rápido ↗</a>
       </form>
+      <h5>Bitácora</h5>
+      {% for e in f.bitacora %}
+      <div class="bitacora-entrada">
+        <div class="bitacora-fecha">{{ e._fecha }}</div>
+        <div class="bitacora-texto">{{ e.texto }}</div>
+        <details>
+          <summary class="tenue">Editar ▾</summary>
+          <form method="post" action="{{ url_for('agenda_bitacora_editar', entrada_id=e.id) }}">
+            {{ ocultos(f.clave) }}
+            <input type="date" name="fecha" value="{{ e._iso }}" required aria-label="Fecha" style="max-width:200px">
+            <textarea name="texto" rows="4" required maxlength="10000" aria-label="Texto">{{ e.texto }}</textarea>
+            <button class="btn chico" type="submit">Guardar</button>
+          </form>
+          <form method="post" action="{{ url_for('agenda_bitacora_borrar', entrada_id=e.id) }}">
+            {{ ocultos(f.clave) }}
+            <button class="quitar" type="submit" onclick="return confirm('¿Borrar esta anotación?')">Borrar anotación</button>
+          </form>
+        </details>
+      </div>
+      {% else %}
+      <div class="tenue">Cada anotación queda con su fecha, de la más nueva a la más vieja.</div>
+      {% endfor %}
+
+      <details class="ficha-generales"{% if not f.bitacora and (f.motivo_consulta or f.objetivos or f.como_viene or f.notas) %} open{% endif %}>
+        <summary><h5 style="display:inline">{{ rubro.motivo }}, objetivos y notas generales ▾</h5></summary>
+        <form method="post" action="{{ url_for('agenda_paciente') }}">
+          {{ ocultos(f.clave) }}
+          <label>{{ rubro.motivo }}</label>
+          <textarea name="motivo_consulta" rows="2">{{ f.motivo_consulta or '' }}</textarea>
+          <label>Qué estamos trabajando</label>
+          <textarea name="objetivos" rows="2">{{ f.objetivos or '' }}</textarea>
+          <label>Cómo viene</label>
+          <textarea name="como_viene" rows="2">{{ f.como_viene or '' }}</textarea>
+          <label>Notas</label>
+          <textarea name="notas" rows="4">{{ f.notas or '' }}</textarea>
+          <button class="btn chico" type="submit">Guardar</button>
+        </form>
+      </details>
 
       {% if rubro.tests %}
       <h5>Tests para considerar</h5>
