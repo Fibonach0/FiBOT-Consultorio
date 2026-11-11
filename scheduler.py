@@ -203,6 +203,46 @@ def _resumen_noche(tenant: dict, tz: ZoneInfo) -> None:
         logger.error("No se pudo mandar el resumen de la noche del tenant %s", tenant["id"])
 
 
+MINUTOS_PARA_ANOTAR = 0   # «Falta anotar» apenas termina la sesión
+HORA_SIN_ANOTAR = 21
+
+
+def sin_anotar(sesiones_hoy: list[dict], anotadas: set[str], ahora: datetime) -> list[dict]:
+    """Sesiones de hoy que ya terminaron, a las que vino (o sin marcar), sin
+    nota de sesión ni anotación de bitácora de hoy; una por paciente."""
+    faltan, vistos = [], set()
+    for t in sorted(sesiones_hoy, key=lambda t: t["inicio"]):
+        clave = db.clave_de(t)
+        if (t.get("estado") != "reservado" or t.get("asistencia") == "no_vino" or (t.get("nota") or "").strip()
+                or clave in anotadas or clave in vistos
+                or datetime.fromisoformat(t["fin"]) + timedelta(minutes=MINUTOS_PARA_ANOTAR) > ahora):
+            continue
+        vistos.add(clave)
+        faltan.append(t)
+    return faltan
+
+
+def _aviso_sin_anotar(tenant: dict, tz: ZoneInfo, ahora: datetime | None = None) -> None:
+    """A las 21, si quedó alguna sesión de hoy sin anotar, sólo la cantidad
+    (nunca nombres ni lo anotado). Se marca antes de mandar: nunca dos."""
+    ahora = ahora or datetime.now(tz)
+    hoy = ahora.date().isoformat()
+    if (ahora.hour < HORA_SIN_ANOTAR or tenant.get("aviso_sin_anotar") is False
+            or tenant.get("ultimo_aviso_sin_anotar") == hoy or not tenant.get("aviso_telefono")):
+        return
+    db.marcar_aviso_sin_anotar(tenant["id"], hoy)
+    inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+    utc = ZoneInfo("UTC")
+    sesiones = db.agenda_semana(tenant["id"], inicio.astimezone(utc), (inicio + timedelta(days=1)).astimezone(utc))
+    anotadas = {db.clave_de(e) for e in db.bitacora_del_dia(tenant["id"], hoy)}
+    n = len(sin_anotar(sesiones, anotadas, ahora))
+    if not n:
+        return
+    texto = "hoy te quedó 1 sesión sin anotar" if n == 1 else f"hoy te quedaron {n} sesiones sin anotar"
+    if not avisar_profesional(tenant, texto):
+        logger.error("No se pudo mandar el aviso de sin anotar del tenant %s", tenant["id"])
+
+
 HORA_SERIES = 10
 _series_revisadas: dict[str, str] = {}  # tenant -> día: una vuelta por día (el aviso en sí se marca por paciente)
 
@@ -254,6 +294,10 @@ def _tick() -> None:
             _resumen_noche(tenant, tz)
         except Exception:
             logger.exception("Fallo el resumen de la noche de tenant %s", tenant["id"])
+        try:
+            _aviso_sin_anotar(tenant, tz)
+        except Exception:
+            logger.exception("Fallo el aviso de sin anotar de tenant %s", tenant["id"])
         try:
             _series_por_terminar(tenant, tz)
         except Exception:

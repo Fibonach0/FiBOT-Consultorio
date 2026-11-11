@@ -367,6 +367,7 @@
         <label class="casilla"><input type="checkbox" name="aviso_cada_pago" value="1" {{ 'checked' if tenant.aviso_cada_pago is not sameas false }}><span>Avisarme por WhatsApp cada pago que entra por Mercado Pago</span></label>
         <label class="casilla"><input type="checkbox" name="resumen_noche" value="1" {{ 'checked' if tenant.resumen_noche is not sameas false }}{% if not aviso_vinculado %} disabled{% endif %}><span>Mandarme a las 20 las sesiones de mañana, con nombres{% if not aviso_vinculado %} <span class="tenue">(primero vinculá tu WhatsApp)</span>{% endif %}</span></label>
         {% if not aviso_vinculado and tenant.resumen_noche is not sameas false %}<input type="hidden" name="resumen_noche" value="1">{% endif %}
+        <label class="casilla"><input type="checkbox" name="aviso_sin_anotar" value="1" {{ 'checked' if tenant.aviso_sin_anotar is not sameas false }}><span>Avisarme a las 21 si me quedaron sesiones de hoy sin anotar (sólo la cantidad)</span></label>
         <label class="casilla"><input type="checkbox" name="resumen_cobros_mail" value="1" {{ 'checked' if tenant.resumen_cobros_mail is not sameas false }}><span>Mandarme por mail el resumen de cobros web el día 1 de cada mes</span></label>
       </div>
       <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar</button></div>

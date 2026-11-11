@@ -5156,6 +5156,20 @@ chequear("sesión en curso: deuda de antes (sin contar la de ahora) y última no
 r = cb.post("/agenda/asistencia/bt1", data={"csrf_token": "tok", "asistencia": "vino", "rapida": ref_b})
 chequear("sesión en curso: Vino vuelve a la página rápida", r.status_code == 302 and r.headers["Location"].endswith(f"/agenda/fichas/{ref_b}")
          and _bt1["asistencia"] == "vino")
+_bt1.update(asistencia=None)
+pag = cb.get(f"/agenda/fichas/{ref_b}").data.decode()
+chequear("terminar sesión: los dos botones cuando falta el pago", "Terminar · pagó $ 30.000" in pag and "Terminar · no pagó" in pag)
+r = cb.post("/agenda/terminar/bt1", data={"csrf_token": "tok", "pago": "pagado", "rapida": ref_b})
+chequear("terminar sesión: marca vino y pagó y vuelve a la bitácora", r.status_code == 302
+         and r.headers["Location"].endswith(f"/agenda/fichas/{ref_b}#rapida-texto") and _bt1["asistencia"] == "vino" and _bt1["pago"] == "pagado")
+pag = cb.get(f"/agenda/fichas/{ref_b}").data.decode()
+chequear("terminar sesión: avisa y ya no ofrece terminar", "Sesión terminada" in pag and "Terminar" not in pag)
+_bt1.update(asistencia=None, pago="pendiente")
+cb.post("/agenda/terminar/bt1", data={"csrf_token": "tok", "pago": "", "rapida": ref_b})
+chequear("terminar sesión: «no pagó» sólo marca que vino", _bt1["asistencia"] == "vino" and _bt1["pago"] == "pendiente")
+chequear("terminar sesión: pago raro, 400", cb.post("/agenda/terminar/bt1", data={"csrf_token": "tok", "pago": "x"}).status_code == 400)
+cb.post("/agenda/terminar/bt-ajeno", data={"csrf_token": "tok", "rapida": ref_b})
+_bt1.update(asistencia=None)
 _bt1.update(inicio=(_ahora_u - timedelta(minutes=70)).isoformat(), fin=(_ahora_u - timedelta(minutes=25)).isoformat())
 for e in [e for e in TABLAS["paciente_bitacora"] if e.get("fecha") == _hoyb.date().isoformat()]:
     TABLAS["paciente_bitacora"].remove(e)
@@ -5163,6 +5177,30 @@ lista = cb.get("/agenda/fichas").data.decode()
 chequear("falta anotar: la sesión que terminó sin nada anotado", "Falta anotar" in lista and f"/agenda/fichas/{ref_b}" in lista.split("Falta anotar")[1][:600])
 html = _panel(cb)
 chequear("falta anotar: también arriba del panel", 'id="falta-anotar"' in html and html.index('id="falta-anotar"') < html.index('id="hoy"'))
+# Aviso de las 21: sólo la cantidad, una vez por día.
+_tb = {**db.get_tenant_by_id("t1"), "aviso_telefono": "5491100099999", "ultimo_aviso_sin_anotar": None}
+_zb = app.ZoneInfo(_tb.get("timezone") or "America/Argentina/Buenos_Aires")
+_hoy_l = datetime.now(_zb).replace(hour=0, minute=0, second=0, microsecond=0)
+_g2 = {k: _bt1.get(k) for k in ("inicio", "fin")}
+_bt1.update(inicio=(_hoy_l + timedelta(hours=19)).isoformat(), fin=(_hoy_l + timedelta(hours=19, minutes=45)).isoformat())
+_avisos, _ap = [], scheduler.avisar_profesional
+scheduler.avisar_profesional = lambda ten, texto, **kw: _avisos.append(texto) or True
+scheduler._aviso_sin_anotar(_tb, _zb, _hoy_l + timedelta(hours=20, minutes=50))
+chequear("aviso sin anotar: antes de las 21 no sale", _avisos == [])
+scheduler._aviso_sin_anotar(_tb, _zb, _hoy_l + timedelta(hours=21, minutes=10))
+chequear("aviso sin anotar: a las 21 sale con la cantidad y sin nombres", _avisos == ["hoy te quedó 1 sesión sin anotar"], _avisos)
+_tb["ultimo_aviso_sin_anotar"] = _hoy_l.date().isoformat()
+scheduler._aviso_sin_anotar(_tb, _zb, _hoy_l + timedelta(hours=21, minutes=20))
+chequear("aviso sin anotar: una sola vez por día", len(_avisos) == 1)
+_tb.update(ultimo_aviso_sin_anotar=None, aviso_sin_anotar=False)
+scheduler._aviso_sin_anotar(_tb, _zb, _hoy_l + timedelta(hours=21, minutes=20))
+chequear("aviso sin anotar: apagado desde ajustes, no sale", len(_avisos) == 1)
+_tb.update(aviso_sin_anotar=None)
+_bt1["nota"] = "anotada"
+scheduler._aviso_sin_anotar(_tb, _zb, _hoy_l + timedelta(hours=21, minutes=20))
+chequear("aviso sin anotar: todo anotado, no sale", len(_avisos) == 1)
+_bt1.update(nota=None, **_g2)
+scheduler.avisar_profesional = _ap
 cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": _hoyb.date().isoformat(), "texto": "Listo"})
 chequear("falta anotar: con la bitácora de hoy ya no sale", "Falta anotar" not in cb.get("/agenda/fichas").data.decode()
          and 'id="falta-anotar"' not in _panel(cb))

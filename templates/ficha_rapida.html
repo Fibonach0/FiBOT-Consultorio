@@ -15,6 +15,17 @@
   {% if r.actual %}
   <section class="en-sesion" aria-label="Sesión en curso">
     <div class="en-sesion-titulo"><span class="punto" aria-hidden="true"></span> En sesión · {{ r.actual._horario }}</div>
+    {% if r.actual.asistencia != 'vino' or r.actual.pago == 'pendiente' %}
+    <form method="post" action="{{ url_for('agenda_terminar', turno_id=r.actual.id) }}" class="terminar">
+      {{ oc }}
+      {% if r.actual.pago == 'pendiente' %}
+      <button class="btn" name="pago" value="pagado">Terminar · pagó{% if r.actual.valor %} {{ r.actual.valor|pesos }}{% endif %}</button>
+      <button class="btn secundario" name="pago" value="">Terminar · no pagó</button>
+      {% else %}
+      <button class="btn">Terminar sesión</button>
+      {% endif %}
+    </form>
+    {% endif %}
     <div class="en-sesion-botones">
       <form method="post" action="{{ url_for('agenda_asistencia', turno_id=r.actual.id) }}">
         {{ oc }}

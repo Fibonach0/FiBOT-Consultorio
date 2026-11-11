@@ -674,7 +674,14 @@ cumple y fechas de 14 días, y la última nota de sesión. «Falta anotar»
 (`app._falta_anotar`, `_falta_anotar.html`, arriba de la lista rápida y del
 panel): sesiones de hoy ya terminadas, a las que no faltó, sin nota ni
 bitácora de hoy; «Ahora no» la esconde sólo en ese navegador. En el panel sale
-de lo ya cargado (`_hoy` guarda `_turno`), sin consultas nuevas.
+de lo ya cargado (`_hoy` guarda `_turno`), sin consultas nuevas. El filtro es
+`scheduler.sin_anotar` (lo comparten el panel y el aviso). «Terminar sesión»
+(`/agenda/terminar/<id>`, en la tarjeta de sesión en curso mientras falte
+«vino» o el pago): marca vino y, con `pago=pagado`, que pagó; vuelve a la
+página rápida con `#rapida-texto`. Aviso de las 21
+(`scheduler._aviso_sin_anotar`, `migrations/082`: `tenants.aviso_sin_anotar`
+para apagarlo desde ajustes y `ultimo_aviso_sin_anotar` marcado ANTES de
+mandar): por `avisar_profesional`, SÓLO la cantidad, nunca nombres ni texto.
 
 ### Psicopedagogía (`rubros.py`, `migrations/021`)
 
