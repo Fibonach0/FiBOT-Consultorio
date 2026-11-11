@@ -9,6 +9,7 @@
 </header>
 <main class="rapida">
   {% for m in get_flashed_messages() %}<div class="aviso">{{ m }}</div>{% endfor %}
+  {% include "_falta_anotar.html" %}
   <input type="search" id="rapida-buscar" placeholder="Buscar paciente…" aria-label="Buscar paciente" autocomplete="off" autofocus>
   {% set de_hoy = pacientes|selectattr('hoy')|list %}
   {% if de_hoy %}

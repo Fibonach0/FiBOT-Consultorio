@@ -11,7 +11,37 @@
 </header>
 <main class="rapida">
   {% for m in get_flashed_messages() %}<div class="aviso">{{ m }}</div>{% endfor %}
-  {% if p.hoy or p.proxima %}<p class="tenue rapida-cuando">{% if p.hoy %}Hoy a las {{ p.hoy }}{% else %}Próxima: {{ p.proxima }}{% endif %}</p>{% endif %}
+  {% set r = resumen %}
+  {% if r.actual %}
+  <section class="en-sesion" aria-label="Sesión en curso">
+    <div class="en-sesion-titulo"><span class="punto" aria-hidden="true"></span> En sesión · {{ r.actual._horario }}</div>
+    <div class="en-sesion-botones">
+      <form method="post" action="{{ url_for('agenda_asistencia', turno_id=r.actual.id) }}">
+        {{ oc }}
+        <button class="btn chico {% if r.actual.asistencia != 'vino' %}secundario{% endif %}" name="asistencia" value="{{ '' if r.actual.asistencia == 'vino' else 'vino' }}" aria-pressed="{{ 'true' if r.actual.asistencia == 'vino' else 'false' }}">{{ 'Vino ✓' if r.actual.asistencia == 'vino' else 'Vino' }}</button>
+      </form>
+      {% if r.actual.pago in ('pendiente', 'pagado') %}
+      <form method="post" action="{{ url_for('agenda_pago', turno_id=r.actual.id) }}">
+        {{ oc }}
+        {% if r.actual.pago == 'pendiente' %}
+        <button class="btn chico secundario" name="pago" value="pagado">Pagó{% if r.actual.valor %} {{ r.actual.valor|pesos }}{% endif %}</button>
+        {% else %}
+        <button class="btn chico" name="pago" value="pendiente" aria-pressed="true">Pagó ✓</button>
+        {% endif %}
+      </form>
+      {% endif %}
+    </div>
+  </section>
+  {% elif p.hoy or p.proxima %}<p class="tenue rapida-cuando">{% if p.hoy %}Hoy a las {{ p.hoy }}{% else %}Próxima: {{ p.proxima }}{% endif %}</p>{% endif %}
+  {% if r.actual or r.sin_pagar or r.fechas or r.cumple or r.nota %}
+  <ul class="resumen-sesion">
+    {% if r.sin_pagar %}<li class="debe">Debe {{ r.debe|pesos if r.debe else '' }} ({{ r.sin_pagar }} sesi{{ 'ones' if r.sin_pagar > 1 else 'ón' }} sin pagar)</li>
+    {% elif r.actual %}<li>Al día con los pagos</li>{% endif %}
+    {% if r.cumple %}<li>🎂 Cumple {{ r.cumple }}</li>{% endif %}
+    {% for c in r.fechas %}<li{% if c.animo == 'mal' %} class="debe"{% endif %}>📅 {{ c.titulo }}, {{ c._falta }}</li>{% endfor %}
+    {% if r.nota %}<li><span class="tenue">Nota de la sesión del {{ r.nota.dia }}:</span> {{ r.nota.texto|truncate(200) }}</li>{% endif %}
+  </ul>
+  {% endif %}
   {% if para_hoy %}{{ tilde(para_hoy, oc) }}{% endif %}
   <form method="post" action="{{ url_for('agenda_bitacora') }}" class="rapida-form" enctype="multipart/form-data">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">

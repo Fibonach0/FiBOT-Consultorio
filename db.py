@@ -2,8 +2,11 @@
 y TODO recibe tenant_id explícito — no hay una sola función que pueda tocar
 datos de un tenant sin que se lo pidan a propósito. Esa disciplina es la que
 evita que un bug cruce datos de un profesional a otro."""
+import functools
 import hashlib
 import secrets
+import sys
+from concurrent.futures import ThreadPoolExecutor
 import unicodedata
 from datetime import datetime, timedelta, timezone
 
@@ -12,6 +15,54 @@ from supabase import create_client
 import config
 
 _client = create_client(config.SUPABASE_URL, config.SUPABASE_SERVICE_ROLE_KEY)
+
+
+# --- Precarga en paralelo (el panel) -------------------------------------
+# El panel hace ~35 consultas; en fila, a ~100 ms cada una contra Supabase,
+# son 4-5 s (la pantalla negra al abrir la app). `precargar` lanza juntas las
+# que sólo dependen de la cuenta y deja los resultados en `flask.g`; cada
+# función marcada con @_precargable toma SU resultado UNA vez, con los mismos
+# argumentos. Si una falló o no se precargó, consulta como siempre.
+_NADA = object()
+PRECARGA_HILOS = 12
+_hilos = ThreadPoolExecutor(max_workers=PRECARGA_HILOS, thread_name_prefix="precarga")
+
+
+def _precargable(fn):
+    @functools.wraps(fn)
+    def envuelta(*args, **kwargs):
+        if kwargs:
+            return fn(*args, **kwargs)
+        guardado = _tomar_precarga(fn.__name__, args)
+        return fn(*args) if guardado is _NADA else guardado
+    envuelta.sin_precarga = fn
+    return envuelta
+
+
+def _tomar_precarga(nombre: str, args: tuple):
+    from flask import g, has_request_context
+    if not has_request_context() or "_precarga" not in g:
+        return _NADA
+    try:
+        return g._precarga.pop((nombre, args), _NADA)
+    except TypeError:  # un argumento que no sirve de clave (una lista): nunca se precargó
+        return _NADA
+
+
+def precargar(pedidos: list[tuple]) -> None:
+    """pedidos = [(nombre de función de este módulo, (args...)), ...]."""
+    from flask import g
+    modulo = sys.modules[__name__]
+    futuros = {}
+    for nombre, args in pedidos:
+        fn = getattr(modulo, nombre)
+        futuros[(nombre, args)] = _hilos.submit(getattr(fn, "sin_precarga", fn), *args)
+    listos = g.setdefault("_precarga", {})
+    for clave, futuro in futuros.items():
+        try:
+            listos[clave] = futuro.result(timeout=20)
+        except Exception:
+            pass  # la función consulta sola cuando la llamen, y ahí se ve el error
 
 
 def get_tenant_by_phone_number_id(phone_number_id: str) -> dict | None:
@@ -631,6 +682,7 @@ def reprogramar_turno(tenant_id: str, turno_id: str, nuevo_inicio: datetime, dur
     return None
 
 
+@_precargable
 def pendientes_de_pago(tenant_id: str, hasta: datetime, limite: int = 50) -> list[dict]:
     """Sesiones reservadas que ya pasaron y siguen sin cobrar, de la más vieja
     a la más nueva. Incluye a los que no vinieron: si a ese no se le cobra,
@@ -754,6 +806,7 @@ def agenda_semana(tenant_id: str, desde: datetime, hasta: datetime) -> list[dict
     return res.data
 
 
+@_precargable
 def sesiones_reservadas(tenant_id: str) -> list[dict]:
     """Todas las sesiones reservadas de ESTE tenant, de la más vieja a la más
     nueva. Va de a páginas porque PostgREST corta en 1000 filas: sin esto, las
@@ -774,6 +827,7 @@ def sesiones_reservadas(tenant_id: str) -> list[dict]:
             return filas
 
 
+@_precargable
 def datos_de_pacientes(tenant_id: str) -> dict[str, dict]:
     res = _client.table("pacientes").select("*").eq("tenant_id", tenant_id).execute()
     return {clave_de(p): p for p in res.data}
@@ -818,6 +872,7 @@ def sesiones_sin_pagar_desde(tenant_id: str, desde: datetime) -> list[dict]:
     return res.data
 
 
+@_precargable
 def bloqueos_vigentes(tenant_id: str, ahora: datetime) -> list[dict]:
     res = (
         _client.table("bloqueos")
@@ -851,6 +906,7 @@ def cancelaciones_desde(tenant_id: str, desde: datetime) -> list[dict]:
     return res.data
 
 
+@_precargable
 def personas_de_pacientes(tenant_id: str) -> list[dict]:
     res = _client.table("paciente_personas").select("*").eq("tenant_id", tenant_id).order("nombre").execute()
     return res.data
@@ -875,6 +931,7 @@ def borrar_persona(tenant_id: str, persona_id: str) -> None:
     _client.table("paciente_personas").delete().eq("tenant_id", tenant_id).eq("id", persona_id).execute()
 
 
+@_precargable
 def fechas_de_pacientes(tenant_id: str) -> list[dict]:
     res = _client.table("paciente_fechas").select("*").eq("tenant_id", tenant_id).execute()
     return res.data
@@ -893,11 +950,13 @@ def guardar_plazos_tests(tenant_id: str, plazos: dict[str, int]) -> None:
     _client.table("tenants").update({"plazos_tests": plazos}).eq("id", tenant_id).execute()
 
 
+@_precargable
 def tests_tomados(tenant_id: str) -> list[dict]:
     res = _client.table("paciente_tests").select("*").eq("tenant_id", tenant_id).order("fecha", desc=True).execute()
     return res.data
 
 
+@_precargable
 def bitacora(tenant_id: str, clave: str | None = None) -> list[dict]:
     """Entradas de la bitácora, de la más nueva a la más vieja. Con `clave`,
     sólo las de esa ficha (la página rápida del celular no trae las demás)."""
@@ -942,6 +1001,7 @@ def entrada_bitacora(tenant_id: str, entrada_id: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+@_precargable
 def fotos_bitacora(tenant_id: str, entrada_ids: list[str] | None = None) -> list[dict]:
     """Sólo id y anotación (sin la imagen, que es pesada): para listar."""
     q = _client.table("bitacora_fotos").select("id,entrada_id,created_at").eq("tenant_id", tenant_id)
@@ -986,6 +1046,35 @@ def fichas_livianas(tenant_id: str) -> tuple[list[dict], list[dict]]:
     return filas, datos.data
 
 
+def resumen_de_ficha(tenant_id: str, clave: str) -> dict:
+    """Lo de UNA ficha para «Sesión en curso» en el celular: sus sesiones
+    reservadas, sus fechas y sus datos. Tres consultas chicas, juntas."""
+    telefono, ficha = partir_clave(clave)
+
+    def sesiones():
+        return (_client.table("turnos").select("id,inicio,fin,pago,valor,nota,asistencia")
+                .eq("tenant_id", tenant_id).eq("paciente_telefono", telefono).eq("ficha", ficha)
+                .eq("estado", "reservado").order("inicio").limit(500).execute().data)
+
+    def fechas():
+        return (_client.table("paciente_fechas").select("*").eq("tenant_id", tenant_id)
+                .eq("paciente_telefono", telefono).eq("ficha", ficha).execute().data)
+
+    def datos():
+        res = (_client.table("pacientes").select("*").eq("tenant_id", tenant_id)
+               .eq("paciente_telefono", telefono).eq("ficha", ficha).execute())
+        return res.data[0] if res.data else {}
+
+    f_s, f_f, f_d = _hilos.submit(sesiones), _hilos.submit(fechas), _hilos.submit(datos)
+    return {"sesiones": f_s.result(timeout=20), "fechas": f_f.result(timeout=20), "datos": f_d.result(timeout=20)}
+
+
+def bitacora_del_dia(tenant_id: str, fecha: str) -> list[dict]:
+    """Qué fichas tienen algo anotado ese día (para «Falta anotar»)."""
+    return (_client.table("paciente_bitacora").select("paciente_telefono,ficha")
+            .eq("tenant_id", tenant_id).eq("fecha", fecha).execute().data)
+
+
 def agregar_test(tenant_id: str, clave: str, test: str, fecha: str) -> None:
     telefono, ficha = partir_clave(clave)
     _client.table("paciente_tests").insert(
@@ -997,6 +1086,7 @@ def guardar_resultados_test(tenant_id: str, test_id: str, resultados: list[dict]
     _client.table("paciente_tests").update({"resultados": resultados}).eq("tenant_id", tenant_id).eq("id", test_id).execute()
 
 
+@_precargable
 def textos_lectura(tenant_id: str) -> list[dict]:
     res = _client.table("textos_lectura").select("*").eq("tenant_id", tenant_id).order("titulo").execute()
     return res.data
@@ -1010,6 +1100,7 @@ def borrar_texto_lectura(tenant_id: str, texto_id: str) -> None:
     _client.table("textos_lectura").delete().eq("tenant_id", tenant_id).eq("id", texto_id).execute()
 
 
+@_precargable
 def lecturas(tenant_id: str) -> list[dict]:
     # La fecha es siempre la del día en que se guarda: alcanza con created_at.
     res = _client.table("lecturas").select("*").eq("tenant_id", tenant_id).order("created_at", desc=True).execute()
@@ -1036,6 +1127,7 @@ def crear_cuestionario(tenant_id: str, clave: str, instrumento: str, token: str,
     ).execute()
 
 
+@_precargable
 def cuestionarios(tenant_id: str) -> list[dict]:
     res = _client.table("cuestionarios").select("*").eq("tenant_id", tenant_id).order("created_at", desc=True).execute()
     return res.data
@@ -1062,6 +1154,7 @@ def borrar_cuestionario(tenant_id: str, cuestionario_id: str) -> None:
     _client.table("cuestionarios").delete().eq("tenant_id", tenant_id).eq("id", cuestionario_id).execute()
 
 
+@_precargable
 def informes(tenant_id: str) -> list[dict]:
     res = _client.table("informes").select("*").eq("tenant_id", tenant_id).order("created_at", desc=True).execute()
     return res.data
@@ -1077,6 +1170,7 @@ def borrar_informe(tenant_id: str, informe_id: str) -> None:
     _client.table("informes").delete().eq("tenant_id", tenant_id).eq("id", informe_id).execute()
 
 
+@_precargable
 def plantillas_cuestionario(tenant_id: str) -> list[dict]:
     res = _client.table("plantillas_cuestionario").select("*").eq("tenant_id", tenant_id).order("created_at").execute()
     return res.data
@@ -1094,6 +1188,7 @@ def borrar_plantilla(tenant_id: str, plantilla_id: str) -> None:
     _client.table("plantillas_cuestionario").delete().eq("tenant_id", tenant_id).eq("id", plantilla_id).execute()
 
 
+@_precargable
 def plantillas_informe(tenant_id: str) -> list[dict]:
     res = _client.table("plantillas_informe").select("*").eq("tenant_id", tenant_id).order("created_at").execute()
     return res.data
@@ -1107,6 +1202,7 @@ def borrar_plantilla_informe(tenant_id: str, plantilla_id: str) -> None:
     _client.table("plantillas_informe").delete().eq("tenant_id", tenant_id).eq("id", plantilla_id).execute()
 
 
+@_precargable
 def biblioteca() -> list[dict]:
     """Sin filtro de tenant a propósito: es lo que cada profesional eligió compartir."""
     res = _client.table("biblioteca_cuestionarios").select("*").order("created_at", desc=True).execute()
@@ -1127,6 +1223,7 @@ def retirar_de_biblioteca(tenant_id: str, entrada_id: str) -> None:
     _client.table("biblioteca_cuestionarios").delete().eq("autor_tenant_id", tenant_id).eq("id", entrada_id).execute()
 
 
+@_precargable
 def entregas(tenant_id: str) -> list[dict]:
     """Sin el HTML: la lista de la ficha sólo necesita el estado."""
     res = (_client.table("entregas").select("id,tenant_id,paciente_telefono,ficha,token,vence,abierta_at,created_at,dni_hash,intentos")
@@ -1270,6 +1367,7 @@ def tocar_sesion(sesion_id: str, cuando: str) -> None:
     _client.table("sesiones").update({"ultima": cuando}).eq("id", sesion_id).execute()
 
 
+@_precargable
 def sesiones_de(tenant_id: str) -> list[dict]:
     res = _client.table("sesiones").select("*").eq("tenant_id", tenant_id).order("ultima", desc=True).execute()
     return res.data
@@ -1345,6 +1443,7 @@ def tenant_por_email(email: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+@_precargable
 def llaves_de(tenant_id: str) -> list[dict]:
     res = _client.table("llaves_acceso").select("*").eq("tenant_id", tenant_id).order("creada").execute()
     return res.data
@@ -1450,6 +1549,7 @@ def marcar_recordatorio_enviado(turno_id: str) -> None:
     _client.table("turnos").update({"recordatorio_enviado": True}).eq("id", turno_id).execute()
 
 
+@_precargable
 def lista_de_espera(tenant_id: str) -> list[dict]:
     res = _client.table("lista_espera").select("*").eq("tenant_id", tenant_id).order("created_at").execute()
     return res.data
@@ -1620,6 +1720,7 @@ def marcar_hueco(tenant_id: str, turno_id: str, valor: str | None) -> None:
         "id", turno_id).eq("estado", "libre").execute()
 
 
+@_precargable
 def huecos(tenant_id: str) -> list[dict]:
     """Horarios futuros retenidos o tomados por el profesional."""
     ahora = datetime.now(timezone.utc)
@@ -1751,6 +1852,7 @@ def pagos_esperando(tenant_id: str) -> list[dict]:
     return _client.table("pagos").select("*").eq("tenant_id", tenant_id).eq("estado", "esperando").execute().data
 
 
+@_precargable
 def pagos_para_revisar(tenant_id: str) -> list[dict]:
     """Comprobantes por validar, pagos que llegaron tarde y devoluciones que
     el profesional tiene que hacer a mano."""
@@ -1761,6 +1863,7 @@ def pagos_para_revisar(tenant_id: str) -> list[dict]:
     return res.data + [p for p in a_devolver.data if p["id"] not in vistos]
 
 
+@_precargable
 def version_panel(tenant_id: str) -> str:
     """Una firma corta de lo que puede cambiar solo (pagos que llegan,
     devoluciones, reservas nuevas), para que el panel abierto se entere sin
@@ -1841,6 +1944,7 @@ def mensajes_sin_leer(tenant_id: str) -> int:
     return len(res.data or [])
 
 
+@_precargable
 def mensajes_pacientes(tenant_id: str, limite: int = 30) -> list[dict]:
     """Los de ESTE tenant: primero los sin leer, después los más nuevos."""
     res = (_client.table("mensajes_pacientes").select("*").eq("tenant_id", tenant_id)

@@ -5124,6 +5124,57 @@ chequear("manifest: la app arranca en /agenda/abrir", cb.get("/manifest.webmanif
 html = _panel(cb)
 chequear("celular: los pacientes van primero en la agenda", 'id="pacientes-movil"' in html
          and html.index('id="pacientes-movil"') < html.index('id="hoy"') and "Mía Sol</span><span class=\"chip\">hoy" in html)
+# Precarga en paralelo: cada función toma SU resultado una vez y después consulta de nuevo.
+with app.app.test_request_context("/agenda"):
+    _antes = list(TABLAS["lista_espera"])
+    db.precargar([("lista_de_espera", ("t1",))])
+    TABLAS["lista_espera"].append({"id": "pre-1", "tenant_id": "t1", "nombre": "Nueva", "telefono": "5491100055555",
+                                   "created_at": "2026-11-10T10:00:00+00:00"})
+    _uno = db.lista_de_espera("t1")
+    _dos = db.lista_de_espera("t1")
+    chequear("precarga: la primera llamada usa lo precargado y la segunda consulta", not any(x["id"] == "pre-1" for x in _uno)
+             and any(x["id"] == "pre-1" for x in _dos))
+    db.precargar([("lista_de_espera", ("t2",))])
+    chequear("precarga: otros argumentos no se mezclan", not any(x["tenant_id"] == "t2" for x in db.lista_de_espera("t1")))
+    chequear("precarga: una lista como argumento no rompe", isinstance(db.fotos_bitacora("t1", ["x"]), list))
+    TABLAS["lista_espera"] = _antes
+chequear("precarga: fuera de un pedido consulta normal", isinstance(db.lista_de_espera("t1"), list))
+
+# Sesión en curso y «Falta anotar».
+_bt1 = next(t for t in TABLAS["turnos"] if t["id"] == "bt1")
+_guardo = {k: _bt1.get(k) for k in ("inicio", "fin", "nota", "asistencia", "pago", "valor")}
+_ahora_u = datetime.now(timezone.utc)
+_bt1.update(inicio=(_ahora_u - timedelta(minutes=10)).isoformat(), fin=(_ahora_u + timedelta(minutes=35)).isoformat(),
+            pago="pendiente", valor=30000, asistencia=None)
+TABLAS["turnos"].append(turno("bt-pasado", "t1", _ahora_u - timedelta(days=7), estado="reservado", paciente_nombre="Mía Sol",
+                              paciente_telefono=TELB, pago="pendiente", valor=25000, nota="Habló de la escuela nueva."))
+pag = cb.get(f"/agenda/fichas/{ref_b}").data.decode()
+chequear("sesión en curso: arriba, con su horario y Vino / Pagó", "En sesión ·" in pag and 'name="asistencia" value="vino"' in pag
+         and "Pagó $ 30.000" in pag)
+chequear("sesión en curso: deuda de antes (sin contar la de ahora) y última nota", "Debe $ 25.000 (1 sesión sin pagar)" in pag
+         and "Habló de la escuela nueva." in pag)
+r = cb.post("/agenda/asistencia/bt1", data={"csrf_token": "tok", "asistencia": "vino", "rapida": ref_b})
+chequear("sesión en curso: Vino vuelve a la página rápida", r.status_code == 302 and r.headers["Location"].endswith(f"/agenda/fichas/{ref_b}")
+         and _bt1["asistencia"] == "vino")
+_bt1.update(inicio=(_ahora_u - timedelta(minutes=70)).isoformat(), fin=(_ahora_u - timedelta(minutes=25)).isoformat())
+for e in [e for e in TABLAS["paciente_bitacora"] if e.get("fecha") == _hoyb.date().isoformat()]:
+    TABLAS["paciente_bitacora"].remove(e)
+lista = cb.get("/agenda/fichas").data.decode()
+chequear("falta anotar: la sesión que terminó sin nada anotado", "Falta anotar" in lista and f"/agenda/fichas/{ref_b}" in lista.split("Falta anotar")[1][:600])
+html = _panel(cb)
+chequear("falta anotar: también arriba del panel", 'id="falta-anotar"' in html and html.index('id="falta-anotar"') < html.index('id="hoy"'))
+cb.post("/agenda/bitacora", data={"csrf_token": "tok", "telefono": TELB, "fecha": _hoyb.date().isoformat(), "texto": "Listo"})
+chequear("falta anotar: con la bitácora de hoy ya no sale", "Falta anotar" not in cb.get("/agenda/fichas").data.decode()
+         and 'id="falta-anotar"' not in _panel(cb))
+TABLAS["paciente_bitacora"] = [e for e in TABLAS["paciente_bitacora"] if e["texto"] != "Listo"]
+_bt1["nota"] = "algo"
+chequear("falta anotar: con nota de sesión tampoco", "Falta anotar" not in cb.get("/agenda/fichas").data.decode())
+_bt1.update(nota=None, asistencia="no_vino")
+chequear("falta anotar: si no vino, no", "Falta anotar" not in cb.get("/agenda/fichas").data.decode())
+_bt1.update(asistencia=None, inicio=(_ahora_u + timedelta(minutes=60)).isoformat(), fin=(_ahora_u + timedelta(minutes=105)).isoformat())
+chequear("falta anotar: una sesión que no terminó, no", "Falta anotar" not in cb.get("/agenda/fichas").data.decode())
+_bt1.update(_guardo)
+TABLAS["turnos"] = [t for t in TABLAS["turnos"] if t["id"] != "bt-pasado"]
 chequear("manifest: atajo a las fichas", any(x["url"] == "/agenda/fichas" for x in cb.get("/manifest.webmanifest").get_json()["shortcuts"]))
 db.get_tenant_by_id = _gtid_b
 

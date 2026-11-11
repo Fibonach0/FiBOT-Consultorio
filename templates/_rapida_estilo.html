@@ -11,6 +11,16 @@
   .rapida-lista li.tenue { padding:14px; }
   #rapida-buscar { font-size:1.05rem; padding:12px; }
   .rapida-cuando { margin:0 0 4px; }
+  .en-sesion { background:var(--card); border:2px solid var(--green-solid); border-radius:10px; padding:10px 12px; margin:0 0 8px; }
+  .en-sesion-titulo { font-weight:700; display:flex; align-items:center; gap:8px; }
+  .en-sesion .punto { width:10px; height:10px; border-radius:50%; background:var(--green-solid); animation:latido 1.6s infinite; }
+  @keyframes latido { 50% { opacity:.35; } }
+  @media (prefers-reduced-motion: reduce) { .en-sesion .punto { animation:none; } }
+  .en-sesion-botones { display:flex; gap:8px; margin-top:8px; flex-wrap:wrap; }
+  .en-sesion-botones .btn { min-height:42px; padding-inline:16px; }
+  .resumen-sesion { list-style:none; margin:0 0 10px; padding:8px 12px; background:var(--card); border:1px solid var(--rule); border-radius:10px; font-size:.95rem; }
+  .resumen-sesion li { padding:3px 0; overflow-wrap:anywhere; }
+  .resumen-sesion .debe { color:var(--warn); font-weight:600; }
   .rapida-form textarea, .bitacora-editar textarea { width:100%; padding:10px; border:1px solid var(--rule); border-radius:8px; font:inherit; font-size:1rem;
     background:var(--card); color:var(--ink); resize:vertical; }
   .rapida-form input[type=date] { max-width:220px; font-size:1rem; }

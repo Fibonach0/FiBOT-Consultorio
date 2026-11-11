@@ -10,6 +10,7 @@
   {% with mensajes = get_flashed_messages() %}
     {% for m in mensajes %}<div class="aviso">{{ m }}</div>{% endfor %}
   {% endwith %}
+  {% include "_falta_anotar.html" %}
 
   {# En el celular lo primero son los pacientes: los de hoy con su hora y el resto por nombre.
      Tocar uno abre su ficha (el mismo popup). En la compu esta tarjeta no se ve. #}

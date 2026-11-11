@@ -2356,7 +2356,7 @@ def _hoy(tenant: dict, fichas: list[dict], tz: ZoneInfo, ahora: datetime) -> lis
             cerca = [c for c in ficha["fechas"] if c["_dias"] <= DIAS_FECHA_CERCA]
             filas.append({"hora": t["_hora"], "asistencia": t.get("asistencia"), "ficha": ficha, "fechas": cerca,
                           "id": t["id"], "pago": t.get("pago"), "valor": t.get("valor"), "nota": t.get("nota"),
-                          "para_hoy": _para_hoy(ficha.get("bitacora") or [], ahora.date())})
+                          "para_hoy": _para_hoy(ficha.get("bitacora") or [], ahora.date()), "_turno": t})
     return filas
 
 
@@ -2459,6 +2459,9 @@ def _volver_a_agenda():
     Desde la página de ajustes (campo `volver`), vuelve a esa pestaña."""
     if request.form.get("volver") == "ajustes":
         return _a_ajustes(request.form.get("pestania"))
+    rapida = request.form.get("rapida") or ""
+    if rapida.isalnum():  # desde la página rápida del celular (referencia opaca, nunca una URL)
+        return redirect(url_for("fichas_rapida", ref=rapida))
     if request.form.get("ancla") in ("hoy", "revision"):
         ancla = request.form["ancla"]
         return redirect(url_for("agenda", revision="1" if ancla == "revision" else None, _anchor=ancla))
@@ -2503,8 +2506,19 @@ def _espera_con_oferta(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict
     return espera
 
 
+# Lo que el panel pide sólo con el tenant_id: se trae todo junto (db.precargar).
+PRECARGA_PANEL = ("sesiones_reservadas", "datos_de_pacientes", "personas_de_pacientes", "fechas_de_pacientes", "bitacora",
+                  "fotos_bitacora", "cuestionarios", "entregas", "informes", "lecturas", "tests_tomados", "huecos", "llaves_de",
+                  "plantillas_cuestionario", "plantillas_informe", "sesiones_de", "textos_lectura", "mensajes_pacientes",
+                  "pagos_para_revisar", "lista_de_espera", "version_panel")
+
+
 def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
     """Lo que necesitan la agenda y la página de ajustes (los mismos bloques)."""
+    if request.method == "GET":
+        tid, utc = (tenant["id"],), ahora.astimezone(ZoneInfo("UTC"))
+        db.precargar([(n, tid) for n in PRECARGA_PANEL] + [("biblioteca", ()), ("pendientes_de_pago", (tenant["id"], utc)),
+                                                            ("bloqueos_vigentes", (tenant["id"], ahora))])
     pendientes = _con_hora_local(db.pendientes_de_pago(tenant["id"], ahora.astimezone(ZoneInfo("UTC"))), tz)
     fichas = _fichas(tenant, tz, ahora)
     bloqueos = _bloqueos(tenant, fichas, tz, ahora)
@@ -2514,6 +2528,7 @@ def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
         p["faltan"] = sum(not x.strip() for x in c["items"])
         p["form"] = cuestionarios.a_formulario(c)
         p["titulo"] = c["nombre"] + (f" · {c['version']}" if c.get("version") else "")
+    hoy = _hoy(tenant, fichas, tz, ahora)
     comunes = {
         "tenant": tenant,
         "pendientes": pendientes,
@@ -2578,7 +2593,10 @@ def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
         "bloqueos": bloqueos,
         "hoy_iso": ahora.date().isoformat(),
         "mes_actual": ahora.strftime("%Y-%m"),
-        "hoy": _hoy(tenant, fichas, tz, ahora),
+        "hoy": hoy,
+        "falta_anotar": _falta_anotar(tenant, tz, ahora, sesiones_hoy=[h["_turno"] for h in hoy],
+                                      anotadas={f["clave"] for f in fichas
+                                                if any(e["_iso"] == ahora.date().isoformat() for e in f.get("bitacora") or [])}),
         "fechas_semana": _fechas_semana(fichas),
         "cobros": _cobros(fichas, _mes_de(request.args.get("mes") or request.args.get("semana", "")[:7], ahora.date()), tz, ahora),
         "meses": MESES_LABEL,
@@ -3369,6 +3387,68 @@ def _sesion_en_curso(tenant: dict, ahora: datetime) -> dict | None:
     return max(en_curso, key=lambda t: t["inicio"]) if en_curso else None
 
 
+def _en_ventana(t: dict, ahora: datetime) -> bool:
+    return (datetime.fromisoformat(t["inicio"]) - timedelta(minutes=MINUTOS_ANTES_SESION) <= ahora
+            <= datetime.fromisoformat(t["fin"]) + timedelta(minutes=MINUTOS_DESPUES_SESION))
+
+
+def _resumen_sesion(tenant: dict, clave: str, tz: ZoneInfo, ahora: datetime) -> dict:
+    """«Sesión en curso» de la página rápida: la sesión de ahora (con Vino y
+    Pagó), lo que debe, fechas cercanas y la última nota de sesión."""
+    r = db.resumen_de_ficha(tenant["id"], clave)
+    sesiones = r["sesiones"]
+    actual = next((t for t in sesiones if _en_ventana(t, ahora)), None)
+    if actual:
+        ini, fin = (datetime.fromisoformat(actual[k]).astimezone(tz) for k in ("inicio", "fin"))
+        actual = {**actual, "_horario": f"{ini:%H:%M}–{fin:%H:%M}"}
+    pasadas = [t for t in sesiones if datetime.fromisoformat(t["inicio"]) < ahora]
+    deben = [t for t in pasadas if t.get("pago") == "pendiente" and (not actual or t["id"] != actual["id"])]
+    con_nota = [t for t in pasadas if (t.get("nota") or "").strip() and (not actual or t["id"] != actual["id"])]
+    nota = None
+    if con_nota:
+        d = datetime.fromisoformat(con_nota[-1]["inicio"]).astimezone(tz)
+        nota = {"texto": con_nota[-1]["nota"], "dia": f"{DIAS_SEMANA_CORTO[d.weekday()]} {d:%d/%m}"}
+    hoy = ahora.date()
+    fechas = [c for c in _con_cuenta_regresiva(r["fechas"], hoy) if c["_dias"] <= DIAS_FECHA_CERCA]
+    nac = (r["datos"] or {}).get("fecha_nacimiento")
+    cumple = None
+    if nac:
+        n = date.fromisoformat(nac)
+        if (proxima_vez(n.month, n.day, hoy) - hoy).days <= DIAS_FECHA_CERCA:
+            cumple = _cumpleanios(nac, hoy)
+    return {"actual": actual, "sin_pagar": len(deben), "debe": sum(t.get("valor") or 0 for t in deben),
+            "fechas": fechas, "cumple": cumple, "nota": nota}
+
+
+MINUTOS_PARA_ANOTAR = 0   # «Falta anotar» apenas termina la sesión
+
+
+def _falta_anotar(tenant: dict, tz: ZoneInfo, ahora: datetime, sesiones_hoy: list[dict] | None = None,
+                  anotadas: set[str] | None = None) -> list[dict]:
+    """Sesiones de hoy que ya terminaron, a las que vino (o sin marcar), sin
+    nota de sesión ni anotación de bitácora de hoy. Sin nombres de otro lado:
+    sólo lo de esta cuenta."""
+    inicio = ahora.replace(hour=0, minute=0, second=0, microsecond=0)
+    utc = ZoneInfo("UTC")
+    if sesiones_hoy is None:  # las dos consultas juntas
+        f_s = db._hilos.submit(db.agenda_semana, tenant["id"], inicio.astimezone(utc), (inicio + timedelta(days=1)).astimezone(utc))
+        f_b = db._hilos.submit(db.bitacora_del_dia, tenant["id"], ahora.date().isoformat())
+        sesiones_hoy = f_s.result(timeout=20)
+        anotadas = {db.clave_de(e) for e in f_b.result(timeout=20)}
+    faltan, vistos = [], set()
+    for t in sorted(sesiones_hoy, key=lambda t: t["inicio"]):
+        clave = db.clave_de(t)
+        if (t.get("estado") != "reservado" or t.get("asistencia") == "no_vino" or (t.get("nota") or "").strip()
+                or clave in anotadas or clave in vistos
+                or datetime.fromisoformat(t["fin"]) + timedelta(minutes=MINUTOS_PARA_ANOTAR) > ahora):
+            continue
+        vistos.add(clave)
+        faltan.append({"id": t["id"], "nombre": t.get("paciente_nombre") or "Sin nombre",
+                       "hora": datetime.fromisoformat(t["inicio"]).astimezone(tz).strftime("%H:%M"),
+                       "ref": buscador._ref(tenant["id"], clave)})
+    return faltan
+
+
 @app.get("/agenda/abrir")
 @login_required
 def abrir_app():
@@ -3393,8 +3473,10 @@ def fichas_rapidas():
     uno, su bitácora para escribir enseguida."""
     tenant = db.get_tenant_by_id(session["tenant_id"])
     tz = _tz_de(tenant)
-    pacientes = _fichas_livianas(tenant, tz, datetime.now(tz))
+    ahora = datetime.now(tz)
+    pacientes = _fichas_livianas(tenant, tz, ahora)
     return _sin_cache(app.make_response(render_template("fichas_rapidas.html", tenant=tenant, pacientes=pacientes,
+                                                        falta_anotar=_falta_anotar(tenant, tz, ahora),
                                                         rubro=rubros.de(tenant))))
 
 
@@ -3413,6 +3495,7 @@ def fichas_rapida(ref):
     entradas = [_entrada_bitacora(e, fotos) for e in filas]
     return _sin_cache(app.make_response(render_template("ficha_rapida.html", tenant=tenant, p=paciente, entradas=entradas,
                                                         para_hoy=_para_hoy(entradas, ahora.date()),
+                                                        resumen=_resumen_sesion(tenant, paciente["clave"], tz, ahora),
                                                         hoy=ahora.date().isoformat(), rubro=rubros.de(tenant))))
 
 

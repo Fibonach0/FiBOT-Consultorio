@@ -666,6 +666,15 @@ en `/agenda/bitacora/foto/<id>` con sesión y `no-store`. Las listas traen sólo
 id + entrada (`db.fotos_bitacora`), nunca la imagen. Las fotos no van en la
 ficha completa ni en la entrega. Informe: «Sumar la bitácora» (en el navegador,
 desde/hasta) agrega la sección «Evolución».
+«Sesión en curso» (página rápida, `app._resumen_sesion` + `db.resumen_de_ficha`:
+3 consultas chicas en paralelo): con una sesión en la ventana de `_en_ventana`
+muestra el horario con Vino / Pagó (las rutas de siempre con `rapida=<ref>`:
+`_volver_a_agenda` vuelve a la página rápida), deuda de ANTES (sin la de ahora),
+cumple y fechas de 14 días, y la última nota de sesión. «Falta anotar»
+(`app._falta_anotar`, `_falta_anotar.html`, arriba de la lista rápida y del
+panel): sesiones de hoy ya terminadas, a las que no faltó, sin nota ni
+bitácora de hoy; «Ahora no» la esconde sólo en ese navegador. En el panel sale
+de lo ya cargado (`_hoy` guarda `_turno`), sin consultas nuevas.
 
 ### Psicopedagogía (`rubros.py`, `migrations/021`)
 
@@ -1064,6 +1073,16 @@ pestañas, esas rutas sólo pisan lo que viene en el form (las casillas de
 perfil se declaran en `casillas`; sin ese campo, se toman las dos, como antes).
 Campos dependientes: `data-si="cobro_web!=no;cobro_modo=sena"` (valores con
 `|`); el consultorio por franja aparece apenas hay dos cargados (`data-sede`).
+
+## Precarga en paralelo (`db.precargar`)
+
+El panel (`_comunes_panel`, sólo en GET) lanza juntas, en `db._hilos`, las
+consultas que dependen sólo del tenant (`PRECARGA_PANEL` + biblioteca,
+`pendientes_de_pago` y `bloqueos_vigentes` con el mismo `ahora`). Las funciones
+con `@_precargable` toman su resultado UNA vez si coinciden nombre y argumentos;
+si no (o si falló), consultan como siempre. Medido con 100 ms por consulta: 3,4 s
+→ 1,6 s. Una función nueva que el panel llame sólo con `tenant_id` va en
+`PRECARGA_PANEL` y lleva `@_precargable`.
 
 ## Buscador, «Para resolver» y «Primeros pasos»
 
