@@ -2939,6 +2939,24 @@ def agenda_pago(turno_id):
     return _volver_a_agenda()
 
 
+@app.post("/agenda/terminar/<turno_id>")
+@login_required
+def agenda_terminar(turno_id):
+    """«Terminar sesión» de la página rápida: en un toque marca que vino y,
+    si se eligió, que pagó; vuelve a la ficha con el cursor en la bitácora."""
+    pago = request.form.get("pago") or None
+    if pago not in (None, "pagado", "pendiente"):
+        return "pago inválido", 400
+    db.marcar_asistencia(session["tenant_id"], turno_id, "vino")
+    if pago:
+        db.marcar_pago(session["tenant_id"], turno_id, pago)
+    rapida = request.form.get("rapida") or ""
+    if rapida.isalnum():
+        flash("Sesión terminada. Anotá cómo fue.")
+        return redirect(url_for("fichas_rapida", ref=rapida, _anchor="rapida-texto"))
+    return _volver_a_agenda()
+
+
 def _avisar_cambio(tenant: dict, turno: dict, nuevo_inicio: datetime, tz: ZoneInfo) -> bool:
     """Avisa al paciente el horario nuevo. Es aparte del recordatorio: si la
     sesión es en dos semanas, sin esto se enteraría recién la noche anterior."""
@@ -3134,6 +3152,7 @@ def agenda_avisos():
         campos["resumen_cobros_mail"] = request.form.get("resumen_cobros_mail") == "1"
         campos["aviso_cada_pago"] = request.form.get("aviso_cada_pago") == "1"
         campos["resumen_noche"] = request.form.get("resumen_noche") == "1"
+        campos["aviso_sin_anotar"] = request.form.get("aviso_sin_anotar") == "1"
     if "recibo_cuit" in request.form:
         cuit = "".join(ch for ch in request.form["recibo_cuit"] if ch.isdigit())
         if cuit and not cuit_valido(cuit):
@@ -3420,9 +3439,6 @@ def _resumen_sesion(tenant: dict, clave: str, tz: ZoneInfo, ahora: datetime) -> 
             "fechas": fechas, "cumple": cumple, "nota": nota}
 
 
-MINUTOS_PARA_ANOTAR = 0   # «Falta anotar» apenas termina la sesión
-
-
 def _falta_anotar(tenant: dict, tz: ZoneInfo, ahora: datetime, sesiones_hoy: list[dict] | None = None,
                   anotadas: set[str] | None = None) -> list[dict]:
     """Sesiones de hoy que ya terminaron, a las que vino (o sin marcar), sin
@@ -3435,17 +3451,11 @@ def _falta_anotar(tenant: dict, tz: ZoneInfo, ahora: datetime, sesiones_hoy: lis
         f_b = db._hilos.submit(db.bitacora_del_dia, tenant["id"], ahora.date().isoformat())
         sesiones_hoy = f_s.result(timeout=20)
         anotadas = {db.clave_de(e) for e in f_b.result(timeout=20)}
-    faltan, vistos = [], set()
-    for t in sorted(sesiones_hoy, key=lambda t: t["inicio"]):
-        clave = db.clave_de(t)
-        if (t.get("estado") != "reservado" or t.get("asistencia") == "no_vino" or (t.get("nota") or "").strip()
-                or clave in anotadas or clave in vistos
-                or datetime.fromisoformat(t["fin"]) + timedelta(minutes=MINUTOS_PARA_ANOTAR) > ahora):
-            continue
-        vistos.add(clave)
+    faltan = []
+    for t in scheduler.sin_anotar(sesiones_hoy, anotadas, ahora):
         faltan.append({"id": t["id"], "nombre": t.get("paciente_nombre") or "Sin nombre",
                        "hora": datetime.fromisoformat(t["inicio"]).astimezone(tz).strftime("%H:%M"),
-                       "ref": buscador._ref(tenant["id"], clave)})
+                       "ref": buscador._ref(tenant["id"], db.clave_de(t))})
     return faltan
 
 

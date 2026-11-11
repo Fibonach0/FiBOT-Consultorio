@@ -1793,6 +1793,10 @@ def marcar_resumen_noche(tenant_id: str, dia: str) -> None:
     _client.table("tenants").update({"ultimo_resumen_noche": dia}).eq("id", tenant_id).execute()
 
 
+def marcar_aviso_sin_anotar(tenant_id: str, dia: str) -> None:
+    _client.table("tenants").update({"ultimo_aviso_sin_anotar": dia}).eq("id", tenant_id).execute()
+
+
 def registrar_evento_pagina(tenant_id: str, tipo: str) -> None:
     _client.table("eventos_pagina").insert({"tenant_id": tenant_id, "tipo": tipo,
                                             "cuando": datetime.now(timezone.utc).isoformat()}).execute()
