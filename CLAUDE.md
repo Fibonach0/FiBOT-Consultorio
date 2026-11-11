@@ -682,6 +682,14 @@ página rápida con `#rapida-texto`. Aviso de las 21
 (`scheduler._aviso_sin_anotar`, `migrations/082`: `tenants.aviso_sin_anotar`
 para apagarlo desde ajustes y `ultimo_aviso_sin_anotar` marcado ANTES de
 mandar): por `avisar_profesional`, SÓLO la cantidad, nunca nombres ni texto.
+«Para preparar» (`/agenda/preparar?desde=`, `app._para_preparar`, 7 días):
+cada sesión con el «para la próxima» de la última anotación de ese paciente
+ANTERIOR a ese día (como `_para_hoy`); un pendiente va sólo a la PRIMERA sesión
+después de anotarlo. Aparte, pendientes sin tildar de pacientes activos sin
+próxima sesión. `db.bitacora_desde` trae sólo id/fecha/para_proxima/hecha
+(nunca el texto) de los últimos `DIAS_PENDIENTES`. El tilde manda
+`preparar=<desde>` y `_volver_de_bitacora` vuelve ahí. Accesos: «Preparar» en
+la lista rápida, botón en Hoy del panel, buscador y atajo del manifest.
 
 ### Psicopedagogía (`rubros.py`, `migrations/021`)
 

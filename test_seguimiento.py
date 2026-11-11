@@ -5214,6 +5214,53 @@ chequear("falta anotar: una sesión que no terminó, no", "Falta anotar" not in 
 _bt1.update(_guardo)
 TABLAS["turnos"] = [t for t in TABLAS["turnos"] if t["id"] != "bt-pasado"]
 chequear("manifest: atajo a las fichas", any(x["url"] == "/agenda/fichas" for x in cb.get("/manifest.webmanifest").get_json()["shortcuts"]))
+# «Para preparar»: el «para la próxima» en el día de la sesión que sigue.
+_zp = app.ZoneInfo(TZ)
+_hp = datetime.now(_zp).replace(hour=0, minute=0, second=0, microsecond=0)
+TELP, TELS = "5491177770000", "5491177771111"
+TABLAS["turnos"] += [turno("pp1", "t1", (_hp + timedelta(days=1, hours=10)).astimezone(timezone.utc), estado="reservado",
+                           paciente_nombre="Luz Prepara", paciente_telefono=TELP),
+                     turno("pp2", "t1", (_hp + timedelta(days=3, hours=10)).astimezone(timezone.utc), estado="reservado",
+                           paciente_nombre="Luz Prepara", paciente_telefono=TELP),
+                     turno("pp-ajeno", "t2", (_hp + timedelta(days=1, hours=11)).astimezone(timezone.utc), estado="reservado",
+                           paciente_nombre="Ajena Prepara", paciente_telefono="5491177772222")]
+_ayer = (_hp - timedelta(days=1)).date().isoformat()
+TABLAS["paciente_bitacora"] += [
+    {"id": "pp-e1", "tenant_id": "t1", "paciente_telefono": TELP, "ficha": "", "fecha": _ayer, "texto": "Sesión secreta",
+     "para_proxima": "Traer la lámina 3", "created_at": _ayer + "T12:00:00+00:00"},
+    {"id": "pp-e2", "tenant_id": "t1", "paciente_telefono": TELS, "ficha": "", "fecha": _ayer, "texto": "x",
+     "para_proxima": "Llamar a la escuela", "created_at": _ayer + "T12:00:00+00:00"},
+    {"id": "pp-e3", "tenant_id": "t2", "paciente_telefono": "5491177772222", "ficha": "", "fecha": _ayer, "texto": "x",
+     "para_proxima": "Cosa de otra cuenta", "created_at": _ayer + "T12:00:00+00:00"}]
+TABLAS["pacientes"].append({"tenant_id": "t1", "paciente_telefono": TELS, "ficha": "", "nombre": "Sol Sin Turno"})
+r = cb.get("/agenda/preparar")
+pag = r.data.decode()
+_man = pag[pag.index("Mañana"):]
+chequear("preparar: lo de «para la próxima» sale en la sesión que sigue", r.status_code == 200 and "Traer la lámina 3" in _man
+         and _man.index("Luz Prepara") < _man.index("Traer la lámina 3") and r.headers.get("Cache-Control") == "no-store")
+chequear("preparar: sólo en la primera sesión después de anotarlo", pag.count("Traer la lámina 3") == 1 and pag.count("Luz Prepara") == 2)
+chequear("preparar: nunca el texto de la sesión ni lo de otra cuenta", "Sesión secreta" not in pag and "Cosa de otra cuenta" not in pag
+         and "Ajena Prepara" not in pag and TELP not in pag)
+chequear("preparar: sin sesión agendada, aparte", "Sin próxima sesión agendada" in pag and "Llamar a la escuela" in pag.split("Sin próxima sesión agendada")[1])
+r = cb.post("/agenda/bitacora/pp-e1/hecho", data={"csrf_token": "tok", "hecho": "1", "preparar": _hp.date().isoformat()})
+chequear("preparar: el tilde vuelve al calendario", r.status_code == 302 and "/agenda/preparar?desde=" in r.headers["Location"]
+         and next(e for e in TABLAS["paciente_bitacora"] if e["id"] == "pp-e1").get("proxima_hecha_at"))
+pag = cb.get("/agenda/preparar").data.decode()
+chequear("preparar: tildado se sigue viendo, marcado", 'aria-checked="true"' in pag and "Traer la lámina 3" in pag)
+TABLAS["paciente_bitacora"].append({"id": "pp-e4", "tenant_id": "t1", "paciente_telefono": TELP, "ficha": "",
+                                    "fecha": (_hp + timedelta(days=1)).date().isoformat(), "texto": "y", "para_proxima": "Juego de cartas",
+                                    "created_at": "2099-01-01T00:00:00+00:00"})
+pag = cb.get("/agenda/preparar").data.decode()
+chequear("preparar: lo anotado en una sesión va a la siguiente", pag.count("Juego de cartas") == 1
+         and pag.index("Traer la lámina 3") < pag.index("Juego de cartas"))
+pag = cb.get(f"/agenda/preparar?desde={(_hp + timedelta(days=7)).date().isoformat()}").data.decode()
+chequear("preparar: la semana siguiente", "Traer la lámina 3" not in pag and "Hoy</a>" in pag)
+chequear("preparar: fecha rara, desde hoy", cb.get("/agenda/preparar?desde=xx").status_code == 200)
+chequear("preparar: accesos desde fichas y panel", 'href="/agenda/preparar"' in cb.get("/agenda/fichas").data.decode()
+         and 'href="/agenda/preparar"' in _panel(cb))
+TABLAS["turnos"] = [t for t in TABLAS["turnos"] if not t["id"].startswith("pp")]
+TABLAS["paciente_bitacora"] = [e for e in TABLAS["paciente_bitacora"] if not e["id"].startswith("pp-")]
+TABLAS["pacientes"] = [x for x in TABLAS["pacientes"] if x.get("paciente_telefono") != TELS]
 db.get_tenant_by_id = _gtid_b
 
 if fallos:

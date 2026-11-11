@@ -362,7 +362,7 @@
   </script>
   {% endif %}
   <div class="card" id="hoy">
-    <h3>Hoy{% if hoy %} <span class="contador">{{ hoy|length }}</span>{% endif %}</h3>
+    <h3>Hoy{% if hoy %} <span class="contador">{{ hoy|length }}</span>{% endif %} <a href="{{ url_for('preparar') }}" class="btn chico secundario" style="float:right">📋 Para preparar</a></h3>
     {% if not hoy %}<div class="tenue">Hoy no hay sesiones.</div>{% endif %}
     <div class="hoy-grilla">
       {% for h in hoy %}

@@ -89,6 +89,8 @@ CATALOGO = [
     # --- Acciones en la agenda
     ("Acciones", "Repaso de la semana", "Quién faltó, quién debe, series por terminar y la semana que viene",
      ("agenda", {"revision": "1"}, "revision"), "repaso revision resumen semana semanal viernes faltaron deben balance cierre"),
+    ("Acciones", "Para preparar", "Lo que anotaste «para la próxima», en el calendario de cada sesión",
+     ("preparar", {}, None), "preparar llevar para la proxima calendario materiales traer preparar sesiones"),
     ("Acciones", "Bloquear días (vacaciones)", "Nadie puede reservar esos días", ("agenda", {}, "bloqueos"),
      "bloquear dias vacaciones congreso licencia feriado libre"),
     ("Acciones", "Pausar mi página", "Dejar de tomar turnos un tiempo", ("agenda", {}, "bloqueos"), "pausar pausa vacaciones dejar de tomar turnos"),

@@ -1069,6 +1069,14 @@ def resumen_de_ficha(tenant_id: str, clave: str) -> dict:
     return {"sesiones": f_s.result(timeout=20), "fechas": f_f.result(timeout=20), "datos": f_d.result(timeout=20)}
 
 
+def bitacora_desde(tenant_id: str, fecha: str) -> list[dict]:
+    """Anotaciones desde esa fecha, sólo lo necesario para «Para preparar»
+    (sin el texto de la sesión)."""
+    return (_client.table("paciente_bitacora")
+            .select("id,paciente_telefono,ficha,fecha,para_proxima,proxima_hecha_at,created_at")
+            .eq("tenant_id", tenant_id).gte("fecha", fecha).execute().data)
+
+
 def bitacora_del_dia(tenant_id: str, fecha: str) -> list[dict]:
     """Qué fichas tienen algo anotado ese día (para «Falta anotar»)."""
     return (_client.table("paciente_bitacora").select("paciente_telefono,ficha")
