@@ -5,7 +5,7 @@
 <header class="rapida-barra">
   <a href="{{ url_for('agenda') }}">← Panel</a>
   <strong>Fichas</strong>
-  <span></span>
+  <a href="{{ url_for('preparar') }}" class="rapida-mas">Preparar</a>
 </header>
 <main class="rapida">
   {% for m in get_flashed_messages() %}<div class="aviso">{{ m }}</div>{% endfor %}

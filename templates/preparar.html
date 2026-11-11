@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block titulo %}Para preparar · {{ tenant.nombre }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block cuerpo %}
+{% from "_bitacora_macros.html" import tilde %}
+{% set oc %}<input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><input type="hidden" name="preparar" value="{{ desde.isoformat() }}">{% endset %}
+<header class="rapida-barra">
+  <a href="{{ url_for('fichas_rapidas') }}">← Fichas</a>
+  <strong>Para preparar</strong>
+  <a href="{{ url_for('agenda') }}" class="rapida-mas">Panel</a>
+</header>
+<main class="rapida preparar">
+  {% for m in get_flashed_messages() %}<div class="aviso">{{ m }}</div>{% endfor %}
+  <nav class="preparar-nav" aria-label="Semana">
+    <a class="btn chico secundario" href="{{ url_for('preparar', desde=anterior) }}" aria-label="Semana anterior">‹</a>
+    <span>{{ dias[0].fecha.day }}/{{ '%02d'|format(dias[0].fecha.month) }} al {{ dias[-1].fecha.day }}/{{ '%02d'|format(dias[-1].fecha.month) }}</span>
+    <a class="btn chico secundario" href="{{ url_for('preparar', desde=siguiente) }}" aria-label="Semana siguiente">›</a>
+    {% if desde != hoy %}<a class="btn chico secundario" href="{{ url_for('preparar') }}">Hoy</a>{% endif %}
+  </nav>
+  <p class="tenue preparar-pista">Lo que anotaste en «Para la próxima», en el día de la sesión que sigue. Tocalo cuando lo tengas listo.</p>
+  <div class="preparar-grilla">
+    {% for d in dias %}
+    <section class="preparar-dia{% if d.fecha == hoy %} es-hoy{% endif %}{% if not d.sesiones %} vacio{% endif %}" aria-label="{{ d.etiqueta }}">
+      <h3>{{ d.etiqueta }}{% if d.pendientes %} <span class="contador">{{ d.pendientes }}</span>{% endif %}</h3>
+      {% for x in d.sesiones %}
+      <div class="preparar-sesion{% if not x.item %} sin-item{% endif %}">
+        <div class="preparar-quien"><span class="preparar-hora">{{ x.hora }}</span> <a href="{{ url_for('fichas_rapida', ref=x.ref) }}">{{ x.nombre }}</a>{% if x.virtual %} <span class="tenue">· virtual</span>{% elif x.sede %} <span class="tenue">· {{ x.sede }}</span>{% endif %}</div>
+        {% if x.item %}{{ tilde(x.item, oc, 'Llevar / preparar') }}{% endif %}
+      </div>
+      {% else %}
+      <p class="tenue">Sin sesiones.</p>
+      {% endfor %}
+    </section>
+    {% endfor %}
+  </div>
+  {% if sin_sesion %}
+  <h3 class="rapida-titulo">Sin próxima sesión agendada</h3>
+  <div class="preparar-grilla">
+    {% for x in sin_sesion %}
+    <div class="preparar-sesion">
+      <div class="preparar-quien"><a href="{{ url_for('fichas_rapida', ref=x.ref) }}">{{ x.nombre }}</a> <span class="tenue">· anotado el {{ x.item._fecha }}</span></div>
+      {{ tilde(x.item, oc, 'Para la próxima') }}
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+</main>
+{% include "_rapida_estilo.html" %}
+<style>
+  main.rapida.preparar { max-width:1180px; }
+  .preparar-nav { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin:4px 0 6px; }
+  .preparar-nav span { font-weight:700; min-width:9em; text-align:center; }
+  .preparar-pista { margin:0 0 10px; font-size:.9rem; }
+  .preparar-grilla { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:10px; }
+  .preparar-dia { background:var(--card); border:1px solid var(--rule); border-radius:10px; padding:10px 12px; min-width:0; }
+  .preparar-dia.es-hoy { border:2px solid var(--green-solid); }
+  .preparar-dia.vacio { opacity:.7; }
+  .preparar-dia h3 { margin:0 0 8px; font-size:1.05rem; }
+  .preparar-sesion { padding:6px 0; border-top:1px solid var(--rule); min-width:0; }
+  .preparar-dia h3 + .preparar-sesion { border-top:0; padding-top:0; }
+  .preparar-grilla > .preparar-sesion { background:var(--card); border:1px solid var(--rule); border-radius:10px; padding:8px 12px; }
+  .preparar-quien { overflow-wrap:anywhere; margin-bottom:4px; }
+  .preparar-hora { font-weight:700; font-variant-numeric:tabular-nums; }
+  .preparar-sesion.sin-item .preparar-quien { margin-bottom:0; color:var(--muted, inherit); }
+  .preparar-sesion .tilde-form { margin:0; }
+</style>
+{% include "_bitacora_js.html" %}
+{% endblock %}

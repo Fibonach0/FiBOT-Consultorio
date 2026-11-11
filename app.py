@@ -3274,6 +3274,9 @@ def _volver_de_bitacora():
     ref = request.form.get("rapida") or ""
     if ref.isalnum():
         return redirect(url_for("fichas_rapida", ref=ref))
+    preparar_desde = request.form.get("preparar") or ""
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", preparar_desde):
+        return redirect(url_for("preparar", desde=preparar_desde))
     return _volver_a_agenda()
 
 
@@ -3385,6 +3388,76 @@ def _fichas_livianas(tenant: dict, tz: ZoneInfo, ahora: datetime) -> list[dict]:
         lista.append(f)
     lista.sort(key=lambda f: (f["hoy"] is None, f["hoy"] or "", f["estado"] != "activo", f["nombre"].casefold()))
     return lista
+
+
+DIAS_PREPARAR = 7
+DIAS_PENDIENTES = 60   # «para la próxima» más viejo que esto no se busca
+
+
+def _para_preparar(tenant: dict, tz: ZoneInfo, ahora: datetime, desde: date) -> dict:
+    """Lo que hay que preparar cada día: cada sesión con el «para la próxima»
+    de la última anotación de ese paciente ANTERIOR a ese día (igual que
+    `_para_hoy`). Un pendiente va sólo a la primera sesión que viene después
+    de anotarlo. Aparte, los pendientes de pacientes sin sesión agendada."""
+    utc = ZoneInfo("UTC")
+    ini = datetime.combine(desde, datetime.min.time(), tz)
+    f_s = db._hilos.submit(db.agenda_semana, tenant["id"], ini.astimezone(utc), (ini + timedelta(days=DIAS_PREPARAR)).astimezone(utc))
+    f_b = db._hilos.submit(db.bitacora_desde, tenant["id"], (min(desde, ahora.date()) - timedelta(days=DIAS_PENDIENTES)).isoformat())
+    fichas = {f["clave"]: f for f in _fichas_livianas(tenant, tz, ahora)}
+    sesiones = sorted((t for t in f_s.result(timeout=20) if t.get("estado") == "reservado"), key=lambda t: t["inicio"])
+    por_clave: dict[str, list[dict]] = {}
+    for e in sorted(f_b.result(timeout=20), key=lambda e: (str(e["fecha"])[:10], str(e.get("created_at") or ""))):
+        por_clave.setdefault(db.clave_de(e), []).append(_entrada_bitacora(e))
+    dias = [{"fecha": desde + timedelta(days=i), "sesiones": []} for i in range(DIAS_PREPARAR)]
+    usadas, con_sesion = set(), set()
+    for t in sesiones:
+        inicio = datetime.fromisoformat(t["inicio"]).astimezone(tz)
+        i = (inicio.date() - desde).days
+        if not 0 <= i < DIAS_PREPARAR:
+            continue
+        clave = db.clave_de(t)
+        con_sesion.add(clave)
+        previa = next((e for e in reversed(por_clave.get(clave, [])) if e["_iso"] < inicio.date().isoformat()), None)
+        item = previa if previa and (previa.get("para_proxima") or "").strip() and previa["id"] not in usadas else None
+        if item:
+            usadas.add(item["id"])
+        f = fichas.get(clave) or {}
+        dias[i]["sesiones"].append({"hora": inicio.strftime("%H:%M"), "nombre": f.get("nombre") or t.get("paciente_nombre") or "Sin nombre",
+                                    "ref": f.get("ref") or buscador._ref(tenant["id"], clave), "item": item,
+                                    "virtual": t.get("modalidad") == "virtual", "sede": t.get("sede")})
+    for d in dias:
+        d["etiqueta"] = ("Hoy" if d["fecha"] == ahora.date() else "Mañana" if d["fecha"] == ahora.date() + timedelta(days=1)
+                         else scheduler.DIAS[d["fecha"].weekday()].capitalize()) + f" {d['fecha'].day}/{d['fecha'].month:02d}"
+        d["pendientes"] = sum(1 for x in d["sesiones"] if x["item"] and not x["item"].get("proxima_hecha_at"))
+    sin_sesion = []
+    for clave, entradas in por_clave.items():
+        ultima = entradas[-1]
+        f = fichas.get(clave)
+        if (not f or clave in con_sesion or f.get("proxima") or f.get("estado") != "activo" or ultima["id"] in usadas
+                or not (ultima.get("para_proxima") or "").strip() or ultima.get("proxima_hecha_at")):
+            continue
+        sin_sesion.append({"nombre": f["nombre"], "ref": f["ref"], "item": ultima})
+    sin_sesion.sort(key=lambda x: x["nombre"].casefold())
+    return {"dias": dias, "sin_sesion": sin_sesion}
+
+
+@app.get("/agenda/preparar")
+@login_required
+def preparar():
+    """Calendario de «para la próxima»: qué preparar o llevar para cada
+    paciente, día por día, de un vistazo."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    tz = _tz_de(tenant)
+    ahora = datetime.now(tz)
+    try:
+        desde = date.fromisoformat(request.args.get("desde") or "")
+    except ValueError:
+        desde = ahora.date()
+    datos = _para_preparar(tenant, tz, ahora, desde)
+    return _sin_cache(app.make_response(render_template(
+        "preparar.html", tenant=tenant, desde=desde, hoy=ahora.date(), **datos,
+        anterior=(desde - timedelta(days=DIAS_PREPARAR)).isoformat(), siguiente=(desde + timedelta(days=DIAS_PREPARAR)).isoformat(),
+        rubro=rubros.de(tenant))))
 
 
 MINUTOS_ANTES_SESION = 15    # «durante una sesión» = desde 15 min antes
@@ -4799,7 +4872,8 @@ def manifest():
         "name": "FiBOT Consultorio", "short_name": "Consultorio", "lang": "es-AR",
         "description": "Tu agenda, tus pacientes y tus cobros.",
         "start_url": "/agenda/abrir", "scope": "/", "display": "standalone",
-        "shortcuts": [{"name": "Anotar en una ficha", "short_name": "Fichas", "url": "/agenda/fichas"}],
+        "shortcuts": [{"name": "Anotar en una ficha", "short_name": "Fichas", "url": "/agenda/fichas"},
+                      {"name": "Para preparar", "short_name": "Preparar", "url": "/agenda/preparar"}],
         "background_color": "#faf6ef", "theme_color": "#2f5233",
         "icons": [
             {"src": url_for("static", filename="icono-192.png"), "sizes": "192x192", "type": "image/png"},
