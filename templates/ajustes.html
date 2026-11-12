@@ -155,6 +155,15 @@
          href="https://wa.me/?text={{ ('Sacá tu turno conmigo acá: ' ~ mi_pagina)|urlencode }}">Compartir por WhatsApp</a>
       <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ mi_pagina }}">Ver</a>
     </div>
+    <form method="post" action="{{ url_for('agenda_link') }}" class="link-corto" style="margin:10px 0 12px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="link-corto">Tu link <span class="tenue">(cortito y fácil de dictar; el anterior sigue funcionando)</span></label>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center">
+        <span class="tenue">{{ request.host }}/</span>
+        <input type="text" id="link-corto" name="slug" value="{{ tenant.slug }}" maxlength="40" pattern="[a-z0-9][a-z0-9\-]{1,38}[a-z0-9]" autocapitalize="none" autocomplete="off" spellcheck="false" style="flex:1;min-width:140px;max-width:260px">
+        <button class="btn chico secundario" type="submit">Cambiar link</button>
+      </div>
+    </form>
     {% if estadisticas is not none %}
     <p style="margin-top:0"><strong>Este mes:</strong> {{ estadisticas.get('visita', 0) }} visita{{ '' if estadisticas.get('visita', 0) == 1 else 's' }}
       · {{ estadisticas.get('reserva', 0) }} reserva{{ '' if estadisticas.get('reserva', 0) == 1 else 's' }}
@@ -217,6 +226,18 @@
         <div class="ancho"><label>Temas que trabajás (separados por coma, hasta {{ 8 }})</label><input type="text" name="enfoques" maxlength="400" placeholder="Ansiedad, Duelo, Adolescentes, Vínculos" value="{{ (tenant.enfoques or [])|join(', ') }}"></div>
         <div class="ancho"><label>Formación (un renglón por título o curso, hasta 6)</label><textarea name="formacion" rows="3" maxlength="800" placeholder="Lic. en Psicología — UBA&#10;Posgrado en Terapia Cognitiva — Fundación Aiglé">{{ (tenant.formacion or [])|join('\n') }}</textarea></div>
         <div class="ancho"><label>Un poco más de mí <span class="tenue">(lo que te humaniza: qué te gusta, tus mascotas, qué estás leyendo)</span></label><textarea name="mas_de_mi" rows="2" maxlength="400" placeholder="Fuera del consultorio me vas a encontrar en bici o con mis dos gatos.">{{ tenant.mas_de_mi or '' }}</textarea></div>
+        <div class="ancho"><label>Preguntas frecuentes <span class="tenue">(lo que siempre te preguntan antes de la primera sesión; salen en tu página y ayudan a que Google te encuentre)</span></label>
+          {% set pf = tenant.preguntas or [] %}
+          {% set ejemplos = [('¿Cuánto dura la primera entrevista?', 'Una hora. Charlamos sobre lo que te trae y vemos cómo seguir.'), ('¿Atendés por obra social?', 'Atiendo particular y doy factura para pedir el reintegro.'), ('¿Trabajás con la escuela?', 'Sí, si hace falta me comunico con el equipo de orientación.')] %}
+          {% for i in range([pf|length + 1, 8]|min) %}
+          {% set q = pf[i] if i < pf|length else {} %}
+          <div class="pregunta-par"{% if i >= pf|length + 1 %} hidden{% endif %}>
+            <input type="text" name="pregunta_{{ i }}" maxlength="140" placeholder="{{ ejemplos[i % 3][0] }}" value="{{ q.p or '' }}" aria-label="Pregunta {{ i + 1 }}">
+            <textarea name="respuesta_{{ i }}" rows="2" maxlength="600" placeholder="{{ ejemplos[i % 3][1] }}" aria-label="Respuesta {{ i + 1 }}">{{ q.r or '' }}</textarea>
+          </div>
+          {% endfor %}
+          {% if pf|length + 1 < 8 %}<span class="tenue" style="font-size:.8rem">Guardá y aparece lugar para otra (hasta 8).</span>{% endif %}
+        </div>
         <div class="ancho"><label>Obras sociales y prepagas</label><input type="text" name="obras_sociales" maxlength="200" placeholder="Particular. Doy factura para reintegro de OSDE y Swiss Medical." value="{{ tenant.obras_sociales or '' }}"></div>
         <div class="ancho"><label>Color de tu página</label>
           <div class="colores">
@@ -230,6 +251,7 @@
       </form>
     </section>
 
+  <style>.pregunta-par { display:grid; gap:4px; margin-bottom:10px; } .pregunta-par input { font-weight:600; }</style>
   <section class="card" id="reservas">
     <h3>Reservas desde tu página</h3>
     <form method="post" action="{{ url_for('agenda_perfil') }}" class="fila" data-ajuste>
@@ -242,7 +264,7 @@
         <option value="ambas"{% if m == 'ambas' %} selected{% endif %}>Las dos (elige el paciente)</option>
       </select></div>
       <div class="ancho"><label class="casilla"><input type="checkbox" name="en_directorio" value="1"{% if tenant.en_directorio is not sameas false %} checked{% endif %}>
-        <span>Aparecer en la lista de profesionales <span class="tenue">(sin tildar, sólo entra quien tiene tu link)</span></span></label></div>
+        <span>Que Google pueda mostrar tu página cuando te buscan <span class="tenue">(sin tildar, sólo entra quien tiene tu link)</span></span></label></div>
       <div class="al-pie solo-sin-js"><button class="btn chico" type="submit">Guardar</button></div>
     </form>
     <form method="post" action="{{ url_for('agenda_avisos') }}" class="fila" data-ajuste data-si="modalidades_publicas!=presencial">

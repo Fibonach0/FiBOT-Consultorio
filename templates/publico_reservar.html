@@ -13,7 +13,7 @@
       <input type="hidden" name="g" value="{{ token_guardado }}">
       <button class="btn secundario" type="submit">No me sirve, quiero otro horario</button>
     </form>{% endif %}
-    {% if turno.sede %}{% set sd = (tenant.sedes or [])|selectattr('nombre', 'equalto', turno.sede)|first %}<p>En <strong>{{ turno.sede }}</strong>{% if sd and sd.direccion %} — {{ sd.direccion }}{% endif %}</p>{% endif %}
+    {% if turno.sede %}{% set sd = (tenant.sedes or [])|selectattr('nombre', 'equalto', turno.sede)|first %}<p>En <strong>{{ turno.sede }}</strong>{% if sd and sd.direccion %} — {{ sd.direccion }} · <a href="https://www.google.com/maps/search/?api=1&amp;query={{ sd.direccion|urlencode }}" target="_blank" rel="noopener">Cómo llegar</a>{% endif %}</p>{% endif %}
     {% with mensajes = get_flashed_messages() %}{% if mensajes %}<div class="error">{{ mensajes[0] }}</div>{% endif %}{% endwith %}
 
     <form method="post" action="{{ url_for('publico_reservar', slug=tenant.slug, turno_id=turno.id) }}">

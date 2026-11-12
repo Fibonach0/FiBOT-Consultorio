@@ -1,4 +1,4 @@
-"""Smoke test de la portada (/), el directorio con filtros (/turnos), /sumate,
+"""Smoke test de la portada (/), /turnos (redirige), /sumate,
 robots, sitemap y datos estructurados. Correrlo suelto (`python test_inicio.py`),
 mismo motivo que los otros test_*.py: monkeypatchea `db` sin restaurarlo."""
 import json
@@ -40,83 +40,24 @@ TENANTS = [
 db.tenants_activos = lambda: TENANTS
 db.turnos_libres = lambda *a, **k: []
 
-# ---- portada
+# ---- portada: genérica, sin profesionales (cada uno tiene su sitio en /<slug>)
 html = client.get("/").data.decode()
-assert "Encontrá a tu profesional" in html and "Para mi hijo/a" in html
-assert "Lic. Ana Pérez" in html and "/anaperez" in html and "Psicóloga clínica" in html
-assert "Lic. Oculto" not in html and "Sin Página" not in html
-assert html.index("Lic. Ana Pérez") < html.index("Lic. Beto Pausa")
-assert "vuelve a atender pronto" in html and ">lista de espera<" not in html   # Beto está pausado
-assert "/turnos?tema=ansiedad" in html and 'name="obra"' in html
-assert 'href="/sumate"' in html
+assert "Sacá turno con tu profesional" in html and "Para mi hijo/a" in html
+for _t in TENANTS:
+    assert _t["nombre"] not in html, _t["nombre"]
+assert "/anaperez" not in html and "/beto" not in html and 'href="/turnos' not in html and 'name="obra"' not in html
+assert 'href="/sumate"' in html and "No hay un listado de profesionales" not in html and "Acá no hay un listado" in html
+assert "google-site-verification" not in html
 ld = json.loads(re.search(r'<script type="application/ld\+json">(.*?)</script>', html, re.S).group(1))
 assert ld["@type"] == "WebSite"
-# Para mi hijo/a: sólo Beto (psicopedagogía) está en esa vista; Ana sólo en «Para mí».
-assert re.search(r'href="/anaperez" data-para-en="yo"', html)
-assert re.search(r'href="/beto" data-para-en="yo hijo"', html)
-assert "/turnos?tema=aprendizaje" in html and "Trabajan ansiedad:" in html
-assert 'src="/static/portada/ansiedad.webp"' in html
-print("GET / -> portada con buscador, temas que filtran, profesionales y JSON-LD OK")
+app.config.GOOGLE_SITE_VERIFICATION = "abc123"
+assert '<meta name="google-site-verification" content="abc123">' in client.get("/").data.decode()
+app.config.GOOGLE_SITE_VERIFICATION = ""
+print("GET / -> portada genérica: ningún profesional ni link a la lista, JSON-LD y verificación de Google OK")
 
-# ---- filtros
-assert directorio.normalizar("Pánico  Ñandú") == "panico nandu"
-assert directorio.trabaja_tema(ANA, "ansiedad")           # «pánico» con tilde
-assert directorio.trabaja_tema(ANA, "vinculos")           # «pareja»
-assert not directorio.trabaja_tema(ANA, "infancia")
-assert directorio.trabaja_tema(TENANTS[3], "infancia")    # por el rubro psicopedagogía
-nombres = lambda **q: [t["nombre"] for t in directorio.filtrar(directorio.visibles(TENANTS), **q)]
-assert nombres(modalidad="presencial") == ["Lic. Ana Pérez"]
-assert nombres(modalidad="virtual") == ["Lic. Ana Pérez", "Lic. Beto Pausa"]
-assert nombres(obra="osde") == ["Lic. Ana Pérez"] and nombres(obra="ioma") == []
-assert nombres(tema="desconocido") == ["Lic. Ana Pérez", "Lic. Beto Pausa"]
-
-html = client.get("/turnos?tema=infancia").data.decode()
-assert "Lic. Beto Pausa" in html and "Lic. Ana Pérez" not in html and "Infancia y adolescencia" in html
-html = client.get("/turnos?obra=ioma").data.decode()
-assert "No encontramos profesionales" in html and "noindex" in html
-html = client.get("/turnos?tema=<script>").data.decode()
-assert "Elegí con quién hablar." in html and "Lic. Ana Pérez" in html
-print("/turnos filtra por tema (sin tildes, también por rubro), modalidad y obra social OK")
-
-# ---- /turnos con el diseño nuevo: especialidad, próximos libres, esta semana y orden
-from datetime import datetime as _dt, timedelta as _td
-from zoneinfo import ZoneInfo as _Z
-_ahora = _dt.now(_Z("UTC"))
-LIBRES = {"t1": [{"id": "a1", "inicio": (_ahora + _td(days=10)).isoformat()}],
-          "t4": []}
-db.turnos_libres = lambda tid, desde, limite=8: LIBRES.get(tid, [])[:limite]
-app._proximos_cache.clear()
-html = client.get("/turnos").data.decode()
-assert "/anaperez/reservar/a1" in html and "Próximos libres" in html          # el horario lleva directo a reservar
-assert "Vuelve a atender pronto" in html and "Por ahora no toma turnos nuevos" in html  # Beto está pausado
-assert html.index("Lic. Ana Pérez") < html.index("Lic. Beto Pausa")           # con turno, primero
-html = client.get("/turnos?especialidad=psicopedagogia").data.decode()
-assert "Lic. Beto Pausa" in html and "Lic. Ana Pérez" not in html and "Lectoescritura" in html
-assert "Psicología <span>1</span>" in html and "Psicopedagogía <span>1</span>" in html
-html = client.get("/turnos?semana=1").data.decode()                           # Ana tiene el primero a 10 días
-assert "No encontramos profesionales" in html and "noindex" in html
-LIBRES["t1"] = [{"id": "a2", "inicio": (_ahora + _td(days=2)).isoformat()}]
-app._proximos_cache.clear()
-html = client.get("/turnos?semana=1").data.decode()
-assert "Lic. Ana Pérez" in html and "Lic. Beto Pausa" not in html
-html = client.get("/turnos?orden=nombre&tema=ansiedad").data.decode()
-assert 'href="/turnos?tema=ansiedad"' in html                                 # «Próximo turno» saca el orden, deja el tema
-assert 'href="/turnos?tema=ansiedad&amp;orden=nombre" aria-current="true"' in html
-# con varios tipos de turno, el horario lleva a la semana (primero se elige el tipo)
-ANA["tipos_turno"] = [{"nombre": "Sesión", "minutos": 45}, {"nombre": "Entrevista", "minutos": 90}]
-app._proximos_cache.clear()
-html = client.get("/turnos").data.decode()
-assert "/anaperez/reservar/a2" not in html and "/anaperez?semana=" in html
-ANA.pop("tipos_turno")
-app._proximos_cache.clear()
-# las demos van después de los profesionales reales, aunque estos estén pausados
-TENANTS.append({"id": "t9", "nombre": "Lic. Aaa Demo", "slug": "demo", "activo": True, "foto": "x"})
-html = client.get("/").data.decode()
-assert html.index("Lic. Beto Pausa") < html.index("Lic. Aaa Demo")
-html = client.get("/turnos").data.decode()
-assert html.index("Lic. Beto Pausa") < html.index("Lic. Aaa Demo")
-TENANTS.pop()
-print("/turnos: especialidad, próximos libres con link, esta semana y orden OK")
+r = client.get("/turnos?tema=ansiedad")
+assert r.status_code == 301 and r.headers["Location"].endswith("/")
+print("/turnos (la lista vieja) redirige a la portada OK")
 
 # ---- sumate
 guardados, avisos = [], []
@@ -126,7 +67,11 @@ db.intentos_login = lambda claves: []
 db.guardar_intento_login = lambda clave, datos: None
 whatsapp.avisar_admin = lambda texto: avisos.append(texto) or True
 
-assert client.get("/sumate").status_code == 200
+html = client.get("/sumate").data.decode()
+assert "/anaperez" not in html                     # el ejemplo es sólo una cuenta de muestra
+TENANTS.append({"id": "t9", "nombre": "Lic. Muestra", "slug": "demo", "activo": True, "foto": "x"})
+assert 'href="/demo"' in client.get("/sumate").data.decode()
+TENANTS.pop()
 r = client.post("/sumate", data={"nombre": "", "whatsapp": "1123456789"})
 assert r.status_code == 400 and not guardados
 r = client.post("/sumate", data={"nombre": "Laura Gómez", "profesion": "Psicología"})
@@ -161,8 +106,8 @@ txt = client.get("/robots.txt").data.decode()
 assert "Disallow: /agenda" in txt and "Disallow: /admin" in txt and "Sitemap: http://localhost/sitemap.xml" in txt
 xml = client.get("/sitemap.xml").data.decode()
 assert "<loc>http://localhost/anaperez</loc>" in xml and "<loc>http://localhost/beto</loc>" in xml
-assert "oculto" not in xml and "<loc>http://localhost/sumate</loc>" in xml
-print("robots.txt y sitemap.xml con los profesionales del directorio OK")
+assert "oculto" not in xml and "<loc>http://localhost/sumate</loc>" in xml and "/turnos" not in xml
+print("robots.txt y sitemap.xml con la página de cada profesional (menos los que la ocultaron) OK")
 
 # ---- datos estructurados del profesional
 with app.app.test_request_context():
@@ -175,10 +120,8 @@ print("datos estructurados de la página del profesional OK")
 import logging  # noqa: E402
 logging.getLogger("app").disabled = True
 db.tenants_activos = lambda: (_ for _ in ()).throw(RuntimeError("base caída"))
-r = client.get("/")
-assert r.status_code == 200 and 'id="profesionales"' not in r.data.decode()
-assert client.get("/turnos").status_code == 200 and client.get("/sitemap.xml").status_code == 200
-print("con la base caída portada, directorio y sitemap salen igual OK")
+assert client.get("/").status_code == 200 and client.get("/sitemap.xml").status_code == 200
+print("con la base caída portada y sitemap salen igual OK")
 
 assert client.get("/health").data == b"FiBOT Consultorio activo."
 print("/health sigue igual OK")

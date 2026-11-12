@@ -1,6 +1,6 @@
 {#- Barra y pie del sitio para pacientes. Uso:
     {% import "_sitio_macros.html" as sitio %} … {{ sitio.barra('turnos') }} -#}
-{#- volver = (url, texto): sólo un link «← texto». activo = 'turnos' | 'sumate' | 'nada' -#}
+{#- volver = (url, texto): sólo un link «← texto». activo = 'sumate' | 'nada' -#}
 {% macro barra(activo='', volver=none) -%}
 <header class="s-barra">
   <a class="s-marca" href="{{ url_for('inicio') }}"><span class="logo" aria-hidden="true">Fi</span><span>Fi<b>BOT</b> <span class="sub">Consultorio</span></span></a>
@@ -8,14 +8,12 @@
   <nav class="s-nav" aria-label="Volver"><a href="{{ volver[0] }}">← {{ volver[1] }}</a></nav>
   {% elif activo == 'sumate' %}
   <nav class="s-nav" aria-label="Principal">
-    <a class="opcional" href="{{ url_for('turnos_directorio') }}">Busco profesional</a>
     <a class="ingresar" href="{{ url_for('login') }}">Ingresar</a>
   </nav>
   {% elif activo == 'nada' %}
   {% else %}
   <nav class="s-nav" aria-label="Principal">
     <a class="opcional" href="{{ url_for('inicio') }}#como">Cómo funciona</a>
-    <a class="opcional{% if activo == 'turnos' %} activo{% endif %}" href="{{ url_for('turnos_directorio') }}"{% if activo == 'turnos' %} aria-current="page"{% endif %}>Profesionales</a>
     <a class="opcional" href="{{ url_for('sumate') }}">Soy profesional</a>
     <a class="ingresar" href="{{ url_for('login') }}">Ingresar</a>
   </nav>

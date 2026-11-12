@@ -7,7 +7,7 @@
   <p>Tu turno con <strong>{{ tenant.nombre }}</strong> quedó reservado.</p>
   <div class="rv-burbuja">
     <b>{{ turno._dia }} · {{ turno._hora }}</b>{% if turno.tipo %} · {{ turno.tipo }}{% endif %}<br>
-    {% if turno.modalidad == 'virtual' %}Por videollamada: el link te llega con la confirmación.{% elif turno.sede %}{% set sd = (tenant.sedes or [])|selectattr('nombre', 'equalto', turno.sede)|first %}En {{ turno.sede }}{% if sd and sd.direccion %} — {{ sd.direccion }}{% endif %}.{% else %}En el consultorio.{% endif %}
+    {% if turno.modalidad == 'virtual' %}Por videollamada: el link te llega con la confirmación.{% elif turno.sede %}{% set sd = (tenant.sedes or [])|selectattr('nombre', 'equalto', turno.sede)|first %}En {{ turno.sede }}{% if sd and sd.direccion %} — {{ sd.direccion }}. <a href="https://www.google.com/maps/search/?api=1&amp;query={{ sd.direccion|urlencode }}" target="_blank" rel="noopener">Cómo llegar</a>{% else %}.{% endif %}{% else %}En el consultorio.{% endif %}
   </div>
   {% if enviada %}
   <div class="aviso" style="margin:12px 0"><strong>Revisá tu WhatsApp:</strong> te mandamos un mensaje para que confirmes el turno. Al confirmar te llega el link para agendarlo en tu calendario.</div>

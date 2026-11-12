@@ -237,6 +237,7 @@ def reset():
     TABLAS["paciente_fechas"] = []
     TABLAS["lista_espera"] = []
     TABLAS["portadas"] = []
+    TABLAS["slugs_anteriores"] = []
     TABLAS["cancelaciones"] = []
     TABLAS["bloqueos"] = []
     TABLAS["paciente_tests"] = []
@@ -424,7 +425,7 @@ _t1.update(pausado=True, pausado_hasta=None, slug="marcos", en_directorio=False,
 html = client.get("/agenda").data.decode()
 chequear("pausado hace días sin fecha: avisa con los días y ofrece volver o poner fecha",
          "Tu página está pausada hace 12 días, sin fecha de vuelta." in html and "Poner fecha de vuelta" in html, html[:0])
-chequear("fuera del directorio: avisa con botón para aparecer", "No aparecés en el directorio" in html and "Aparecer en el directorio" in html)
+chequear("oculta para Google: avisa con botón para mostrarla", "Google no muestra tu página" in html and "Que Google la muestre" in html)
 _t1.update(pausado_desde=(datetime.now(timezone.utc) - timedelta(days=1)).isoformat())
 chequear("pausado hace un día: todavía no avisa", "aviso-pausa" not in client.get("/agenda").data.decode())
 _t1.update(pausado_desde=None)
@@ -3208,7 +3209,8 @@ chequear("sin turno: con un solo profesional en el número, va el link", avisos_
 TABLAS["tenants"][1]["slug"] = "otra"
 TABLAS["mensajes_sin_destino"] = []
 _webhook(_msg())
-chequear("sin turno: con dos, va la lista de profesionales", "/marcos" not in avisos_wa[-1]["texto"] and "/turnos" in avisos_wa[-1]["texto"])
+chequear("sin turno: con dos, «la página que te pasó tu profesional» (no hay lista)", "/marcos" not in avisos_wa[-1]["texto"]
+         and "/turnos" not in avisos_wa[-1]["texto"] and "la página que te pasó tu profesional" in avisos_wa[-1]["texto"])
 celu_adm.post("/admin/whatsapp/respuesta", data={"csrf_token": "tok", "texto": "Hola! Reservá en {link} 🙂"})
 TABLAS["mensajes_sin_destino"] = []
 TABLAS["tenants"][1]["slug"] = None
@@ -3712,7 +3714,7 @@ r = web4.post("/marcos/reservar/z1", data={"nombre": "X", "telefono": "549110000
 chequear("pausa: no se puede reservar por id", r.status_code == 302 and TABLAS["turnos"][0]["estado"] == "libre")
 _conv_resp = _conv.responder(dict(_t1), "5491100002222", "turnos")
 chequear("pausa: el bot tampoco ofrece", "no está tomando turnos nuevos" in _conv_resp and "Vuelvo el 2 de marzo" in _conv_resp)
-chequear("pausa: /turnos lo muestra pausado", "Por ahora no toma turnos nuevos" in web4.get("/turnos").data.decode())
+chequear("pausa: /turnos ya no existe (va a la portada)", web4.get("/turnos").status_code == 301)
 panel_c.post("/agenda/pausa", data={"csrf_token": "tok", "pausar": "0"})
 chequear("pausa: se reactiva", _t1["pausado"] is False and "reservar/z1" in web4.get("/marcos").data.decode())
 
@@ -5292,6 +5294,56 @@ TABLAS["turnos"] = [t for t in TABLAS["turnos"] if not t["id"].startswith("pp")]
 TABLAS["paciente_bitacora"] = [e for e in TABLAS["paciente_bitacora"] if not e["id"].startswith("pp-")]
 TABLAS["pacientes"] = [x for x in TABLAS["pacientes"] if x.get("paciente_telefono") != TELS]
 db.get_tenant_by_id = _gtid_b
+
+# Sitio propio: link corto que elige el profesional (el viejo redirige), preguntas frecuentes y Google.
+_gtid_s = db.get_tenant_by_id
+db.get_tenant_by_id = lambda tid: next((dict(t) for t in TABLAS["tenants"] if t["id"] == tid), None)
+_ts = next(t for t in TABLAS["tenants"] if t["id"] == "t1")
+_ts.update(slug="marcos", activo=True, preguntas=None, en_directorio=None)
+_gtbs = db.get_tenant_by_slug
+db.get_tenant_by_slug = lambda slug: next((dict(t) for t in TABLAS["tenants"] if t.get("slug") == slug and t.get("activo")), None)
+next(t for t in TABLAS["tenants"] if t["id"] == "t2").update(slug="otra", activo=True)
+TABLAS["slugs_anteriores"] = [{"slug": "reservado-ajeno", "tenant_id": "t2"}]
+_w = app.app.test_client()
+r = cb.post("/agenda/link", data={"csrf_token": "tok", "slug": " Lic Marcos "}, follow_redirects=True)
+chequear("link corto: se cambia (minúsculas, espacios a guiones) y avisa", _ts["slug"] == "lic-marcos"
+         and "tu página ahora es" in r.data.decode() and "El link anterior sigue funcionando" in r.data.decode())
+chequear("link corto: el anterior queda guardado", {"slug": "marcos", "tenant_id": "t1"}.items()
+         <= next(x for x in TABLAS["slugs_anteriores"] if x["slug"] == "marcos").items())
+r = _w.get("/marcos?semana=2026-11-16")
+chequear("link corto: el viejo redirige al nuevo", r.status_code == 301 and r.headers["Location"].endswith("/lic-marcos?semana=2026-11-16"))
+chequear("link corto: el nuevo anda", _w.get("/lic-marcos").status_code == 200)
+for _malo, _por in (("otra", "de otra cuenta"), ("reservado-ajeno", "viejo de otra cuenta"), ("agenda", "ruta del sistema"),
+                    ("ñu", "corto y con ñ"), ("con_guion_bajo", "guión bajo"), ("-arranca", "guión al principio")):
+    cb.post("/agenda/link", data={"csrf_token": "tok", "slug": _malo})
+    chequear(f"link corto: no deja usar uno {_por}", _ts["slug"] == "lic-marcos", _malo)
+cb.post("/agenda/link", data={"csrf_token": "tok", "slug": "marcos"})
+chequear("link corto: volver al de antes lo saca de los viejos", _ts["slug"] == "marcos"
+         and not any(x["slug"] == "marcos" for x in TABLAS["slugs_anteriores"])
+         and any(x["slug"] == "lic-marcos" and x["tenant_id"] == "t1" for x in TABLAS["slugs_anteriores"]))
+chequear("link corto: pide CSRF", cb.post("/agenda/link", data={"slug": "otro-mas"}).status_code in (400, 403) and _ts["slug"] == "marcos")
+cb.post("/agenda/presentacion", data={"csrf_token": "tok", "titulo": "Psicopedagoga", "ubicacion": "Caballito",
+                                      "pregunta_0": " ¿Cuánto dura   la primera entrevista? ", "respuesta_0": "Una hora.",
+                                      "pregunta_1": "Sin respuesta", "respuesta_1": " ",
+                                      "pregunta_2": "¿Trabajás con la escuela?", "respuesta_2": "Sí, con el equipo de orientación.\nY con la familia."})
+chequear("preguntas: se guardan limpias y sólo las completas", _ts["preguntas"] == [
+    {"p": "¿Cuánto dura la primera entrevista?", "r": "Una hora."},
+    {"p": "¿Trabajás con la escuela?", "r": "Sí, con el equipo de orientación.\nY con la familia."}], _ts["preguntas"])
+pag = _w.get("/marcos").data.decode()
+chequear("preguntas: salen en la página y como FAQPage para Google", "Preguntas frecuentes" in pag
+         and "¿Trabajás con la escuela?" in pag and '"@type": "FAQPage"' in pag and '"acceptedAnswer"' in pag)
+chequear("google: título con nombre, profesión y lugar; indexable", f"<title>{_ts['nombre']} — Psicopedagoga en Caballito · Turnos online</title>" in pag
+         and 'name="robots" content="noindex"' not in pag)
+_aj = cb.get("/ajustes?p=pagina").data.decode()
+chequear("ajustes: el link y las preguntas se pueden editar", 'name="slug" value="marcos"' in _aj and "¿Cuánto dura la primera entrevista?" in _aj
+         and 'name="pregunta_2"' in _aj and "Que Google pueda mostrar tu página" in _aj)
+_ts["en_directorio"] = False
+chequear("google: si la oculta, noindex y fuera del sitemap", 'name="robots" content="noindex"' in _w.get("/marcos").data.decode()
+         and "/marcos<" not in _w.get("/sitemap.xml").data.decode())
+_ts["en_directorio"] = None
+chequear("google: si no, en el sitemap", "/marcos</loc>" in _w.get("/sitemap.xml").data.decode())
+_ts.update(preguntas=None, titulo=None, ubicacion=None)
+db.get_tenant_by_id, db.get_tenant_by_slug = _gtid_s, _gtbs
 
 if fallos:
     raise SystemExit(f"\nFALLARON {len(fallos)}: {fallos}")
