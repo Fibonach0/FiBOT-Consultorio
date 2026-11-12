@@ -53,6 +53,8 @@ CATALOGO = [
      "google buscador seo perfil completar aparecer encontrar visitas"),
     ("Ajustes", "De dónde llegan las visitas", "Cuántas desde Google, Instagram o el QR, este mes", ("ajustes", {"p": "pagina"}, "mi-pagina"),
      "visitas estadisticas google instagram qr cuantos entraron"),
+    ("Acciones", "Diseño de tu página", "Colores, letras, orden de las secciones, calendario a la izquierda; con tu IA o a mano",
+     ("diseno_pagina", {}, None), "diseno diseño colores letras tipografia css estilo calendario izquierda derecha orden secciones modulos ia chatgpt personalizar"),
     ("Acciones", "Tarjeta para Instagram", "Una imagen con tu foto, tu link y el QR", ("tarjeta", {}, None),
      "instagram historia publicacion tarjeta imagen flyer qr compartir redes"),
     ("Ajustes", "Preguntas frecuentes de mi página", "Lo que te preguntan antes de empezar", ("ajustes", {"p": "pagina"}, "presentacion"),

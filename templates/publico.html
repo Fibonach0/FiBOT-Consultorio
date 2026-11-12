@@ -147,22 +147,22 @@
       {% set hay_sobre = tenant.sobre_mi or tenant.enfoques or tenant.formacion or tenant.mas_de_mi or tenant.obras_sociales or tenant.preguntas %}
       {% if hay_sobre and not cambiar %}
       <div class="pf-secciones">
-        {% if tenant.sobre_mi %}<section><h2>Sobre mí</h2><p class="pf-sobre">{{ tenant.sobre_mi }}</p></section>{% endif %}
-        {% if tenant.enfoques %}<section><h2>Temas que trabajo</h2><ul class="pf-temas">{% for x in tenant.enfoques %}<li>{{ x }}</li>{% endfor %}</ul></section>{% endif %}
+        {% if tenant.sobre_mi %}<section data-modulo="sobre"><h2>Sobre mí</h2><p class="pf-sobre">{{ tenant.sobre_mi }}</p></section>{% endif %}
+        {% if tenant.enfoques %}<section data-modulo="temas"><h2>Temas que trabajo</h2><ul class="pf-temas">{% for x in tenant.enfoques %}<li>{{ x }}</li>{% endfor %}</ul></section>{% endif %}
         {% if tenant.formacion or tenant.obras_sociales %}
-        <section class="pf-dos">
+        <section class="pf-dos" data-modulo="formacion">
           {% if tenant.formacion %}<div><h2>Formación</h2><ul class="pf-renglones">{% for x in tenant.formacion %}<li>{{ x }}</li>{% endfor %}</ul></div>{% endif %}
           {% if tenant.obras_sociales %}<div><h2>Obras sociales y prepagas</h2><p class="pf-renglon">{{ tenant.obras_sociales }}</p></div>{% endif %}
         </section>
         {% endif %}
-        {% if tenant.mas_de_mi %}<section class="pf-mas"><h2>Un poco más de mí</h2><p>{{ tenant.mas_de_mi }}</p></section>{% endif %}
+        {% if tenant.mas_de_mi %}<section class="pf-mas" data-modulo="mas"><h2>Un poco más de mí</h2><p>{{ tenant.mas_de_mi }}</p></section>{% endif %}
         {% if tenant.preguntas %}
-        <section class="pf-preguntas"><h2>Preguntas frecuentes</h2>
+        <section class="pf-preguntas" data-modulo="preguntas"><h2>Preguntas frecuentes</h2>
           {% for q in tenant.preguntas %}<details{% if loop.first %} open{% endif %}><summary>{{ q.p }}</summary><p>{{ q.r }}</p></details>{% endfor %}
         </section>
         {% endif %}
         {% if tenant.ubicacion or (tenant.sedes and tenant.sedes|length > 1) %}
-        <section><h2>Dónde atiendo</h2>
+        <section data-modulo="donde"><h2>Dónde atiendo</h2>
           <p class="pf-renglon">{% if tenant.sedes and tenant.sedes|length > 1 %}{{ tenant.sedes | map(attribute='nombre') | join(' · ') }}{% else %}{{ tenant.ubicacion }}{% endif %}{% if tenant.modalidades_publicas in ('ambas', 'virtual') %} · también por videollamada{% endif %}</p>
           {% if tenant.modalidades_publicas != 'virtual' %}<p style="font-size:15px;color:var(--s-texto);margin:10px 0 0">La dirección exacta la ves al elegir el horario.</p>{% endif %}
         </section>
@@ -427,4 +427,5 @@
 })();
 </script>
 {% include "_recordar_datos.html" %}
+{% include "_diseno_propio.html" %}
 {% endblock %}

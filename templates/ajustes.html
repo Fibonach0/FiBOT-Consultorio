@@ -194,6 +194,8 @@
     <details class="que-es" style="margin-top:10px"><summary class="tenue">Código QR (para imprimir o poner en el consultorio)</summary>
       <img src="{{ url_for('agenda_qr_pagina') }}" alt="QR de tu página de turnos" width="220" height="220" loading="lazy" style="margin-top:8px">
     </details>
+    <p style="margin:10px 0 0"><a class="btn chico secundario" style="text-decoration:none" id="ir-diseno" href="{{ url_for('diseno_pagina') }}">Diseño de tu página</a>
+      <span class="tenue" style="font-size:.85rem">Colores, letras, el orden de las secciones y de qué lado va el calendario; también con tu IA.{% if tenant.diseno or tenant.css_propio %} <strong>Tenés diseño propio.</strong>{% endif %}</span></p>
     <p style="margin:10px 0 0"><a class="btn chico secundario" style="text-decoration:none" id="ir-tarjeta" href="{{ url_for('tarjeta') }}">Tarjeta para Instagram</a>
       <span class="tenue" style="font-size:.85rem">Una imagen con tu foto, tu link y el QR, para historias o publicaciones.</span></p>
   </section>

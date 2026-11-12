@@ -39,6 +39,7 @@ import conversation
 import db
 import rubros
 import cuestionarios
+import diseno
 import directorio
 import fluidez
 import informe
@@ -2714,6 +2715,155 @@ def agenda_perfil_google_ocultar():
     db.guardar_ajustes(session["tenant_id"], {"preferencias_vista": pref})
     flash("Listo, ya no lo muestro en el panel. Lo que falta sigue en Ajustes → Página.")
     return _volver_a_agenda()
+
+
+# --- Diseño propio de la página (diseno.py) ---
+
+def _diseno_pagina(tenant: dict) -> dict | None:
+    """Lo que _diseno_propio.html pone en las páginas del paciente. Con
+    ?borrador=1 y la sesión de ESE profesional, el borrador. Lo guardado se
+    vuelve a revisar al mostrarlo (por si se cargó por otro lado)."""
+    borrador = (request.args.get("borrador") == "1" and session.get("tenant_id") == tenant.get("id")
+                and tenant.get("diseno_borrador") is not None)
+    estilo = (tenant.get("diseno_borrador") if borrador else tenant.get("diseno")) or {}
+    css = (tenant.get("css_borrador") if borrador else tenant.get("css_propio")) or ""
+    if not estilo and not css and not borrador:
+        return None
+    estilo, _ = diseno.leer(estilo)
+    css, errores, _ = diseno.limpiar_css(css)
+    g.con_csp = True
+    g.borrador = borrador
+    return {"estilo": diseno.css_de_estilo(estilo), "css": "" if errores else css, "fijo": diseno.CSS_FIJO,
+            "fuentes": diseno.fuentes_url(estilo), "borrador": borrador}
+
+
+app.jinja_env.globals["diseno_pagina"] = _diseno_pagina
+
+
+@app.after_request
+def _cabeceras_diseno(r):
+    if g.get("con_csp"):
+        r.headers["Content-Security-Policy"] = diseno.CSP
+    if g.get("borrador"):
+        r.headers["X-Robots-Tag"] = "noindex"
+        r.headers["Cache-Control"] = "no-store"
+    return r
+
+
+def _estilo_y_css(tenant: dict) -> tuple[dict, str]:
+    """Lo que hay para seguir editando: el borrador si hay, si no lo publicado."""
+    if tenant.get("diseno_borrador") is not None:
+        return tenant.get("diseno_borrador") or {}, tenant.get("css_borrador") or ""
+    return tenant.get("diseno") or {}, tenant.get("css_propio") or ""
+
+
+def _pantalla_diseno(tenant: dict, **extra):
+    estilo, css = _estilo_y_css(tenant)
+    return _sin_cache(app.make_response(render_template(
+        "diseno.html", tenant=tenant, estilo={**diseno.ORIGINAL, **estilo}, css=css,
+        hay_borrador=tenant.get("diseno_borrador") is not None,
+        hay_publicado=bool(tenant.get("diseno") or tenant.get("css_propio")),
+        instrucciones=diseno.instrucciones(tenant, url_for("publico", slug=tenant["slug"], _external=True)),
+        fuentes=list(diseno.FUENTES), modulos=diseno.MODULOS, css_max=diseno.CSS_MAX, **extra)))
+
+
+def _tenant_con_pagina():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    return tenant if tenant and tenant.get("slug") else None
+
+
+@app.get("/agenda/diseno")
+@login_required
+def diseno_pagina():
+    tenant = _tenant_con_pagina()
+    if not tenant:
+        return redirect(url_for("ajustes", p="pagina"))
+    return _pantalla_diseno(tenant)
+
+
+def _guardar_borrador(tenant: dict, estilo_crudo, css_crudo: str | None, pegado: str = ""):
+    """Revisa y guarda el borrador. Con problemas no guarda nada y vuelve a la
+    pantalla con lo que escribió."""
+    estilo_actual, css_actual = _estilo_y_css(tenant)
+    estilo, errores = diseno.leer(estilo_crudo) if estilo_crudo is not None else (estilo_actual, [])
+    css, err_css, avisos = diseno.limpiar_css(css_crudo if css_crudo is not None else css_actual)
+    errores += err_css
+    if errores:
+        return _pantalla_diseno(tenant, errores=errores, pegado=pegado,
+                                css_escrito=css_crudo if css_crudo is not None else None)
+    db.guardar_ajustes(tenant["id"], {"diseno_borrador": estilo, "css_borrador": css or None})
+    for a in avisos:
+        flash(a)
+    flash("Listo, quedó como borrador. Tocá «Ver cómo queda» y, si te gusta, «Publicar».")
+    return redirect(url_for("diseno_pagina") + "#estado")
+
+
+@app.post("/agenda/diseno/pegar")
+@login_required
+def diseno_pegar():
+    tenant = _tenant_con_pagina()
+    if not tenant:
+        return redirect(url_for("ajustes", p="pagina"))
+    texto = (request.form.get("respuesta") or "")[:diseno.CSS_MAX * 2]
+    estilo, css, errores = diseno.extraer(texto)
+    if errores:
+        return _pantalla_diseno(tenant, errores=errores, pegado=texto)
+    if isinstance(estilo, dict):
+        # Lo que la IA no mandó queda como estaba en el borrador.
+        estilo = {**_estilo_y_css(tenant)[0], **estilo}
+    return _guardar_borrador(tenant, estilo, css, pegado=texto)
+
+
+@app.post("/agenda/diseno/borrador")
+@login_required
+def diseno_borrador():
+    tenant = _tenant_con_pagina()
+    if not tenant:
+        return redirect(url_for("ajustes", p="pagina"))
+    f = request.form
+    estilo = {k: f.get(k) for k in (*diseno.COLORES, "letra_titulos", "letra_texto", "bordes", "foto", "portada",
+                                     "calendario", "en_celular") if f.get(k)}
+    orden = [m for m in (f.get("orden") or "").split(",") if m]
+    if orden:
+        estilo["orden"] = orden
+    estilo["ocultar"] = f.getlist("ocultar")
+    # Sólo se guarda lo que cambia respecto del original: así un ajuste nuevo
+    # de fábrica le llega a quien no lo tocó.
+    estilo = {k: v for k, v in estilo.items() if v != diseno.ORIGINAL.get(k)}
+    return _guardar_borrador(tenant, estilo, f.get("css") or "")
+
+
+@app.post("/agenda/diseno/publicar")
+@login_required
+def diseno_publicar():
+    tenant = _tenant_con_pagina()
+    if not tenant or tenant.get("diseno_borrador") is None:
+        flash("No hay un borrador para publicar.")
+        return redirect(url_for("diseno_pagina"))
+    db.guardar_ajustes(tenant["id"], {"diseno": tenant.get("diseno_borrador") or None,
+                                      "css_propio": tenant.get("css_borrador") or None,
+                                      "diseno_borrador": None, "css_borrador": None})
+    db.registrar_actividad(tenant["nombre"], "publicó un diseño nuevo de su página", tenant["id"])
+    flash("Publicado: tus pacientes ya ven tu página con el diseño nuevo.")
+    return redirect(url_for("diseno_pagina"))
+
+
+@app.post("/agenda/diseno/descartar")
+@login_required
+def diseno_descartar():
+    db.guardar_ajustes(session["tenant_id"], {"diseno_borrador": None, "css_borrador": None})
+    flash("Borrador descartado. Tu página sigue como estaba.")
+    return redirect(url_for("diseno_pagina"))
+
+
+@app.post("/agenda/diseno/original")
+@login_required
+def diseno_original():
+    tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
+    db.guardar_ajustes(session["tenant_id"], {"diseno": None, "css_propio": None, "diseno_borrador": None, "css_borrador": None})
+    db.registrar_actividad(tenant.get("nombre") or "profesional", "volvió al diseño original de su página", session["tenant_id"])
+    flash("Listo: tu página volvió al diseño original.")
+    return redirect(url_for("diseno_pagina"))
 
 
 @app.get("/agenda/tarjeta")
@@ -5576,7 +5726,8 @@ def publico(slug):
         if nuevo:
             return redirect(url_for("publico", slug=nuevo, **request.args), code=301)
         return "No encontrado.", 404
-    if "bot" not in (request.user_agent.string or "").lower() and request.args.get("semana") is None:
+    if "bot" not in (request.user_agent.string or "").lower() and request.args.get("semana") is None \
+            and request.args.get("borrador") is None:
         _evento(tenant, "visita", _origen_visita())
     if tenant.get("pausado"):
         return render_template("publico.html", tenant=tenant, cambiar=None, pausado=True, dias=[], hay=False,

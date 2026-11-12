@@ -313,6 +313,17 @@ nunca IP, navegador ni la URL de origen. «Tarjeta para Instagram» (`/agenda/ta
 `templates/tarjeta.html`): historia 1080×1920 o publicación 1080×1350 dibujada en un canvas del
 navegador (foto, portada, nombre, título, lugar, frase, QR como matriz de `segno` y link corto);
 se descarga o se comparte con `navigator.share`. Nada se manda a servicios externos.
+Diseño propio (`diseno.py`, `migrations/085`, `/agenda/diseno`): `tenants.diseno` (JSON de estilo:
+colores con contraste revisado, letras de `FUENTES`, bordes, foto, portada y MÓDULOS: `calendario`
+derecha/izquierda, `en_celular`, `orden` y `ocultar` de las secciones `data-modulo` de `/<slug>`) y
+`css_propio` (`diseno.limpiar_css`: sin `<`, `\`, `url(`, `@import`, `image-set(`… ni at-rules fuera de
+media/supports/keyframes/container; saca `!important`). Se edita como borrador (`diseno_borrador`,
+`css_borrador`; `/<slug>?borrador=1` sólo con la sesión de ESA cuenta, noindex, no cuenta visita) y
+se publica. `_diseno_propio.html` va al final del cuerpo de publico*, con `diseno.CSS_FIJO` después
+(pie de urgencias y caja de reserva siempre visibles) y, con diseño, la cabecera `diseno.CSP` (nada de
+otros sitios salvo Google Fonts). NUNCA HTML ni JavaScript propio: la página comparte dominio con
+el panel. `diseno.PARTES` es el contrato de clases que se le explica a la IA (`instrucciones`):
+si cambia el HTML de `/<slug>`, esas clases tienen que seguir (lo revisa test_seguimiento).
 
 `/sumate` (`migrations/060`, tabla `interesados`, de la plataforma como
 `admins`): formulario para profesionales; pide nombre y WhatsApp o mail, tiene un

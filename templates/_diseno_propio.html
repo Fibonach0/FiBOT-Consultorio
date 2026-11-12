@@ -1,0 +1,10 @@
+{#- Diseño propio del profesional (diseno.py), al final del cuerpo para que pese
+    más que el estilo de la página. Con ?borrador=1 y su propia sesión, el borrador. -#}
+{% set dp = diseno_pagina(tenant) if tenant is defined and tenant else none %}
+{% if dp %}
+{% if dp.fuentes %}<link href="{{ dp.fuentes }}" rel="stylesheet">{% endif %}
+<style id="diseno-estilo">{{ dp.estilo|safe }}</style>
+{% if dp.css %}<style id="diseno-css">{{ dp.css|safe }}</style>{% endif %}
+<style id="diseno-fijo">{{ dp.fijo|safe }}</style>
+{% if dp.borrador %}<div role="status" style="position:fixed;left:12px;bottom:12px;z-index:50;background:#1c1b19;color:#fff;padding:10px 14px;border-radius:10px;font:14px system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.3)">Borrador: así se vería tu página. Tus pacientes todavía ven la de antes.</div>{% endif %}
+{% endif %}
