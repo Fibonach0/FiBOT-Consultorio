@@ -54,7 +54,7 @@ CATALOGO = [
     ("Ajustes", "De dónde llegan las visitas", "Cuántas desde Google, Instagram o el QR, este mes", ("ajustes", {"p": "pagina"}, "mi-pagina"),
      "visitas estadisticas google instagram qr cuantos entraron"),
     ("Acciones", "Acomodar el panel", "Qué ves primero, en qué orden y de qué ancho",
-     ("acomodar_panel", {}, None), "acomodar ordenar panel modulos tarjetas izquierda derecha ancho mover ocultar calendario fichas orden"),
+     ("acomodar_panel", {}, None), "acomodar ordenar panel modulos tarjetas izquierda derecha ancho mover ocultar calendario fichas orden celular telefono movil"),
     ("Acciones", "Diseño de tu página", "Colores, letras, orden de las secciones, calendario a la izquierda; con tu IA o a mano",
      ("diseno_pagina", {}, None), "diseno diseño plantilla listo calido minimalista moderno sereno colores letras tipografia css estilo calendario izquierda derecha orden secciones modulos ia chatgpt personalizar"),
     ("Acciones", "Tarjeta para Instagram", "Una imagen con tu foto, tu link y el QR", ("tarjeta", {}, None),

@@ -326,7 +326,10 @@ el panel. `diseno.PARTES` es el contrato de clases que se le explica a la IA (`i
 si cambia el HTML de `/<slug>`, esas clases tienen que seguir (lo revisa test_seguimiento).
 Diseños listos (`diseno.PRESETS`, `/agenda/diseno/listo`): cargan un estilo completo como borrador
 (el CSS propio se mantiene). Publicar avisa a administración (`whatsapp.avisar_admin`, una línea con
-el link a `/<slug>`) para mirarlo rápido.
+el link a `/<slug>`) para mirarlo rápido. Publicar y «Volver al original» guardan lo publicado en
+`diseno_anterior`/`css_anterior` (`migrations/086`, `app._guardar_como_anterior`; si lo publicado era el
+original, el anterior que había se conserva). «Volver al diseño anterior» (`/agenda/diseno/anterior`)
+los intercambia, revisando otra vez estilo y CSS con las reglas de hoy, y descarta el borrador.
 
 `/sumate` (`migrations/060`, tabla `interesados`, de la plataforma como
 `admins`): formulario para profesionales; pide nombre y WhatsApp o mail, tiene un
@@ -1236,6 +1239,9 @@ a las 00:30 volvía a la misma persona), avisando al
   chica/oculto = 6/4/3/2/0, `order` según la lista; < 1000 px, una columna). Igual a
   `PANEL_DE_FABRICA` = sin estilo propio, se ve como siempre. «Para resolver» no se oculta.
   Una tarjeta grande nueva en agenda.html va dentro de un `data-bloque` existente o en uno nuevo.
+  En el celular (`ANCHO_CELULAR`, ≤ 1000 px) `preferencias_vista.panel_celular` ({orden, ocultos},
+  `_celular_valido`) da otro orden y oculta otras partes; sin él sigue el de la compu (`_celular_de`).
+  La grilla de la compu va en `@media (min-width: 1001px)` y la del celular en `max-width: 1000px`.
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
 - GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +

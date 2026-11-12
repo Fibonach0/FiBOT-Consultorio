@@ -64,9 +64,18 @@
     {% else %}
     <p style="margin-top:0">Tu página usa el diseño original. Cambiale colores, letras, el orden de las secciones o de qué lado va el calendario. Lo que cambies queda como <strong>borrador</strong>: lo mirás y recién después lo publicás.</p>
     {% endif %}
-    {% if hay_publicado %}
-    <form method="post" action="{{ url_for('diseno_original') }}" style="margin-top:10px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-      <button class="btn chico secundario" type="submit">Volver al diseño original</button></form>
+    {% if hay_publicado or hay_anterior %}
+    <div class="estado-diseno" style="margin-top:10px">
+      {% if hay_anterior %}
+      <form method="post" action="{{ url_for('diseno_anterior') }}" id="volver-anterior"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn chico secundario" type="submit">Volver al diseño anterior</button></form>
+      {% endif %}
+      {% if hay_publicado %}
+      <form method="post" action="{{ url_for('diseno_original') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn chico secundario" type="submit">Volver al diseño original</button></form>
+      {% endif %}
+    </div>
+    {% if hay_anterior %}<p class="tenue" style="font-size:.85rem;margin-bottom:0">Cada vez que publicás, el diseño que había queda guardado. Si el nuevo no te convence, volvés al anterior con un toque{% if hay_borrador %} (el borrador se descarta){% endif %}.</p>{% endif %}
     {% endif %}
   </section>
 
