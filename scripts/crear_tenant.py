@@ -18,7 +18,8 @@ from supabase import create_client
 # No pueden ser slug: chocan con rutas fijas de la plataforma (aunque Flask
 # les da prioridad a esas rutas fijas igual, un tenant con ese slug nunca
 # tendría página pública alcanzable, así que mejor cortarlo acá).
-SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar", "pago", "mercadopago", "sumate", "static", "sin-conexion"}
+SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar", "pago", "mercadopago", "sumate", "static", "sin-conexion",
+                    "ajustes", "clave-nueva", "olvide-la-clave"}
 
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_SERVICE_ROLE_KEY = os.environ.get("SUPABASE_SERVICE_ROLE_KEY")

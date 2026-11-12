@@ -1,9 +1,11 @@
 {% extends "base.html" %}
-{% block titulo %}Turnos — {{ tenant.nombre }}{% endblock %}
+{% block titulo %}{{ tenant.nombre }}{% if tenant.titulo or tenant.rubro %} — {{ tenant.titulo or (tenant.rubro|capitalize) }}{% endif %}{% if tenant.ubicacion %} en {{ tenant.ubicacion }}{% endif %} · Turnos online{% endblock %}
 {% block head %}
 <link rel="canonical" href="{{ url_for('publico', slug=tenant.slug, _external=True) }}">
 {% if cambiar or tenant.en_directorio is sameas false %}<meta name="robots" content="noindex">{% endif %}
 <script type="application/ld+json">{{ tenant | perfil_ld | tojson }}</script>
+{% if tenant.preguntas and not cambiar %}<script type="application/ld+json">{{ {"@context": "https://schema.org", "@type": "FAQPage",
+  "mainEntity": tenant.preguntas | map('pregunta_ld') | list} | tojson }}</script>{% endif %}
 {% include "_sitio.html" %}
 {% endblock %}
 {% block meta %}
@@ -40,6 +42,9 @@
   @media (max-width:980px) { .pf-ir { display:inline-block; } }
   @media (max-width:600px) { .pf-frase { font-size:18px; } .pf-cabeza h1 { font-size:34px; } }
   .pf-secciones { margin-top:56px; display:flex; flex-direction:column; gap:44px; max-width:640px; }
+  .pf-preguntas details { border-bottom:1px solid var(--rule); padding:12px 0; }
+  .pf-preguntas summary { cursor:pointer; font-size:17px; font-weight:600; }
+  .pf-preguntas details p { margin:8px 0 0; font-size:16px; color:var(--s-texto); white-space:pre-line; }
   .pf-secciones h2 { font-family:var(--mono); font-weight:500; font-size:13px; color:var(--muted); margin:0 0 12px; letter-spacing:.04em; text-transform:uppercase; }
   .pf-sobre { font-size:19px; line-height:1.6; margin:0; white-space:pre-line; text-wrap:pretty; }
   .pf-temas { display:flex; flex-wrap:wrap; gap:8px; list-style:none; margin:0; padding:0; }
@@ -139,7 +144,7 @@
           {% if not cambiar and not pausado %}<a class="s-boton pf-ir" href="#horarios">Ver horarios y reservar</a>{% endif %}
         </div>
       </div>
-      {% set hay_sobre = tenant.sobre_mi or tenant.enfoques or tenant.formacion or tenant.mas_de_mi or tenant.obras_sociales %}
+      {% set hay_sobre = tenant.sobre_mi or tenant.enfoques or tenant.formacion or tenant.mas_de_mi or tenant.obras_sociales or tenant.preguntas %}
       {% if hay_sobre and not cambiar %}
       <div class="pf-secciones">
         {% if tenant.sobre_mi %}<section><h2>Sobre mí</h2><p class="pf-sobre">{{ tenant.sobre_mi }}</p></section>{% endif %}
@@ -151,6 +156,11 @@
         </section>
         {% endif %}
         {% if tenant.mas_de_mi %}<section class="pf-mas"><h2>Un poco más de mí</h2><p>{{ tenant.mas_de_mi }}</p></section>{% endif %}
+        {% if tenant.preguntas %}
+        <section class="pf-preguntas"><h2>Preguntas frecuentes</h2>
+          {% for q in tenant.preguntas %}<details{% if loop.first %} open{% endif %}><summary>{{ q.p }}</summary><p>{{ q.r }}</p></details>{% endfor %}
+        </section>
+        {% endif %}
         {% if tenant.ubicacion or (tenant.sedes and tenant.sedes|length > 1) %}
         <section><h2>Dónde atiendo</h2>
           <p class="pf-renglon">{% if tenant.sedes and tenant.sedes|length > 1 %}{{ tenant.sedes | map(attribute='nombre') | join(' · ') }}{% else %}{{ tenant.ubicacion }}{% endif %}{% if tenant.modalidades_publicas in ('ambas', 'virtual') %} · también por videollamada{% endif %}</p>

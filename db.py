@@ -125,6 +125,33 @@ def get_tenant_by_id(tenant_id: str) -> dict | None:
     return res.data[0] if res.data else None
 
 
+def slug_actual(slug_viejo: str) -> str | None:
+    """El link corto de hoy de quien usaba `slug_viejo` (si lo cambió), para
+    redirigir los links ya compartidos. Como `get_tenant_by_slug`, averigua
+    el tenant: no recibe tenant_id."""
+    res = _client.table("slugs_anteriores").select("tenant_id").eq("slug", slug_viejo).limit(1).execute()
+    if not res.data:
+        return None
+    t = (_client.table("tenants").select("slug").eq("id", res.data[0]["tenant_id"]).eq("activo", True)
+         .limit(1).execute())
+    return t.data[0]["slug"] if t.data and t.data[0].get("slug") else None
+
+
+def slug_libre(tenant_id: str, slug: str) -> bool:
+    """Nadie más lo usa: ni otra cuenta como link de hoy, ni como link viejo."""
+    hoy = _client.table("tenants").select("id").eq("slug", slug).limit(1).execute().data
+    viejo = _client.table("slugs_anteriores").select("tenant_id").eq("slug", slug).limit(1).execute().data
+    return all(r["id"] == tenant_id for r in hoy) and all(r["tenant_id"] == tenant_id for r in viejo)
+
+
+def cambiar_slug(tenant_id: str, viejo: str | None, nuevo: str) -> None:
+    """Cambia el link y guarda el anterior para que siga redirigiendo."""
+    _client.table("tenants").update({"slug": nuevo}).eq("id", tenant_id).execute()
+    _client.table("slugs_anteriores").delete().eq("tenant_id", tenant_id).eq("slug", nuevo).execute()
+    if viejo and viejo != nuevo:
+        _client.table("slugs_anteriores").upsert({"slug": viejo, "tenant_id": tenant_id}, on_conflict="slug").execute()
+
+
 def get_tenant_by_slug(slug: str) -> dict | None:
     """Resuelve la página pública de reserva (consultorio.fibot.ar/<slug>)."""
     res = (

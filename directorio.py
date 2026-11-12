@@ -1,100 +1,19 @@
-"""Directorio público de profesionales: quiénes aparecen y cómo se filtran.
+"""Qué páginas de profesionales se ofrecen a los buscadores.
 
-Lo usan la portada (`/`), `/turnos` y el sitemap. Los temas son los de la
-portada; cada uno se reconoce por palabras sueltas (sin tildes) en lo que el
-profesional escribió en su perfil: temas que trabaja, descripción, sobre mí,
-título y rubro. No hay una lista cerrada de temas en el perfil a propósito: el
-profesional escribe con sus palabras y acá se lo encuentra igual.
+Ya no hay lista de profesionales en el sitio: cada uno tiene su página en
+/<slug> y la portada es genérica. Esto sólo decide qué entra al sitemap (y
+qué páginas van indexables) y cuáles son cuentas de muestra.
 """
-import unicodedata
-
-# clave → (nombre, bajada de la portada, palabras que lo identifican)
-TEMAS = {
-    "ansiedad": ("Ansiedad", "Preocupación constante, nervios, ataques de pánico.",
-                 ("ansiedad", "ansios", "panico", "angustia", "obsesi", "toc")),
-    "animo": ("Ánimo", "Tristeza, desgano, sentir que nada tiene sentido.",
-              ("animo", "depresi", "triste", "desgano", "bipolar")),
-    "estres": ("Estrés y cansancio", "Trabajo, estudio, sentir que no das más.",
-               ("estres", "burnout", "agotamiento", "cansancio", "laboral", "insomnio", "sueno")),
-    "vinculos": ("Vínculos", "Pareja, familia, amistades, separaciones.",
-                 ("vincul", "pareja", "familia", "relacion", "separacion", "divorcio", "sexualidad")),
-    "autoestima": ("Autoestima", "Inseguridades, cómo te ves y te tratás.",
-                   ("autoestima", "insegur", "identidad", "imagen corporal", "alimentari")),
-    "duelos": ("Duelos y cambios", "Pérdidas, mudanzas, etapas nuevas.",
-               ("duelo", "perdida", "migra", "mudanza", "jubila", "maternidad", "paternidad", "crisis vital")),
-    "infancia": ("Infancia y adolescencia", "Aprendizaje, conducta, acompañar a tus hijos.",
-                 ("infan", "nino", "nina", "adolesc", "crianza", "aprendizaje", "escolar",
-                  "psicopedagog", "tdah", "autismo", "tea ")),
-    "miedos": ("Miedos", "Fobias, miedos que te frenan en el día a día.",
-               ("miedo", "fobia", "panico")),
-    # Los de «Para mi hijo/a» en la portada (sobre todo psicopedagogía).
-    "aprendizaje": ("Aprendizaje", "Le cuesta aprender o seguir el ritmo de la clase.",
-                    ("aprendizaje", "psicopedagog", "dislexia", "discalculia")),
-    "lectoescritura": ("Lectoescritura", "Leer y escribir le cuesta más que a otros chicos.",
-                       ("lectoescritura", "lectura", "escritura", "dislexia")),
-    "atencion": ("Atención y concentración", "Se distrae, no termina las tareas, no para.",
-                 ("deficit de atencion", "concentracion", "tdah", "hiperactiv")),
-    "conducta": ("Conducta", "Berrinches, límites, peleas en casa o en la escuela.",
-                 ("conducta", "berrinche", "limites", "oposicion")),
-    "emociones": ("Emociones", "Miedos, enojo o tristeza que no sabe cómo decir.",
-                  ("infan", "nino", "nina", "chicos")),
-    "escuela": ("Escuela y amigos", "Le cuesta ir, hacer amigos o integrarse.",
-                ("escolar", "escuela", "colegio", "bullying", "integracion")),
-    "adolescencia": ("Adolescencia", "Cambios, vínculos y decisiones de esa etapa.",
-                     ("adolesc",)),
-    "vocacional": ("Orientación vocacional", "Qué estudiar, cómo organizarse para estudiar.",
-                   ("vocacional", "tecnicas de estudio", "habitos de estudio")),
-}
-
-# Qué temas muestra la portada con «Para mí» y con «Para mi hijo/a».
-TEMAS_ADULTOS = ("ansiedad", "animo", "estres", "vinculos", "autoestima", "duelos", "infancia", "miedos")
-TEMAS_CHICOS = ("aprendizaje", "lectoescritura", "atencion", "conducta", "emociones", "escuela",
-                "adolescencia", "vocacional")
-
-MODALIDADES = {"presencial": ("presencial", "ambas"), "virtual": ("virtual", "ambas")}
-
-
-def normalizar(texto: str | None) -> str:
-    """Minúsculas y sin tildes («Pánico» → «panico»)."""
-    sin_tildes = unicodedata.normalize("NFKD", texto or "").encode("ascii", "ignore").decode()
-    return " ".join(sin_tildes.casefold().split())
 
 
 def visibles(tenants: list[dict]) -> list[dict]:
-    """Los que tienen página pública y no pidieron quedar fuera del directorio."""
+    """Los que tienen página pública y no pidieron ocultarla de Google
+    (`en_directorio = false`)."""
     return [t for t in tenants if t.get("slug") and t.get("en_directorio", True) is not False]
 
 
 def es_demo(t: dict) -> bool:
-    """Las cuentas de muestra (`demo`, `demo-…`): en el directorio van después
-    de los profesionales reales."""
+    """Las cuentas de muestra (`demo`, `demo-…`): las únicas que se muestran
+    como ejemplo en /sumate."""
     slug = t.get("slug") or ""
     return slug == "demo" or slug.startswith("demo-")
-
-
-def _texto_perfil(t: dict) -> str:
-    partes = [t.get("descripcion"), t.get("sobre_mi"), t.get("titulo"), t.get("rubro"),
-              " ".join(str(x) for x in (t.get("enfoques") or []))]
-    return " " + normalizar(" ".join(p for p in partes if p)) + " "
-
-
-def trabaja_tema(t: dict, tema: str) -> bool:
-    if tema not in TEMAS:
-        return True
-    texto = _texto_perfil(t)
-    return any(p in texto for p in TEMAS[tema][2])
-
-
-def filtrar(tenants: list[dict], tema: str = "", modalidad: str = "", obra: str = "") -> list[dict]:
-    """Filtros de /turnos. Un valor vacío o desconocido no filtra."""
-    obra_n = normalizar(obra)
-    salida = []
-    for t in tenants:
-        if tema and not trabaja_tema(t, tema):
-            continue
-        if modalidad in MODALIDADES and (t.get("modalidades_publicas") or "presencial") not in MODALIDADES[modalidad]:
-            continue
-        if obra_n and obra_n not in normalizar(t.get("obras_sociales")):
-            continue
-        salida.append(t)
-    return salida

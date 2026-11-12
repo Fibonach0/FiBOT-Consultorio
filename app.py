@@ -85,44 +85,23 @@ def salud():
 
 # ---------- portada del sitio (consultorio.fibot.ar) ----------
 
-INICIO_PROFESIONALES = 6
-
-
-def _directorio() -> list[dict]:
-    """Profesionales del directorio público. Si la base no responde, lista vacía:
-    las páginas de pacientes salen igual, sin profesionales."""
+def _indexables() -> list[dict]:
+    """Páginas de profesionales que pueden salir en Google (con slug y sin
+    `en_directorio = false`). Si la base no responde, lista vacía."""
     try:
         return directorio.visibles(db.tenants_activos())
     except Exception:
-        logger.exception("directorio: no se pudieron leer los profesionales")
+        logger.exception("sitemap: no se pudieron leer los profesionales")
         return []
 
 
 @app.get("/")
 def inicio():
-    """La main para futuros pacientes: qué es, búsqueda, temas, algunos
-    profesionales del directorio (los mismos que /turnos) y cómo funciona.
-    Con «Para mi hijo/a» cambian los temas y los profesionales que se ven."""
-    visibles = _directorio()
-    # Primero los reales (las demos al final), después los que pueden tomar
-    # turnos y los que tienen foto: es lo que más invita a entrar.
-    visibles.sort(key=lambda t: (directorio.es_demo(t), bool(t.get("pausado")), not t.get("foto"), t["nombre"].casefold()))
-    de_chicos = [t for t in visibles
-                 if any(directorio.trabaja_tema(t, k) for k in directorio.TEMAS_CHICOS + ("infancia",))]
-    para_mi = visibles[:INICIO_PROFESIONALES]
-    para_hijo = de_chicos[:INICIO_PROFESIONALES] or para_mi
-    # Una sola tarjeta por profesional, marcada con en qué vista aparece.
-    ids_mi, ids_hijo = {t["id"] for t in para_mi}, {t["id"] for t in para_hijo}
-    tarjetas = [dict(t, _para=" ".join(p for p, ids in (("yo", ids_mi), ("hijo", ids_hijo)) if t["id"] in ids))
-                for t in visibles if t["id"] in ids_mi | ids_hijo]
-    # Quién trabaja cada tema (hasta 3), para el panel que se abre al tocarlo.
-    por_tema = {k: [{"nombre": t["nombre"], "url": url_for("publico", slug=t["slug"])}
-                    for t in visibles if directorio.trabaja_tema(t, k)][:3]
-                for k in directorio.TEMAS}
-    return render_template("inicio.html", profesionales=tarjetas,
-                           hay_mas=len(visibles) > INICIO_PROFESIONALES, temas=directorio.TEMAS,
-                           temas_adultos=directorio.TEMAS_ADULTOS, temas_chicos=directorio.TEMAS_CHICOS,
-                           por_tema=por_tema, total=len(visibles), anio=datetime.now().year)
+    """La portada: genérica, para pacientes que llegan sin el link de su
+    profesional y para profesionales. NO lista profesionales a propósito: cada
+    uno tiene su sitio en /<slug> y el paciente que trae es suyo."""
+    return render_template("inicio.html", anio=datetime.now().year,
+                           verificacion_google=config.GOOGLE_SITE_VERIFICATION)
 
 
 @app.get("/robots.txt")
@@ -137,14 +116,19 @@ def robots():
 @app.get("/sitemap.xml")
 def sitemap():
     """Las páginas que tiene sentido que encuentre un buscador: portada,
-    directorio, sumate y la página de cada profesional del directorio."""
-    urls = [url_for("inicio", _external=True), url_for("turnos_directorio", _external=True),
-            url_for("sumate", _external=True), url_for("privacidad", _external=True)]
-    urls += [url_for("publico", slug=t["slug"], _external=True) for t in _directorio()]
+    sumate, privacidad y la página de cada profesional que no la ocultó."""
+    urls = [url_for("inicio", _external=True), url_for("sumate", _external=True), url_for("privacidad", _external=True)]
+    urls += [url_for("publico", slug=t["slug"], _external=True) for t in _indexables()]
     from xml.sax.saxutils import escape
     cuerpo = "".join(f"<url><loc>{escape(u)}</loc></url>" for u in urls)
     xml = f'<?xml version="1.0" encoding="UTF-8"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">{cuerpo}</urlset>'
     return app.response_class(xml, mimetype="application/xml")
+
+
+@app.template_filter("pregunta_ld")
+def pregunta_ld(q: dict) -> dict:
+    """Una pregunta frecuente de la página como schema.org Question."""
+    return {"@type": "Question", "name": q.get("p"), "acceptedAnswer": {"@type": "Answer", "text": q.get("r")}}
 
 
 @app.template_filter("perfil_ld")
@@ -155,7 +139,7 @@ def perfil_ld(tenant: dict) -> dict:
     datos = {"@context": "https://schema.org", "@type": "Person", "@id": url, "url": url,
              "name": tenant["nombre"],
              "jobTitle": tenant.get("titulo") or (tenant.get("rubro") or "").capitalize() or None,
-             "description": tenant.get("descripcion") or None,
+             "description": tenant.get("descripcion") or (tenant.get("sobre_mi") or "")[:300] or None,
              "knowsAbout": list(tenant.get("enfoques") or []) or None}
     if tenant.get("ubicacion"):
         datos["workLocation"] = {"@type": "Place", "name": tenant["ubicacion"]}
@@ -175,8 +159,9 @@ def sumate():
     en `interesados` (lo ve administración) y avisa por WhatsApp. El alta sigue
     siendo a mano: esto sólo junta los datos de contacto."""
     if request.method == "GET":
-        # «Ver una página de ejemplo»: alguien del directorio, mejor con foto y sin pausa.
-        ejemplo = min(_directorio(), key=lambda t: (bool(t.get("pausado")), not t.get("foto")), default=None)
+        # «Ver una página de ejemplo»: sólo una cuenta de muestra, nunca un profesional real.
+        ejemplo = min((t for t in _indexables() if directorio.es_demo(t)),
+                      key=lambda t: (bool(t.get("pausado")), not t.get("foto")), default=None)
         return render_template("sumate.html", enviado=False, error=None, datos={}, profesiones=PROFESIONES_SUMATE,
                                ejemplo=ejemplo["slug"] if ejemplo else None)
     f = request.form
@@ -512,15 +497,14 @@ SIN_LINK = "la página que te pasó tu profesional"
 
 def _link_sin_destino() -> str | None:
     """El link para quien escribe sin turno: la página del profesional si es
-    el único en el número compartido, o /turnos si son varios (el número no
-    dice a quién le escribieron)."""
+    el único en el número compartido. Con varios, ninguno (el número no dice a
+    quién le escribieron y no hay lista de profesionales): «la página que te
+    pasó tu profesional»."""
     compartidos = [t for t in db.tenants_activos() if not t.get("whatsapp_phone_number_id") and t.get("slug")]
-    if not compartidos:
+    if len(compartidos) != 1:
         return None
     base = f"https://{config.DOMINIO_PRINCIPAL}" if config.DOMINIO_PRINCIPAL else request.host_url.rstrip("/")
-    # Con uno solo, directo a su calendario; con varios, a la lista de
-    # profesionales (/turnos), donde el paciente elige con quién.
-    return f"{base}/{compartidos[0]['slug']}" if len(compartidos) == 1 else f"{base}/turnos"
+    return f"{base}/{compartidos[0]['slug']}"
 
 
 def _respuesta_sin_destino() -> tuple[str, str]:
@@ -1292,7 +1276,8 @@ def admin_uso_csv():
                               headers={"Content-Disposition": f'attachment; filename="uso-{primero:%Y-%m}.csv"'})
 
 
-SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar", "pago", "mercadopago", "sumate", "static", "sin-conexion"}
+SLUGS_RESERVADOS = {"login", "logout", "agenda", "health", "webhook", "admin", "entrega", "cuestionario", "privacidad", "turnos", "agendar", "pago", "mercadopago", "sumate", "static", "sin-conexion",
+                    "ajustes", "clave-nueva", "olvide-la-clave"}
 RUBROS_ALTA = ["psicología", "psicopedagogía"]
 
 
@@ -2615,9 +2600,9 @@ PAUSA_AVISAR_DIAS = 3
 
 def _avisos_pagina(tenant: dict, ahora: datetime) -> dict:
     """Lo que hace que los pacientes no lo encuentren o no puedan reservar sin
-    que el profesional lo note: pausado hace días sin fecha de vuelta, o fuera
-    del directorio de consultorio.fibot.ar."""
-    avisos = {"pausa_dias": None, "fuera_directorio": False}
+    que el profesional lo note: pausado hace días sin fecha de vuelta, o con
+    la página oculta para Google."""
+    avisos = {"pausa_dias": None, "sin_google": False}
     if tenant.get("pausado") and not tenant.get("pausado_hasta"):
         desde = tenant.get("pausado_desde")
         dias = None
@@ -2630,7 +2615,7 @@ def _avisos_pagina(tenant: dict, ahora: datetime) -> dict:
         if dias is None or dias >= PAUSA_AVISAR_DIAS:
             avisos["pausa_dias"] = dias if dias is not None else -1
     if tenant.get("slug") and tenant.get("en_directorio") is False:
-        avisos["fuera_directorio"] = True
+        avisos["sin_google"] = True
     return avisos
 
 
@@ -4725,7 +4710,7 @@ def agenda_mensaje_vuelta():
 @app.post("/agenda/perfil")
 @login_required
 def agenda_perfil():
-    """Lo que ven los pacientes en /turnos y cómo se cancela desde la web. Sólo
+    """Lo que ven los pacientes en tu página y cómo se cancela desde la web. Sólo
     pisa lo que viene en el formulario: en ajustes estos campos están
     repartidos entre «Mi página» y «Cancelaciones». Las casillas mandan su
     nombre en `casillas` (una casilla sin tildar no viaja)."""
@@ -4761,7 +4746,7 @@ def agenda_perfil():
 @app.post("/agenda/foto")
 @login_required
 def agenda_foto():
-    """Foto para /turnos y el calendario. Mismo criterio que la firma: PNG o
+    """Foto para tu página. Mismo criterio que la firma: PNG o
     JPG por los primeros bytes, hasta 300 KB, guardada en el tenant."""
     archivo = request.files.get("foto")
     crudo = archivo.read(FIRMA_MAX + 1) if archivo else b""
@@ -4833,9 +4818,50 @@ def agenda_presentacion():
         "mas_de_mi": largo("mas_de_mi", 400),
         "obras_sociales": corto("obras_sociales", 200),
         "color_pagina": f.get("color_pagina") if f.get("color_pagina") in COLORES_PAGINA else None,
+        "preguntas": _preguntas_del_form(f) or None,
     })
     flash("Listo, guardado: así te presentás en tu página.")
     return _a_ajustes("pagina", "presentacion")
+
+
+MAX_PREGUNTAS = 8
+
+
+def _preguntas_del_form(f) -> list[dict]:
+    """Preguntas frecuentes de la página: pares pregunta_N / respuesta_N; las
+    que quedan sin las dos partes no se guardan."""
+    salida = []
+    for i in range(MAX_PREGUNTAS):
+        p = " ".join((f.get(f"pregunta_{i}") or "").split())[:140]
+        r = (f.get(f"respuesta_{i}") or "").replace("\r\n", "\n").strip()[:600]
+        if p and r:
+            salida.append({"p": p, "r": r})
+    return salida
+
+
+SLUG_VALIDO = re.compile(r"[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])")
+
+
+@app.post("/agenda/link")
+@login_required
+def agenda_link():
+    """El profesional elige su link corto (consultorio.fibot.ar/<link>). El
+    anterior queda en `slugs_anteriores` y sigue llevando a su página."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    nuevo = "-".join((request.form.get("slug") or "").strip().lower().split())
+    if not tenant.get("slug"):
+        flash("Tu cuenta todavía no tiene página: pedíselo a administración.")
+    elif nuevo == tenant["slug"]:
+        pass
+    elif not SLUG_VALIDO.fullmatch(nuevo) or "--" in nuevo:
+        flash("El link va de 3 a 40 letras: minúsculas sin tildes, números y guiones (ej. lic-micaela).")
+    elif nuevo in SLUGS_RESERVADOS or not db.slug_libre(tenant["id"], nuevo):
+        flash(f"«{nuevo}» ya está en uso. Probá con otro (por ejemplo, con tu apellido).")
+    else:
+        db.cambiar_slug(tenant["id"], tenant["slug"], nuevo)
+        db.registrar_actividad(tenant["nombre"], f"cambió el link de su página: /{tenant['slug']} → /{nuevo}", tenant["id"])
+        flash(f"Listo: tu página ahora es {url_for('publico', slug=nuevo, _external=True)}. El link anterior sigue funcionando.")
+    return _a_ajustes("pagina", "mi-pagina")
 
 
 @app.post("/agenda/portada")
@@ -5338,81 +5364,11 @@ def agenda_qr_pagina():
 
 
 DIAS_CORTOS = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-PROXIMOS_EN_DIRECTORIO = 4
-_proximos_cache: dict[str, tuple[float, list[dict]]] = {}
-
-
-def _proximos_libres(tenant: dict) -> list[dict]:
-    """Los próximos horarios libres de un profesional para el directorio:
-    «Jue 6 · 18:00», cada uno con su link. Se guardan 60 segundos en memoria
-    (hay un solo worker) para no consultar la base por cada tarjeta en cada
-    visita. Con varios tipos de turno el link va a la semana, porque primero
-    hay que elegir el tipo. Si la base falla, sin horarios."""
-    if tenant.get("pausado"):
-        return []
-    guardado = _proximos_cache.get(tenant["id"])
-    if guardado and time.monotonic() - guardado[0] < 60:
-        return guardado[1]
-    tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
-    try:
-        libres = db.turnos_libres(tenant["id"], datetime.now(ZoneInfo("UTC")), limite=PROXIMOS_EN_DIRECTORIO)
-    except Exception:
-        logger.exception("directorio: no se pudieron leer los horarios de %s", tenant.get("slug"))
-        return []
-    hoy = datetime.now(tz).date()
-    con_tipos = bool(tipos_de(tenant))
-    salida = []
-    for t in libres:
-        local = datetime.fromisoformat(t["inicio"]).astimezone(tz)
-        dia = "Hoy" if local.date() == hoy else f"{DIAS_CORTOS[local.weekday()]} {local.day}"
-        url = (url_for("publico", slug=tenant["slug"], semana=local.date().isoformat()) if con_tipos
-               else url_for("publico_reservar_form", slug=tenant["slug"], turno_id=t["id"]))
-        salida.append({"texto": f"{dia} · {local:%H:%M}", "url": url, "inicio": local,
-                       "esta_semana": (local.date() - hoy).days < 7})
-    _proximos_cache[tenant["id"]] = (time.monotonic(), salida)
-    return salida
-
-
-ESPECIALIDADES = {"psicologia": "Psicología", "psicopedagogia": "Psicopedagogía"}
-
-
-def _especialidad(tenant: dict) -> str:
-    rubro = directorio.normalizar(tenant.get("rubro"))
-    return next((k for k in ESPECIALIDADES if rubro.startswith(k)), "")
-
-
 @app.get("/turnos")
 def turnos_directorio():
-    """La puerta de entrada para pacientes: todos los profesionales con página
-    pública. Cada uno lleva a SU calendario (/<slug>), que es también el link
-    que el profesional comparte. Filtros: especialidad, tema, modalidad, obra
-    social y «con turno esta semana»; orden por próximo turno o por nombre."""
-    tema = request.args.get("tema", "") if request.args.get("tema") in directorio.TEMAS else ""
-    modalidad = request.args.get("modalidad", "") if request.args.get("modalidad") in directorio.MODALIDADES else ""
-    obra = " ".join((request.args.get("obra") or "").split())[:60]
-    esp = request.args.get("especialidad", "") if request.args.get("especialidad") in ESPECIALIDADES else ""
-    semana = request.args.get("semana") == "1"
-    orden = "nombre" if request.args.get("orden") == "nombre" else "turno"
-    todos = sorted(_directorio(), key=lambda t: (directorio.es_demo(t), t["nombre"].casefold()))
-    cuenta_esp = {"": len(todos), **{k: sum(1 for t in todos if _especialidad(t) == k) for k in ESPECIALIDADES}}
-    profesionales = directorio.filtrar([t for t in todos if not esp or _especialidad(t) == esp], tema, modalidad, obra)
-    profesionales = [dict(t, _proximos=_proximos_libres(t), _especialidad=_especialidad(t)) for t in profesionales]
-    if semana:
-        profesionales = [t for t in profesionales if t["_proximos"] and t["_proximos"][0]["esta_semana"]]
-    if orden == "turno":
-        # Primero el que tiene el horario libre más cercano; los pausados y los
-        # que no tienen horarios, al final (por nombre, el orden de `todos`).
-        lejos = datetime.max.replace(tzinfo=ZoneInfo("UTC"))
-        profesionales.sort(key=lambda t: (directorio.es_demo(t), t["_proximos"][0]["inicio"] if t["_proximos"] else lejos))
-    filtros = {"especialidad": esp or None, "tema": tema or None, "modalidad": modalidad or None,
-               "obra": obra or None, "semana": "1" if semana else None, "orden": "nombre" if orden == "nombre" else None}
-    temas_esp = (directorio.TEMAS_ADULTOS if esp == "psicologia" else directorio.TEMAS_CHICOS if esp == "psicopedagogia"
-                 else directorio.TEMAS_ADULTOS + directorio.TEMAS_CHICOS)
-    return render_template("turnos.html", profesionales=profesionales, hay_profesionales=bool(todos),
-                           temas=directorio.TEMAS, temas_esp=temas_esp, tema=tema, modalidad=modalidad, obra=obra,
-                           especialidad=esp, especialidades=ESPECIALIDADES, cuenta_esp=cuenta_esp,
-                           semana=semana, orden=orden, f=filtros,
-                           filtrando=bool(tema or modalidad or obra or esp or semana))
+    """Era el directorio de profesionales. Ya no hay catálogo: cada uno tiene su
+    sitio en /<slug>. Los links viejos van a la portada."""
+    return redirect(url_for("inicio"), code=301)
 
 
 def tipos_de(tenant: dict) -> list[dict]:
@@ -5547,6 +5503,10 @@ def publico(slug):
     libres."""
     tenant = db.get_tenant_by_slug(slug)
     if not tenant:
+        # Un link que el profesional cambió sigue llevando a su página.
+        nuevo = db.slug_actual(slug.lower()) if SLUG_VALIDO.fullmatch(slug.lower()) else None
+        if nuevo:
+            return redirect(url_for("publico", slug=nuevo, **request.args), code=301)
         return "No encontrado.", 404
     if "bot" not in (request.user_agent.string or "").lower() and request.args.get("semana") is None:
         _evento(tenant, "visita")

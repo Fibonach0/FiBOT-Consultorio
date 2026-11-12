@@ -82,15 +82,15 @@
     </div>
   </div>
   {% endif %}
-  {% if avisos_pagina and avisos_pagina.fuera_directorio %}
-  <div class="card aviso-pagina" id="aviso-directorio" role="status">
-    <p style="margin:0 0 8px"><strong>No aparecés en el directorio de consultorio.fibot.ar.</strong>
-      Tu página funciona con su link, pero los pacientes que buscan profesional no te encuentran.</p>
+  {% if avisos_pagina and avisos_pagina.sin_google %}
+  <div class="card aviso-pagina" id="aviso-google" role="status">
+    <p style="margin:0 0 8px"><strong>Google no muestra tu página.</strong>
+      Funciona con su link, pero quien te busca por tu nombre no la encuentra.</p>
     <form method="post" action="{{ url_for('agenda_perfil') }}">
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <input type="hidden" name="casillas" value="en_directorio">
       <input type="hidden" name="en_directorio" value="1">
-      <button class="btn chico" type="submit">Aparecer en el directorio</button>
+      <button class="btn chico" type="submit">Que Google la muestre</button>
     </form>
   </div>
   {% endif %}

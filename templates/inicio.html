@@ -4,12 +4,13 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>FiBOT Consultorio — Psicología y psicopedagogía, turnos online</title>
-  <meta name="description" content="Encontrá a tu psicólogo o psicopedagogo, mirá sus horarios libres y reservá tu sesión presencial o por videollamada. Te confirmamos por WhatsApp.">
+  <title>FiBOT Consultorio — Turnos online para psicólogos y psicopedagogos</title>
+  <meta name="description" content="Cada profesional tiene su página con sus horarios libres: el paciente reserva solo, presencial o por videollamada, y recibe la confirmación por WhatsApp.">
+  {% if verificacion_google %}<meta name="google-site-verification" content="{{ verificacion_google }}">{% endif %}
   <link rel="canonical" href="{{ url_for('inicio', _external=True) }}">
   <meta property="og:type" content="website">
-  <meta property="og:title" content="FiBOT Consultorio — Encontrá a tu profesional y sacá turno en un minuto">
-  <meta property="og:description" content="Mirá los horarios libres y reservá tu sesión presencial o por videollamada. Te confirmamos por WhatsApp.">
+  <meta property="og:title" content="FiBOT Consultorio — Turnos online con tu profesional">
+  <meta property="og:description" content="Entrá al link de tu profesional, mirá sus horarios libres y reservá tu sesión. Te confirmamos por WhatsApp.">
   <meta property="og:url" content="{{ url_for('inicio', _external=True) }}">
   <meta property="og:image" content="{{ url_for('static', filename='portada/cierre.webp', _external=True) }}">
   <meta property="og:locale" content="es_AR">
@@ -21,7 +22,7 @@
     "name": "FiBOT Consultorio",
     "url": url_for('inicio', _external=True),
     "inLanguage": "es-AR",
-    "description": "Directorio de profesionales de psicología y psicopedagogía con turnos online."
+    "description": "Turnos online para profesionales de psicología y psicopedagogía: cada uno con su propia página."
   } | tojson }}</script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -272,8 +273,7 @@
   <a class="marca" href="{{ url_for('inicio') }}"><span class="logo" aria-hidden="true">Fi</span><span>Fi<b>BOT</b> <span class="sub">Consultorio</span></span></a>
   <nav aria-label="Principal">
     <a class="opcional" href="#como">Cómo funciona</a>
-    <a class="opcional" href="{{ url_for('turnos_directorio') }}">Profesionales</a>
-    <a class="opcional" href="{{ url_for('sumate') }}">Soy profesional</a>
+    <a class="opcional" href="#soy">Soy profesional</a>
     <a class="ingresar" href="{{ url_for('login') }}">Ingresar</a>
   </nav>
 </header>
@@ -284,7 +284,7 @@
   <div class="mancha" aria-hidden="true" style="width:420px;height:420px;background:#f0dccb;filter:blur(80px);bottom:-160px;left:-120px;animation:drift 52s ease-in-out infinite reverse"></div>
   <section class="env hero">
     <div>
-      <div class="rotulo vivo"><span class="punto" aria-hidden="true"></span>{% if total %}{{ total }} {{ 'profesional' if total == 1 else 'profesionales' }} con turnos online{% else %}Turnos online, presencial o por videollamada{% endif %}</div>
+      <div class="rotulo vivo"><span class="punto" aria-hidden="true"></span>Turnos online, presencial o por videollamada</div>
       <div class="para">
         <span id="para-label">¿Para quién es?</span>
         <div class="interruptor" role="group" aria-labelledby="para-label">
@@ -292,27 +292,13 @@
           <button type="button" data-para-btn="hijo" aria-pressed="false">Para mi hijo/a</button>
         </div>
       </div>
-      <h1>Psicología y psicopedagogía. Encontrá a tu profesional y sacá turno en un minuto.</h1>
+      <h1>Psicología y psicopedagogía. Sacá turno con tu profesional en un minuto.</h1>
       <p class="quiero" aria-live="polite">Quiero<span><i id="frase">sentirme mejor</i></span></p>
-      <p class="bajada">Elegís profesional, ves sus horarios libres y reservás. Sin llamar ni esperar respuesta: la confirmación te llega por WhatsApp.</p>
+      <p class="bajada">Entrás al link que te pasó tu profesional, ves sus horarios libres y reservás. Sin llamar ni esperar respuesta: la confirmación te llega por WhatsApp.</p>
       <div class="acciones">
-        <a class="boton" href="{{ url_for('turnos_directorio') }}">Buscar profesional</a>
-        <a class="boton suave" href="#temas">No sé por dónde empezar</a>
+        <a class="boton" href="#como">¿Cómo saco turno?</a>
+        <a class="boton suave" href="#soy">Soy profesional</a>
       </div>
-      <form class="buscador" method="get" action="{{ url_for('turnos_directorio') }}" role="search">
-        <div><label for="b-tema">¿Qué te pasa?</label>
-          <select id="b-tema" name="tema"><option value="">Cualquier tema</option>
-            <optgroup label="Para vos">{% for k in temas_adultos %}<option value="{{ k }}">{{ temas[k][0] }}</option>{% endfor %}</optgroup>
-            <optgroup label="Para chicos y adolescentes">{% for k in temas_chicos %}<option value="{{ k }}">{{ temas[k][0] }}</option>{% endfor %}</optgroup>
-          </select></div>
-        <div><label for="b-modalidad">¿Cómo?</label>
-          <select id="b-modalidad" name="modalidad"><option value="">Cualquiera</option>
-            <option value="presencial">Presencial</option><option value="virtual">Por videollamada</option>
-          </select></div>
-        <div><label for="b-obra">Obra social o prepaga</label>
-          <input id="b-obra" name="obra" type="text" placeholder="Ej. OSDE" autocomplete="off"></div>
-        <button class="boton" type="submit">Buscar</button>
-      </form>
     </div>
 
     <div class="demo" aria-label="Conversación de ejemplo por WhatsApp" role="img">
@@ -338,93 +324,17 @@
   {% for _ in range(2) %}{% for w in ['ansiedad', 'aprendizaje', 'vínculos', 'lectoescritura', 'duelos y cambios', 'atención', 'estrés', 'autoestima', 'orientación vocacional', 'miedos'] %}<span>{{ w }}</span>{% endfor %}{% endfor %}
 </div></div>
 
-<section id="temas" style="margin-top:40px" aria-labelledby="temas-titulo">
-  <div class="curva" style="background:var(--verde);border-radius:0 100% 0 0 / 0 100% 0 0"></div>
-  <div class="temas">
-    <div class="mancha" aria-hidden="true" style="width:180px;height:180px;background:var(--verde-2);top:40px;left:-60px"></div>
-    <div class="mancha" aria-hidden="true" style="width:14px;height:14px;background:var(--mostaza);top:120px;left:160px"></div>
-    <div class="env grilla">
-      <div>
-        <div class="rotulo">01 — Por dónde empezar</div>
-        <h2 class="titular" id="temas-titulo" data-reveal>¿En qué te podemos ayudar?</h2>
-        <p class="intro" data-para-solo="yo">Pedir ayuda es el primer paso. Estos son los motivos más comunes para empezar terapia. Tocá uno y te mostramos quién lo trabaja.</p>
-        <p class="intro" data-para-solo="hijo">Dificultades para aprender, para concentrarse o para estar bien en la escuela. Tocá un tema y te mostramos qué profesionales lo trabajan.</p>
-        <div class="quienes" aria-live="polite">
-          {% for k, t in temas.items() %}
-          <div data-tema-panel="{{ k }}" hidden>
-            {% if por_tema[k] %}
-            <div class="que">Trabajan {{ t[0] | lower }}:</div>
-            <ul>{% for p in por_tema[k] %}<li><a href="{{ p.url }}"><span class="ini" aria-hidden="true">{{ p.nombre | replace('Lic. ', '') | first | upper }}</span><span class="nom">{{ p.nombre }}</span><span class="ir">Ver horarios →</span></a></li>{% endfor %}</ul>
-            <a class="todos" href="{{ url_for('turnos_directorio', tema=k) }}">Ver todos los de {{ t[0] | lower }}</a>
-            {% else %}
-            <p class="nadie">Todavía no hay profesionales que mencionen {{ t[0] | lower }} en su perfil. <a class="todos" href="{{ url_for('turnos_directorio') }}" style="margin:0">Ver a todos</a></p>
-            {% endif %}
-          </div>
-          {% endfor %}
-          <div data-tema-panel="" class="que" style="margin:0">Elegí un tema</div>
-        </div>
-      </div>
-      {% for grupo, claves in [('yo', temas_adultos), ('hijo', temas_chicos)] %}
-      <ul class="tarjetas-tema" data-para-solo="{{ grupo }}">
-        {% for k in claves %}
-        <li><a href="{{ url_for('turnos_directorio', tema=k) }}" data-tema="{{ k }}" title="{{ temas[k][1] }}">
-          <span class="dibujo pal{{ loop.index0 % 4 }}"><img src="{{ img(k) }}" alt="" loading="lazy" onerror="this.remove()"></span>
-          <span class="nombre">{{ temas[k][0] }}</span>
-        </a></li>
-        {% endfor %}
-      </ul>
-      {% endfor %}
-    </div>
-  </div>
-  <div class="curva" style="background:var(--verde);border-radius:0 0 0 100% / 0 0 0 100%"></div>
-</section>
-
-{% if profesionales %}
-<section class="pros" id="profesionales" aria-labelledby="pros-titulo">
-  <div class="env">
-    <div class="encabezado">
-      <div>
-        <div class="rotulo">02 — Profesionales</div>
-        <h2 class="titular" id="pros-titulo" data-reveal>Conocelos antes de reservar.</h2>
-      </div>
-      <a class="ver" href="{{ url_for('turnos_directorio') }}">{% if hay_mas %}Ver todos{% else %}Ver el directorio{% endif %}</a>
-    </div>
-    <div class="grilla-pros">
-      {% for t in profesionales %}
-      <a class="pro" href="{{ url_for('publico', slug=t.slug) }}" data-para-en="{{ t._para }}" data-reveal>
-        <div class="foto">{{ t.nombre | replace('Lic. ', '') | first | upper }}
-          {% if t.foto %}<img src="{{ url_for('publico_foto', slug=t.slug) }}" alt="" loading="lazy">{% endif %}
-          <span class="chapa{% if t.pausado %} espera{% endif %}">{% if t.pausado %}{{ vuelve(t) | lower }}{% elif t.modalidades_publicas == 'virtual' %}por videollamada{% elif t.modalidades_publicas == 'ambas' %}presencial u online{% else %}presencial{% endif %}</span>
-        </div>
-        <div class="datos">
-          <div class="nombre">{{ t.nombre }}</div>
-          {% if t.titulo %}<div class="titulo">{{ t.titulo }}</div>{% endif %}
-          {% if t.rubro %}<span class="rubro{% if 'pedagog' in (t.rubro | lower) %} pp{% endif %}">{{ t.rubro }}</span>{% endif %}
-          {% if t.descripcion %}<p class="frase">“{{ t.descripcion | truncate(140) }}”</p>
-          {% elif t.enfoques %}<p class="frase">{{ t.enfoques[:3] | join(' · ') }}</p>{% endif %}
-          <div class="pie">
-            <span class="donde">{% if t.ubicacion %}{{ t.ubicacion }}{% elif t.modalidades_publicas == 'virtual' %}Online{% endif %}</span>
-            <span class="ir">{% if t.pausado %}Anotarme →{% else %}Ver horarios →{% endif %}</span>
-          </div>
-        </div>
-      </a>
-      {% endfor %}
-    </div>
-  </div>
-</section>
-{% endif %}
-
 <section id="como" style="margin-top:40px" aria-labelledby="como-titulo">
   <div class="curva" style="height:100px;background:var(--bosque);border-radius:100% 0 0 0 / 100% 0 0 0"></div>
   <div class="como">
     <div class="env">
-      <div class="rotulo">03 — Cómo funciona</div>
+      <div class="rotulo">01 — Cómo funciona</div>
       <h2 class="titular" id="como-titulo" data-reveal>Tres pasos. Ninguna llamada.</h2>
       <ol class="pasos">
         <li class="paso" data-reveal style="background:var(--mostaza)">
-          <div class="arriba"><div><div class="cual" style="color:#6b4a1c">PRIMER PASO</div><h3>Elegí a tu profesional</h3></div><div class="num" aria-hidden="true">1</div></div>
+          <div class="arriba"><div><div class="cual" style="color:#6b4a1c">PRIMER PASO</div><h3>Entrá a su link</h3></div><div class="num" aria-hidden="true">1</div></div>
           <span class="imagen"><img data-para-img="paso1" src="{{ img('paso1') }}" alt="" loading="lazy" onerror="this.remove()"></span>
-          <p>Leé cómo trabaja, qué temas aborda y su formación.</p>
+          <p>Tu profesional te lo pasa por WhatsApp, Instagram o en su firma: consultorio.fibot.ar/su-nombre.</p>
         </li>
         <li class="paso" data-reveal style="background:var(--durazno)">
           <div class="arriba"><div><div class="cual" style="color:#6e2f18">SEGUNDO PASO</div><h3>Reservá el horario</h3></div><div class="num" aria-hidden="true">2</div></div>
@@ -437,7 +347,6 @@
           <p>Te llega la confirmación y un recordatorio. Si algo cambia, lo resolvés desde el mismo link.</p>
         </li>
       </ol>
-      <a class="boton" href="{{ url_for('turnos_directorio') }}">Sacar turno →</a>
     </div>
   </div>
   <div class="curva" style="height:100px;background:var(--bosque);border-radius:0 0 100% 0 / 0 0 100% 0"></div>
@@ -457,7 +366,7 @@
 <section class="preguntas" id="preguntas" aria-labelledby="preguntas-titulo">
   <div class="env">
     <div>
-      <div class="rotulo">04 — Preguntas</div>
+      <div class="rotulo">02 — Preguntas</div>
       <h2 class="titular" id="preguntas-titulo" data-reveal>Lo que nos preguntan antes de empezar.</h2>
       <div class="urgencia" data-reveal>
         <div class="num" aria-hidden="true">135</div>
@@ -465,7 +374,8 @@
       </div>
     </div>
     <div class="burbujas">
-      <details open><summary>¿Cuánto cuesta una sesión?</summary><p>Cada profesional fija su honorario. Si lo publicó, lo ves en su página al reservar; si no, consultalo directamente.</p></details>
+      <details open><summary>¿Cómo encuentro a mi profesional?</summary><p>Cada profesional tiene su propia página. Pedile su link (o buscalo por su nombre) y desde ahí reservás. Acá no hay un listado de profesionales.</p></details>
+      <details><summary>¿Cuánto cuesta una sesión?</summary><p>Cada profesional fija su honorario. Si lo publicó, lo ves en su página al reservar; si no, consultalo directamente.</p></details>
       <details><summary>¿Atienden por obra social o prepaga?</summary><p>Depende del profesional: en su perfil figura con cuáles trabaja. Si no está, podés consultarle por reintegro.</p></details>
       <details><summary>¿Puedo cancelar o cambiar el turno?</summary><p>Sí, desde el link que te llega por WhatsApp. Cada profesional define hasta cuántas horas antes.</p></details>
       <details><summary>¿Y si no hay horarios libres?</summary><p>Anotate en la lista de espera desde la página del profesional y te avisamos cuando se libere un lugar.</p></details>
@@ -481,8 +391,7 @@
   </div>
   <div>
     <h2 id="cierre-titulo" data-reveal>Pedir ayuda también es <i>cuidarse.</i></h2>
-    <p>Elegí a tu profesional y reservá tu primera sesión hoy.</p>
-    <a class="boton" href="{{ url_for('turnos_directorio') }}">Quiero empezar →</a>
+    <p>Pedile su link a tu profesional y reservá tu primera sesión hoy.</p>
   </div>
 </section>
 
@@ -496,7 +405,7 @@
       <div class="acciones"><a class="boton" href="{{ url_for('sumate') }}">Quiero sumarme</a><a class="ya" href="{{ url_for('login') }}">Ya tengo cuenta</a></div>
     </div>
     <ul class="ventajas">
-      <li>Tu página para que te reserven turno online</li>
+      <li>Tu propia página (consultorio.fibot.ar/tu-nombre) para que te reserven turno online, sin otros colegas al lado</li>
       <li>Recordatorios y confirmaciones automáticas por WhatsApp</li>
       <li>Cobro con Mercado Pago, recibos y planilla para obra social</li>
       <li>Ficha de cada paciente y cuestionarios</li>
@@ -507,7 +416,7 @@
 
 <footer class="env">
   <span>© {{ anio }} FiBOT Consultorio · parte de <a href="https://fibot.ar">fibot.ar</a></span>
-  <nav aria-label="Pie"><a href="{{ url_for('turnos_directorio') }}">Profesionales</a><a href="{{ url_for('sumate') }}">Sumate como profesional</a><a href="{{ url_for('privacidad') }}">Privacidad</a><a href="{{ url_for('login') }}">Ingresar</a></nav>
+  <nav aria-label="Pie"><a href="{{ url_for('sumate') }}">Sumate como profesional</a><a href="{{ url_for('privacidad') }}">Privacidad</a><a href="{{ url_for('login') }}">Ingresar</a></nav>
 </footer>
 
 <script>

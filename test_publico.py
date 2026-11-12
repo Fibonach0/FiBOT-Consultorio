@@ -72,20 +72,18 @@ app.config.PLATAFORMA_PHONE_NUMBER_ID = "PLAT"
 
 client = app.app.test_client()
 
+VIEJOS = {"ana-vieja": "anaperez"}
+db.slug_actual = lambda viejo: VIEJOS.get(viejo)
 r = client.get("/slug-inexistente")
 assert r.status_code == 404, r.status_code
 print("GET /<slug desconocido> -> 404 OK")
+r = client.get("/ana-vieja?semana=2026-11-16")
+assert r.status_code == 301 and r.headers["Location"].endswith("/anaperez?semana=2026-11-16"), r.headers.get("Location")
+print("link viejo (lo cambió): redirige al nuevo, con la semana OK")
 
-r = client.get("/turnos")
-html = r.data.decode()
-assert r.status_code == 200 and "Lic. Ana Pérez" in html and "Lic. Beto Gómez" in html and "Lic. Sin Página" not in html, html[:400]
-assert 'href="/anaperez"' in html and 'href="/betogomez"' in html and "Lic. Oculta" not in html
-print("quien no quiere aparecer en /turnos no aparece OK")
+assert client.get("/turnos").status_code == 301
+print("/turnos ya no lista profesionales: va a la portada OK")
 TENANT.update({"foto": "data:image/png;base64,AAAA", "descripcion": "Niños y adolescentes · Palermo", "modalidades_publicas": "ambas"})
-html = client.get("/turnos").data.decode()
-assert 'src="/anaperez/foto"' in html and "data:image" not in html and "Niños y adolescentes · Palermo" in html and "Presencial u online" in html
-print("/turnos muestra foto, descripción y modalidad OK")
-print("GET /turnos -> lista los profesionales con página y lleva a cada calendario OK")
 
 r = client.get("/anaperez")
 html = r.data.decode()

@@ -136,3 +136,7 @@ MAIL_REMITENTE = os.environ.get("MAIL_REMITENTE", "")  # ej. "FiBOT Consultorio 
 # Dominio principal (ej. consultorio.fibot.ar). Si está cargado, cualquier otro
 # host redirige ahí, salvo el webhook de Meta y /health. Vacío = sin redirección.
 DOMINIO_PRINCIPAL = os.environ.get("DOMINIO_PRINCIPAL", "").strip().lower()
+
+# Verificación de Google Search Console por etiqueta HTML: el valor de
+# `content` que da Search Console. Va sólo en la portada. Vacío = no se pone.
+GOOGLE_SITE_VERIFICATION = os.environ.get("GOOGLE_SITE_VERIFICATION", "").strip()

@@ -278,20 +278,31 @@ pública no es un camino paralelo, es la misma operación atómica (filtra por
 `slug` cargado simplemente no tiene página pública; sigue andando por
 WhatsApp y panel como siempre.
 
-`/` es la portada del sitio para futuros pacientes (`templates/inicio.html`,
-página suelta, no extiende `base.html`): diseño de Claude Design (proyecto «Home», archivo `Home.dc.html`), con «Para mí / Para mi hijo/a» que cambia frases, temas (`directorio.TEMAS_ADULTOS` / `TEMAS_CHICOS`), profesionales e ilustraciones (`static/portada/<tema>.webp`; si falta una, queda la figura de color). buscador (tema, modalidad, obra social →
-`/turnos`), temas que llevan a `/turnos?tema=…`, hasta `INICIO_PROFESIONALES` del
-directorio (primero los que toman turnos y tienen foto), cómo funciona,
-modalidades, preguntas frecuentes y el bloque «¿Sos profesional?» → `/sumate`.
-Si la base falla, portada, /turnos y sitemap salen sin profesionales
-(`app._directorio`). El chequeo de vida es `/health`, no `/`.
+`/` es la portada (`templates/inicio.html`, página suelta, no extiende `base.html`; diseño de
+Claude Design, proyecto «Home»): **genérica, sin profesionales**. Pedido de una profesional:
+«¿qué me garantiza que mis pacientes no se vayan con otro si lo que tienen ahí es un catálogo?».
+No hay lista de profesionales en ningún lado: cada uno tiene su sitio en `/<slug>`. La portada
+explica cómo sacar turno con el link de tu profesional y lleva a `/sumate`. `/turnos` (era el
+directorio) redirige 301 a `/`. Con `GOOGLE_SITE_VERIFICATION` (Railway) la portada lleva la
+etiqueta de verificación de Google Search Console. El chequeo de vida es `/health`, no `/`.
 
-Directorio (`directorio.py`): `visibles` (con slug y sin `en_directorio = false`)
-y `filtrar` para `/turnos?tema=&modalidad=&obra=`. Los temas (`TEMAS`) se
-reconocen por palabras sueltas, sin tildes, en enfoques, descripción, sobre mí,
-título y rubro (psicopedagogía cae en «Infancia»): el perfil no tiene lista
-cerrada de temas a propósito. Valores desconocidos no filtran. Con modalidad u
-obra social la página va `noindex`; con tema sólo, es indexable (canonical).
+`directorio.py` quedó chico: `visibles` (con slug y sin `en_directorio = false`) arma el sitemap,
+y `es_demo` elige el ejemplo de `/sumate` (sólo cuentas de muestra, nunca un profesional real).
+`tenants.en_directorio` ahora quiere decir «que Google pueda mostrar mi página»: false = la página
+va `noindex` y fuera del sitemap (casilla en «Reservas desde tu página»; aviso arriba de la agenda).
+Con varios profesionales en el número compartido, quien escribe sin turno recibe «la página que te
+pasó tu profesional» (antes iba a /turnos).
+
+Link corto (`migrations/083`): el profesional elige su slug en «Tu página de turnos»
+(`/agenda/link`, `SLUG_VALIDO`: 3-40, minúsculas, números y guiones). El anterior queda en
+`slugs_anteriores` (de la plataforma, sin tenant_id en la consulta a propósito, como
+`get_tenant_by_slug`) y `/<viejo>` redirige 301 al nuevo con la misma query (`db.slug_actual`).
+`db.slug_libre` rechaza el slug de hoy o viejo de OTRA cuenta; volver a uno propio lo saca de los
+viejos. Preguntas frecuentes propias: `tenants.preguntas` ([{p, r}], `MAX_PREGUNTAS`, sólo pares
+completos, en «Cómo te presentás»): salen en `/<slug>` y como JSON-LD `FAQPage` (filtro
+`pregunta_ld`). El `<title>` de `/<slug>` es «Nombre — título o rubro en ubicación · Turnos online»
+(lo que se busca en Google). «Cómo llegar» (link a Google Maps, no un mapa embebido) sólo donde
+ya se muestra la dirección: al elegir el horario y con la reserva hecha.
 
 `/sumate` (`migrations/060`, tabla `interesados`, de la plataforma como
 `admins`): formulario para profesionales; pide nombre y WhatsApp o mail, tiene un
@@ -303,27 +314,22 @@ campo trampa (`web`) para robots y cuenta 5 envíos por IP cada 15 minutos en
 Estilo del sitio para pacientes (Claude Design: `Profesionales`, `Perfil`, `Para profesionales`):
 `templates/_sitio.html` (letras, paleta clara y oscura con `:root:root` porque base define sus
 colores después; el verde no se pisa si hay `color_pagina`) y `_sitio_macros.html` (`barra`, `pie`).
-Lo usan `/turnos`, `/sumate`, `/<slug>` y `publico_reservar/revisar/confirmado`; siguen extendiendo
-base (menú «Aa», oscuro). `/turnos` filtra además por `especialidad` (rubro psicología /
-psicopedagogía), `semana=1` (primer libre en 7 días) y `orden` (próximo turno por defecto, o nombre);
-cada tarjeta muestra hasta 4 próximos libres (`app._proximos_libres`, 60 s en memoria) que llevan
-directo a reservar, o a la semana si hay varios tipos de turno. En `/<slug>` el calendario va a la
+Lo usan `/sumate`, `/<slug>` y `publico_reservar/revisar/confirmado`; siguen extendiendo
+base (menú «Aa», oscuro). En `/<slug>` el calendario va a la
 derecha: se elige el día y se ven sus horarios (sin JS, todos los días). Las fotos van por
-`/<slug>/foto`, nunca como data URL en listados.
+`/<slug>/foto`, nunca como data URL.
 Sitio propio: `/<slug>` y sus pantallas de reserva usan `sitio.barra_propia(tenant)` (inicial +
 nombre, lleva a su página) y `sitio.pie_propio()`: NINGÚN link a la portada, `/turnos`, `/sumate`
 ni a otros profesionales (pedido de una profesional: el paciente que trae con su link es suyo).
-El directorio sigue siendo la puerta para pacientes nuevos y se apaga con `en_directorio`.
 
 SEO: `/robots.txt` (cierra panel, admin, login y los links con token) y
-`/sitemap.xml` (portada, /turnos, /sumate, /privacidad y cada `/<slug>` del
-directorio). La portada lleva JSON-LD `WebSite`; `/<slug>` lleva descripción,
+`/sitemap.xml` (portada, /sumate, /privacidad y cada `/<slug>` que no ocultó su
+página). La portada lleva JSON-LD `WebSite`; `/<slug>` lleva descripción,
 canonical, Open Graph (la portada como imagen, si hay) y JSON-LD `Person`
 (`app.perfil_ld`). La foto es un data URL y no sirve como `og:image`. `base.html`
 tiene `{% block head %}` para esto.
 
-`/turnos` es la puerta de entrada para pacientes: lista los profesionales
-activos con `slug` y cada uno lleva a su calendario. `/<slug>` muestra una
+`/<slug>` muestra una
 semana (lunes a domingo, en la zona del profesional, `?semana=AAAA-MM-DD`) con
 los horarios libres; sin semana elegida abre la del próximo horario libre. En el
 panel, «Tu página de turnos» copia el link, lo comparte por WhatsApp y da un QR
@@ -331,8 +337,8 @@ panel, «Tu página de turnos» copia el link, lo comparte por WhatsApp y da un 
 
 Perfil público (`migrations/047`): `tenants.foto` (data URL PNG/JPG, mismo
 criterio que la firma), `descripcion`, `modalidades_publicas` (presencial /
-virtual / ambas: con ambas elige el paciente) y `en_directorio` (si es false no
-aparece en /turnos, pero su link sigue andando). Se cargan en «Tu página de
+virtual / ambas: con ambas elige el paciente) y `en_directorio` (si es false su
+página va noindex y fuera del sitemap, pero su link sigue andando). Se cargan en «Tu página de
 turnos» del panel.
 Perfil completo (`migrations/058`): `titulo`, `ubicacion`, `sobre_mi`,
 `enfoques` (lista, `MAX_ENFOQUES`), `formacion` (renglones, `MAX_FORMACION`),
@@ -1158,9 +1164,7 @@ si no (o si falló), consultan como siempre. Medido con 100 ms por consulta: 3,4
   `PAUSA_AVISAR_DIAS` o más sin fecha de vuelta (`tenants.pausado_desde`,
   `migrations/074`, lo mantiene un trigger para todas las formas de pausar;
   sin dato también avisa) con «Volver a tomar turnos» / «Poner fecha de
-  vuelta», y `en_directorio = false` con «Aparecer en el directorio». En el
-  directorio un pausado dice «Vuelve a atender pronto» o «Vuelve el D/M»
-  (global `vuelve`).
+  vuelta», y `en_directorio = false` con «Que Google la muestre».
 - Pausa con fecha en `/<slug>`: «Vuelve el jueves 12/11» con cuenta regresiva
   (`app._cuenta_vuelta`, medianoche en la zona del profesional; el JS cuenta
   días/horas/min/seg y sin JS quedan los días). `DIAS_ANTES_VUELTA` (2) días
@@ -1200,8 +1204,7 @@ a las 00:30 volvía a la misma persona), avisando al
   persona; si tenía otro horario guardado, ese pasa al siguiente) y el
   profesional recibe «Cata reservó…: lo sacamos de tu lista». «Ofrecer horario»
   del panel usa `guardar_y_ofrecer` (sin varios tipos de turno). El resumen de
-  la mañana cuenta los de la lista sin horario guardado ni reserva. En el directorio,
-  `vuelve` agrega los días que faltan («faltan 3 días», «mañana», «hoy»).
+  la mañana cuenta los de la lista sin horario guardado ni reserva.
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
 - GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +
