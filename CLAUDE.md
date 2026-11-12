@@ -310,6 +310,10 @@ cada tarjeta muestra hasta 4 próximos libres (`app._proximos_libres`, 60 s en m
 directo a reservar, o a la semana si hay varios tipos de turno. En `/<slug>` el calendario va a la
 derecha: se elige el día y se ven sus horarios (sin JS, todos los días). Las fotos van por
 `/<slug>/foto`, nunca como data URL en listados.
+Sitio propio: `/<slug>` y sus pantallas de reserva usan `sitio.barra_propia(tenant)` (inicial +
+nombre, lleva a su página) y `sitio.pie_propio()`: NINGÚN link a la portada, `/turnos`, `/sumate`
+ni a otros profesionales (pedido de una profesional: el paciente que trae con su link es suyo).
+El directorio sigue siendo la puerta para pacientes nuevos y se apaga con `en_directorio`.
 
 SEO: `/robots.txt` (cierra panel, admin, login y los links con token) y
 `/sitemap.xml` (portada, /turnos, /sumate, /privacidad y cada `/<slug>` del
@@ -689,7 +693,9 @@ después de anotarlo. Aparte, pendientes sin tildar de pacientes activos sin
 próxima sesión. `db.bitacora_desde` trae sólo id/fecha/para_proxima/hecha
 (nunca el texto) de los últimos `DIAS_PENDIENTES`. El tilde manda
 `preparar=<desde>` y `_volver_de_bitacora` vuelve ahí. Accesos: «Preparar» en
-la lista rápida, botón en Hoy del panel, buscador y atajo del manifest.
+la lista rápida, botón en Hoy del panel, buscador y atajo del manifest. «Todo junto» (`todo_junto`,
+plegado arriba): lo sin tildar de los 7 días en una lista con paciente y día; «Copiar la lista»
+sólo usa el portapapeles del dispositivo.
 
 ### Psicopedagogía (`rubros.py`, `migrations/021`)
 
@@ -1182,7 +1188,9 @@ si no (o si falló), consultan como siempre. Medido con 100 ms por consulta: 3,4
   y el tick de respaldo) marca cada oferta (`lista_espera.ofrecido_turno` /
   `ofrecido_hasta` / `ofrecido_estado`: esperando / reservo / vencio / otro,
   `migrations/078`) y le pasa el horario vencido al siguiente sin oferta hoy
-  (`pasar_al_siguiente`; si ya no sirve, el próximo libre), avisando al
+  (`pasar_al_siguiente`; si ya no sirve, el próximo libre; `_siguiente` también saltea a quien tuvo
+un horario guardado en las últimas `HORAS_ENTRE_OFERTAS`: si no, un guardado de las 23:30 que vence
+a las 00:30 volvía a la misma persona), avisando al
   profesional. La lista de espera del panel muestra qué se le ofreció a cada
   uno y cómo terminó (`app._espera_con_oferta`). Al profesional vinculado le
   llega a quién se le ofreció cada horario (`texto_reparto`, hasta

@@ -103,6 +103,7 @@ def ofrecer_a_toda_la_espera(tenant: dict, turno: dict, hoy) -> int:
 
 MINUTOS_GUARDADO = 60
 MAX_EN_AVISO = 8  # el aviso va en un parámetro de plantilla: que no se pase de largo
+HORAS_ENTRE_OFERTAS = 24  # a quien se le guardó un horario no se le pasa otro hasta el día siguiente
 MARGEN_PASAR = timedelta(minutes=30)  # un horario que empieza antes de esto ya no se pasa
 
 
@@ -201,18 +202,31 @@ def texto_reparto(ofrecidos: list[tuple[str, str]], guardados: bool, en_cola: in
     return texto
 
 
-def _siguiente(tenant: dict, hoy: str) -> dict | None:
-    """El primero de la lista (por anotación) sin un horario guardado ahora y
-    que hoy no recibió ofrecimiento."""
+def _ofrecido_hace_poco(persona: dict, ahora: datetime) -> bool:
+    """Se le guardó un horario en las últimas `HORAS_ENTRE_OFERTAS`. Sin esto,
+    un guardado de las 23:30 que vence a las 00:30 volvía a la misma persona
+    (su `ofrecido_en` ya era «ayer»)."""
+    hasta = persona.get("ofrecido_hasta")
+    if not hasta:
+        return False
+    fin = datetime.fromisoformat(str(hasta).replace("Z", "+00:00"))
+    return fin - timedelta(minutes=MINUTOS_GUARDADO) > ahora - timedelta(hours=HORAS_ENTRE_OFERTAS)
+
+
+def _siguiente(tenant: dict, ahora: datetime) -> dict | None:
+    """El primero de la lista (por anotación) sin un horario guardado ahora,
+    que hoy no recibió ofrecimiento ni tuvo uno guardado en las últimas 24 h."""
+    hoy = ahora.astimezone(_tz(tenant)).date().isoformat()
     return next((p for p in db.lista_de_espera(tenant["id"])
-                 if p.get("ofrecido_estado") != "esperando" and p.get("ofrecido_en") != hoy), None)
+                 if p.get("ofrecido_estado") != "esperando" and p.get("ofrecido_en") != hoy
+                 and not _ofrecido_hace_poco(p, ahora)), None)
 
 
 def pasar_al_siguiente(tenant: dict, turno: dict | None, ahora: datetime, excluir: str | None = None) -> str | None:
     """Un horario guardado que quedó libre (venció o lo rechazaron) va al
     siguiente de la lista. Si ese horario ya no sirve (lo tomaron o empieza ya),
     el próximo libre. Devuelve el nombre de a quién se le ofreció."""
-    persona = _siguiente(tenant, ahora.astimezone(_tz(tenant)).date().isoformat())
+    persona = _siguiente(tenant, ahora)
     if not persona or not tenant.get("slug") or tenant.get("pausado"):
         return None
     if not (turno and turno.get("estado") == "libre" and not turno.get("hueco") and turno["id"] != excluir

@@ -122,8 +122,7 @@
   .pf-espera .s-campo { padding:11px 12px; font-size:14px; }
   .pf-aviso { font-size:15px; color:var(--s-texto); background:var(--green-bg); border-radius:10px; padding:12px 14px; margin:0 0 18px; }
 </style>
-{% if hay_directorio and not cambiar %}{{ sitio.barra(volver=(url_for('turnos_directorio'), 'Otros profesionales')) }}
-{% else %}{{ sitio.barra('nada') }}{% endif %}
+{{ sitio.barra_propia(tenant) }}
 <main class="s-main">
   {% set modalidad_txt = 'por videollamada' if tenant.modalidades_publicas == 'virtual' else ('presencial o por videollamada' if tenant.modalidades_publicas == 'ambas' else 'presencial') %}
   {% set inicial = (tenant.nombre or '?').replace('Lic.', '').replace('Dra.', '').replace('Dr.', '').strip()[:1] %}
@@ -323,7 +322,7 @@
     </aside>
   </div>
 </main>
-{{ sitio.pie() }}
+{{ sitio.pie_propio() }}
 <script>
 (function () {
   // Días de la semana: se elige uno y se ven sus horarios. Sin JS se ven todos.

@@ -18,6 +18,15 @@
     {% if desde != hoy %}<a class="btn chico secundario" href="{{ url_for('preparar') }}">Hoy</a>{% endif %}
   </nav>
   <p class="tenue preparar-pista">Lo que anotaste en «Para la próxima», en el día de la sesión que sigue. Tocalo cuando lo tengas listo.</p>
+  {% if todo_junto %}
+  <details class="preparar-junto">
+    <summary><strong>Todo junto</strong> · {{ todo_junto|length }} {{ 'cosa' if todo_junto|length == 1 else 'cosas' }} para preparar esta semana</summary>
+    <ul id="todo-junto">
+      {% for x in todo_junto %}<li><span class="junto-texto">{{ x.texto }}</span> <span class="tenue">· {{ x.nombre }}, {{ x.dia }}</span></li>{% endfor %}
+    </ul>
+    <button type="button" class="btn chico secundario" id="copiar-junto" hidden>Copiar la lista</button>
+  </details>
+  {% endif %}
   <div class="preparar-grilla">
     {% for d in dias %}
     <section class="preparar-dia{% if d.fecha == hoy %} es-hoy{% endif %}{% if not d.sesiones %} vacio{% endif %}" aria-label="{{ d.etiqueta }}">
@@ -63,6 +72,23 @@
   .preparar-hora { font-weight:700; font-variant-numeric:tabular-nums; }
   .preparar-sesion.sin-item .preparar-quien { margin-bottom:0; color:var(--muted, inherit); }
   .preparar-sesion .tilde-form { margin:0; }
+  .preparar-junto { background:var(--card); border:1px solid var(--rule); border-radius:10px; padding:10px 12px; margin:0 0 10px; }
+  .preparar-junto summary { cursor:pointer; }
+  .preparar-junto ul { margin:8px 0; padding-left:1.2em; }
+  .preparar-junto li { margin:4px 0; overflow-wrap:anywhere; }
+  .junto-texto { font-weight:600; }
 </style>
+<script>
+(function () {
+  var b = document.getElementById('copiar-junto');
+  if (!b || !navigator.clipboard) return;
+  b.hidden = false;
+  b.addEventListener('click', function () {
+    // Sólo al portapapeles del dispositivo: no sale a ningún servicio.
+    var t = Array.prototype.map.call(document.querySelectorAll('#todo-junto .junto-texto'), function (e) { return '- ' + e.textContent; }).join('\n');
+    navigator.clipboard.writeText(t).then(function () { b.textContent = 'Copiada ✓'; });
+  });
+})();
+</script>
 {% include "_bitacora_js.html" %}
 {% endblock %}

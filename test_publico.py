@@ -91,8 +91,14 @@ r = client.get("/anaperez")
 html = r.data.decode()
 hora_local = datetime.fromisoformat(TURNO_LIBRE["inicio"]).astimezone(app.ZoneInfo(TENANT["timezone"])).strftime("%H:%M")
 assert r.status_code == 200 and "Lic. Ana P" in html and 'href="/anaperez/reservar/turno-a"' in html and f'>{hora_local}</a>' in html, html[:400]
-assert "Semana del" in html and "Otros profesionales" in html and "Semana anterior" not in html
+assert "Semana del" in html and "Semana anterior" not in html
 print("GET /anaperez -> 200 OK, calendario de la semana con el turno libre")
+# Sitio propio: la página del profesional (y su reserva) no lleva al directorio ni a otros profesionales.
+for _url in ("/anaperez", "/anaperez/reservar/turno-a"):
+    _h = client.get(_url).data.decode()
+    assert ('href="/"' not in _h and 'href="/turnos' not in _h and 'href="/sumate"' not in _h and "Otros profesionales" not in _h
+            and "fibot.ar" not in _h.split("<body")[1] and 'class="s-marca" href="/anaperez"' in _h), _url
+print("sitio propio: su nombre arriba y ningún link al directorio ni a otros profesionales OK")
 
 r = client.get("/anaperez?semana=2020-01-06")
 assert r.status_code == 200 and "Semana anterior" not in r.data.decode()

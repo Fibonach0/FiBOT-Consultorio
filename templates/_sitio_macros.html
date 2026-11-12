@@ -23,6 +23,24 @@
 </header>
 {%- endmacro %}
 
+{#- La página de UN profesional y su reserva: su nombre arriba y nada que lleve
+    al directorio ni a otros profesionales (el paciente que manda su link es suyo).
+    volver = True en las pantallas de reservar: «← Horarios» vuelve a su página. -#}
+{% macro barra_propia(tenant, volver=false) -%}
+{% set inicial = (tenant.nombre or '?').replace('Lic.', '').replace('Dra.', '').replace('Dr.', '').strip()[:1] %}
+<header class="s-barra">
+  <a class="s-marca" href="{{ url_for('publico', slug=tenant.slug) }}"><span class="logo" aria-hidden="true">{{ inicial }}</span><span>{{ tenant.nombre }}</span></a>
+  {% if volver %}<nav class="s-nav" aria-label="Volver"><a href="{{ url_for('publico', slug=tenant.slug) }}">← Horarios</a></nav>{% endif %}
+</header>
+{%- endmacro %}
+
+{% macro pie_propio() -%}
+<footer class="s-pie">
+  <span>Turnos online con FiBOT Consultorio</span>
+  <span>¿Urgencia? Línea <a href="tel:135">135</a> (gratuita) o <a href="tel:+541152751135">(011) 5275-1135</a></span>
+</footer>
+{%- endmacro %}
+
 {% macro pie() -%}
 <footer class="s-pie">
   <span>© {{ anio_actual() }} FiBOT Consultorio · parte de <a href="https://fibot.ar">fibot.ar</a></span>
