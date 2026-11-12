@@ -41,6 +41,27 @@ ORIGINAL = {"principal": "#2f3a2c", "acento": "#9a5c3e", "fondo": "#f4efe6", "su
             "bordes": "redondos", "foto": "rectangulo", "portada": "normal",
             "calendario": "derecha", "en_celular": "perfil_primero", "orden": list(MODULOS), "ocultar": []}
 
+# Diseños listos, para quien no usa IA: cada uno es un estilo completo que se
+# carga como borrador (el CSS propio, si había, se mantiene).
+PRESETS = {
+    "calido": {"nombre": "Cálido", "detalle": "Tonos tierra, letras suaves, foto redonda",
+               "estilo": {"principal": "#7a4a2e", "acento": "#a8552f", "fondo": "#f7f0e6", "superficie": "#fffaf3",
+                          "texto": "#2e221a", "letra_titulos": "Lora", "letra_texto": "Nunito", "bordes": "suaves",
+                          "foto": "circulo"}},
+    "minimalista": {"nombre": "Minimalista", "detalle": "Blanco y negro, bordes rectos, mucho aire",
+                    "estilo": {"principal": "#1f1f1f", "acento": "#5c5c5c", "fondo": "#ffffff", "superficie": "#fafafa",
+                               "texto": "#1a1a1a", "letra_titulos": "Inter", "letra_texto": "Inter", "bordes": "rectos",
+                               "foto": "cuadrada", "portada": "baja"}},
+    "moderno": {"nombre": "Moderno", "detalle": "Azul y coral, letras redondeadas, calendario a la izquierda",
+                "estilo": {"principal": "#2b4f7a", "acento": "#b8502b", "fondo": "#f3f5f8", "superficie": "#ffffff",
+                           "texto": "#1c2430", "letra_titulos": "Poppins", "letra_texto": "DM Sans", "bordes": "redondos",
+                           "foto": "circulo", "calendario": "izquierda"}},
+    "sereno": {"nombre": "Sereno", "detalle": "Verde salvia y lavanda, letras clásicas",
+               "estilo": {"principal": "#3f6b5c", "acento": "#7a5a8e", "fondo": "#f2f5f1", "superficie": "#fbfcfa",
+                          "texto": "#24302b", "letra_titulos": "Fraunces", "letra_texto": "Work Sans", "bordes": "suaves",
+                          "foto": "rectangulo"}},
+}
+
 # Las partes de la página, con el nombre que puede usar el CSS. Es un contrato:
 # si se cambia el HTML de /<slug>, estas clases tienen que seguir existiendo
 # (test_seguimiento lo revisa).

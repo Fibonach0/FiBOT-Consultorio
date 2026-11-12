@@ -140,8 +140,12 @@
   </div>
   {% endif %}
   {% set para_resolver = (mensajes|rejectattr('leido')|list|length) + (pagos_revisar|length) + (reservas_nuevas|length) + (huecos|length) + (cuestionarios_nuevos|length) + (tests_para_repetir|length) %}
+  {# Módulos del panel: con una disposición propia (/agenda/acomodar) esto es una grilla y cada
+     [data-bloque] lleva su orden y ancho; sin ella se ve como siempre. #}
+  {% if disposicion %}<style>{{ disposicion|safe }}</style>{% endif %}
+  <div class="panel-modulos{% if disposicion %} propia{% endif %}">
   {% if mensajes or pagos_revisar or reservas_nuevas or huecos or cuestionarios_nuevos or tests_para_repetir %}
-  <div class="card bandeja" id="para-resolver">
+  <div class="card bandeja" id="para-resolver" data-bloque="resolver">
     <h3>Para resolver{% if para_resolver %} <span class="contador">{{ para_resolver }}</span>{% endif %}</h3>
     <div class="bandeja-tabs" role="tablist" aria-label="Para resolver">
     {% if mensajes %}<button class="bandeja-tab" type="button" role="tab" id="bt-mensajes" aria-controls="mensajes" data-bandeja-tab="mensajes" aria-selected="false" tabindex="-1">Mensajes{% if mensajes|rejectattr('leido')|list|length %} <span class="contador">{{ mensajes|rejectattr('leido')|list|length }}</span>{% endif %}</button>{% endif %}
@@ -296,7 +300,7 @@
   {% if revision %}
   {# Repaso de la semana: sale sola de viernes a domingo (se puede dar por vista hasta la semana que viene) y cualquier día con ?revision=1. #}
   {% set r = revision %}
-  <div class="card revision" id="revision" data-semana="{{ r.semana }}"{% if not r.pedida %} data-ocultable{% endif %}>
+  <div class="card revision" id="revision" data-bloque="repaso" data-semana="{{ r.semana }}"{% if not r.pedida %} data-ocultable{% endif %}>
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
       <h3 style="margin:0">Repaso de la semana</h3>
       <button class="btn chico secundario" type="button" data-revision-vista>{{ 'Cerrar' if r.pedida else 'Listo, ya la vi' }}</button>
@@ -371,7 +375,7 @@
   })();
   </script>
   {% endif %}
-  <div class="card" id="hoy">
+  <div class="card" id="hoy" data-bloque="hoy">
     <h3>Hoy{% if hoy %} <span class="contador">{{ hoy|length }}</span>{% endif %} <a href="{{ url_for('preparar') }}" class="btn chico secundario" style="float:right">📋 Para preparar</a></h3>
     {% if not hoy %}<div class="tenue">Hoy no hay sesiones.</div>{% endif %}
     <div class="hoy-grilla">
@@ -457,7 +461,7 @@
 
   <div class="tablero">
   {% if vista == 'mes' %}
-  <div class="card">
+  <div class="card" data-bloque="calendario">
     <div class="semana-nav">
       <a class="btn secundario chico" href="{{ url_for('agenda', mes=mes_anterior) }}">‹</a>
       <h3>{{ mes_titulo }}</h3>
@@ -516,7 +520,7 @@
     </div>
   </div>
   {% else %}
-  <div class="card">
+  <div class="card" data-bloque="calendario">
     <div class="semana-nav">
       <a class="btn secundario chico" href="{{ url_for('agenda', semana=semana_anterior) }}">‹</a>
       <h3>Semana {{ semana_titulo }}</h3>
@@ -729,7 +733,7 @@
   </div>
   {% endif %}
 
-  <div>
+  <div data-bloque="cobros">
   <div class="card">
     <h3>Resumen de {{ cobros.titulo }}</h3>
     <div class="cobros">
@@ -783,7 +787,7 @@
   </div>
   </div>
   <div class="tablero abajo">
-  <div class="ajustes-col">
+  <div class="ajustes-col" data-bloque="herramientas">
   <h2 class="grupo">Tu agenda</h2>
   <details class="card plegable" id="bloqueos" data-plegable>
     <summary><h3>Vacaciones y días bloqueados{% if bloqueos %} <span class="contador">{{ bloqueos|length }}</span>{% endif %}</h3><span class="plegable-resumen">{{ 'Página pausada' if tenant.pausado else 'Pausar tu página, bloquear días' }}</span></summary>
@@ -998,9 +1002,13 @@
     <strong>Ajustes</strong>
     <span class="tenue">Horario, precio, tu página, cobros, cancelaciones, avisos y tu cuenta</span>
   </a>
+  <a class="card ir-ajustes" href="{{ url_for('acomodar_panel') }}" id="ir-acomodar">
+    <strong>Acomodar el panel</strong>
+    <span class="tenue">Qué ves primero, en qué orden y de qué ancho (por ejemplo, las fichas a la izquierda y el calendario a la derecha)</span>
+  </a>
   </div>
 
-  <div class="card" id="fichas-pacientes">
+  <div class="card" id="fichas-pacientes" data-bloque="fichas">
     <h3>Fichas de pacientes <span class="contador">{{ fichas|length }}</span></h3>
     {% if fichas %}<input type="search" id="buscar-ficha" placeholder="Buscar por nombre o teléfono" autocomplete="off">{% endif %}
     <div class="tenue" id="sin-resultados" hidden>No hay ninguna ficha con ese nombre.</div>
@@ -1042,6 +1050,7 @@
       </div>
     </details>
     {% endif %}
+  </div>
   </div>
   </div>
 

@@ -1,0 +1,89 @@
+{% extends "base.html" %}
+{% block titulo %}Acomodar el panel · {{ tenant.nombre }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block cuerpo %}
+{% include "_rapida_estilo.html" %}
+<style>
+  .rapida.acomodar { max-width:900px; }
+  .acomodar-grid { display:grid; gap:18px; grid-template-columns:minmax(0, 1fr); }
+  @media (min-width: 820px) { .acomodar-grid { grid-template-columns:minmax(0, 1.2fr) minmax(0, 1fr); align-items:start; } }
+  .modulos { list-style:none; margin:0; padding:0; border:1px solid var(--rule); border-radius:10px; overflow:hidden; background:var(--card); }
+  .modulos li { display:grid; grid-template-columns:minmax(0, 1fr) auto auto; gap:6px 8px; align-items:center; padding:10px; }
+  .modulos li + li { border-top:1px solid var(--rule); }
+  .modulos .nombre { font-weight:600; }
+  .modulos select { grid-column:1 / -1; width:100%; }
+  .modulos button { min-width:40px; min-height:40px; }
+  .modulos li.oculto .nombre { color:var(--muted); text-decoration:line-through; }
+  .maqueta { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:6px; padding:10px; border:1px solid var(--rule); border-radius:10px; background:var(--cream); }
+  .maqueta div { background:var(--green-bg); color:var(--green); border:1px solid var(--green-mid); border-radius:6px; padding:8px 6px; font-size:.8rem; font-weight:600; min-height:46px; overflow:hidden; }
+  .maqueta div.alto { min-height:90px; }
+</style>
+<header class="rapida-barra">
+  <a href="{{ url_for('agenda') }}">← Panel</a>
+  <strong>Acomodar el panel</strong>
+  <a href="{{ url_for('ajustes') }}" class="rapida-mas">Ajustes</a>
+</header>
+<main class="rapida acomodar">
+  <p class="tenue" style="margin-top:0">Ordená las partes de tu panel y elegí qué tan anchas son. Dos seguidas que entran en una fila van lado a lado: Grande + Chica, Mitad + Mitad o tres Chicas. En el celular van una debajo de la otra, en este orden.</p>
+  <form method="post" id="form-acomodar">
+    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    <input type="hidden" name="orden" id="orden" value="{{ disp.orden|join(',') }}">
+    <div class="acomodar-grid">
+      <ul class="modulos" id="modulos">
+        {% for m in disp.orden %}
+        <li data-modulo="{{ m }}" class="{{ 'oculto' if disp.anchos[m] == 'oculto' }}">
+          <span class="nombre">{{ modulos[m] }}</span>
+          <button type="button" class="btn chico secundario" data-mover="-1" aria-label="Subir {{ modulos[m] }}">↑</button>
+          <button type="button" class="btn chico secundario" data-mover="1" aria-label="Bajar {{ modulos[m] }}">↓</button>
+          <select name="ancho_{{ m }}" aria-label="Ancho de {{ modulos[m] }}">
+            {% for clave, (texto, _) in anchos.items() if not (clave == 'oculto' and m in no_se_ocultan) %}
+            <option value="{{ clave }}"{% if disp.anchos[m] == clave %} selected{% endif %}>{{ texto }}</option>
+            {% endfor %}
+          </select>
+        </li>
+        {% endfor %}
+      </ul>
+      <div>
+        <strong>Así queda en la compu</strong>
+        <div class="maqueta" id="maqueta" aria-hidden="true" style="margin-top:6px"></div>
+        <p class="tenue" style="font-size:.85rem">«Para resolver» no se puede ocultar: ahí aparecen pagos, mensajes y reservas que esperan algo tuyo. Si no hay nada, no se ve.</p>
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
+      <button class="btn" type="submit">Guardar</button>
+      {% if propia %}<button class="btn secundario" type="submit" name="fabrica" value="1">Volver a como venía</button>{% endif %}
+    </div>
+  </form>
+</main>
+<script>
+(() => {
+  const ANCHOS = {{ anchos|tojson }};
+  const lista = document.getElementById('modulos'), orden = document.getElementById('orden'), maqueta = document.getElementById('maqueta');
+  function dibujar() {
+    orden.value = [...lista.children].map((li) => li.dataset.modulo).join(',');
+    maqueta.innerHTML = '';
+    [...lista.children].forEach((li) => {
+      const ancho = li.querySelector('select').value, lado = ANCHOS[ancho][1];
+      li.classList.toggle('oculto', !lado);
+      if (!lado) return;
+      const d = document.createElement('div');
+      d.textContent = li.querySelector('.nombre').textContent;
+      d.style.gridColumn = 'span ' + lado;
+      if (['calendario', 'fichas'].includes(li.dataset.modulo)) d.className = 'alto';
+      maqueta.appendChild(d);
+    });
+  }
+  lista.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mover]');
+    if (!b) return;
+    const li = b.closest('li');
+    if (b.dataset.mover === '-1' && li.previousElementSibling) lista.insertBefore(li, li.previousElementSibling);
+    if (b.dataset.mover === '1' && li.nextElementSibling) lista.insertBefore(li.nextElementSibling, li);
+    dibujar();
+    b.focus();
+  });
+  lista.addEventListener('change', dibujar);
+  dibujar();
+})();
+</script>
+{% endblock %}

@@ -5449,6 +5449,55 @@ chequear("diseño: pide CSRF y sesión", cb.post("/agenda/diseno/pegar", data={"
          and _w.get("/agenda/diseno").status_code in (302, 401))
 chequear("diseño: está en ajustes", 'href="/agenda/diseno"' in cb.get("/ajustes?p=pagina").data.decode())
 _ts.update(sobre_mi=None, enfoques=None, preguntas=None, ubicacion=None)
+
+# --- Diseños listos, aviso a administración y módulos del panel ---
+chequear("diseños listos: todos pasan la revisión de contraste", all(not _dis.leer(p["estilo"])[1] for p in _dis.PRESETS.values()),
+         {k: _dis.leer(p["estilo"])[1] for k, p in _dis.PRESETS.items()})
+_ts.update(diseno=None, diseno_borrador=None, css_propio=None, css_borrador=None)
+cb.post("/agenda/diseno/borrador", data={"csrf_token": "tok", "css": ".pf-caja { padding:30px; }"})
+cb.post("/agenda/diseno/listo", data={"csrf_token": "tok", "preset": "moderno"})
+chequear("diseños listos: carga el estilo como borrador y mantiene el CSS", _ts["diseno_borrador"] == _dis.PRESETS["moderno"]["estilo"]
+         and _ts["css_borrador"] == ".pf-caja { padding:30px; }" and not _ts["diseno"])
+chequear("diseños listos: se ven en la pantalla", all(p["nombre"] in cb.get("/agenda/diseno").data.decode() for p in _dis.PRESETS.values()))
+cb.post("/agenda/diseno/listo", data={"csrf_token": "tok", "preset": "no-existe"})
+chequear("diseños listos: uno que no existe no cambia nada", _ts["diseno_borrador"] == _dis.PRESETS["moderno"]["estilo"])
+_admin = []
+_viejo_admin = app.whatsapp.avisar_admin
+app.whatsapp.avisar_admin = lambda texto: _admin.append(texto) or True
+cb.post("/agenda/diseno/publicar", data={"csrf_token": "tok"})
+chequear("diseño: al publicar avisa a administración con el link", len(_admin) == 1 and "publicó un diseño nuevo" in _admin[0]
+         and "(con CSS propio)" in _admin[0] and _admin[0].endswith("/marcos") and "\n" not in _admin[0], _admin)
+app.whatsapp.avisar_admin = _viejo_admin
+cb.post("/agenda/diseno/original", data={"csrf_token": "tok"})
+
+_ts["preferencias_vista"] = {}
+_ag = cb.get("/agenda").data.decode()
+chequear("panel: de fábrica se ve como siempre", 'class="panel-modulos"' in _ag and "panel-modulos propia" not in _ag
+         and all(f'data-bloque="{m}"' in _ag for m in ("hoy", "calendario", "cobros", "herramientas", "fichas"))
+         and 'id="ir-acomodar"' in _ag)
+chequear("panel: la pantalla para acomodarlo", "Acomodar el panel" in cb.get("/agenda/acomodar").data.decode())
+_orden = "fichas,calendario,resolver,repaso,hoy,cobros,herramientas"
+cb.post("/agenda/acomodar", data={"csrf_token": "tok", "orden": _orden, "ancho_fichas": "chica", "ancho_calendario": "grande",
+                                  "ancho_resolver": "oculto", "ancho_cobros": "oculto", "ancho_hoy": "entero", "ancho_repaso": "entero",
+                                  "ancho_herramientas": "mitad"})
+_pn = _ts["preferencias_vista"].get("panel") or {}
+chequear("panel: guarda orden y anchos; «Para resolver» no se oculta", _pn.get("orden") == _orden.split(",")
+         and _pn["anchos"]["fichas"] == "chica" and _pn["anchos"]["cobros"] == "oculto" and _pn["anchos"]["resolver"] == "entero", _pn)
+_ag = cb.get("/agenda").data.decode()
+chequear("panel: fichas a la izquierda y calendario a la derecha", "panel-modulos propia" in _ag
+         and '[data-bloque="fichas"] { order:0; grid-column:span 2; }' in _ag
+         and '[data-bloque="calendario"] { order:1; grid-column:span 4; }' in _ag
+         and '[data-bloque="cobros"] { order:5; display:none; }' in _ag)
+cb.post("/agenda/acomodar", data={"csrf_token": "tok", "orden": "basura,hoy", "ancho_hoy": "gigante"})
+chequear("panel: ignora módulos y anchos que no existen", _ts["preferencias_vista"]["panel"]["orden"][0] == "hoy"
+         and "basura" not in _ts["preferencias_vista"]["panel"]["orden"] and _ts["preferencias_vista"]["panel"]["anchos"]["hoy"] == "entero")
+cb.post("/agenda/acomodar", data={"csrf_token": "tok", "fabrica": "1"})
+chequear("panel: «Volver a como venía»", "panel" not in _ts["preferencias_vista"] and "panel-modulos propia" not in cb.get("/agenda").data.decode())
+cb.post("/agenda/acomodar", data={"csrf_token": "tok", "orden": ",".join(app.PANEL_DE_FABRICA["orden"]),
+                                  **{f"ancho_{m}": a for m, a in app.PANEL_DE_FABRICA["anchos"].items()}})
+chequear("panel: guardar lo de fábrica no deja nada guardado", "panel" not in _ts["preferencias_vista"])
+chequear("panel: acomodar pide CSRF", cb.post("/agenda/acomodar", data={"orden": "fichas"}).status_code in (400, 403))
+_ts["preferencias_vista"] = {}
 db.get_tenant_by_id, db.get_tenant_by_slug = _gtid_s, _gtbs
 
 if fallos:
