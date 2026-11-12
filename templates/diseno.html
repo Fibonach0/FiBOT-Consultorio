@@ -22,6 +22,15 @@
   .modulos li.oculto .nombre { color:var(--muted); text-decoration:line-through; }
   .modulos button { min-width:36px; min-height:36px; }
   .modulos label { display:flex; align-items:center; gap:4px; margin:0; font-weight:400; font-size:.9rem; }
+  .listos { display:grid; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); gap:10px; }
+  .listos form { margin:0; }
+  .listo { all:unset; box-sizing:border-box; cursor:pointer; display:flex; flex-direction:column; gap:4px; width:100%; min-height:110px;
+    padding:12px; border:1px solid rgba(0,0,0,.15); border-radius:10px; }
+  .listo:focus-visible { outline:3px solid var(--green); }
+  .listo.elegido { outline:3px solid var(--green-solid); }
+  .listo-muestra { display:flex; gap:4px; }
+  .listo-muestra span { width:22px; height:22px; border-radius:50%; border:1px solid rgba(0,0,0,.15); }
+  .listo-detalle { font-size:.82rem; opacity:.85; }
   .estado-diseno { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
   .lados { display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; }
   .lados label { display:flex; align-items:center; gap:6px; margin:0; font-weight:400; border:1px solid var(--rule); border-radius:10px; padding:8px 12px; background:var(--card); }
@@ -59,6 +68,24 @@
     <form method="post" action="{{ url_for('diseno_original') }}" style="margin-top:10px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn chico secundario" type="submit">Volver al diseño original</button></form>
     {% endif %}
+  </section>
+
+  <section class="card" id="listos">
+    <h3>Diseños listos</h3>
+    <p class="tenue corto" style="margin-top:0">Elegí uno para empezar: queda como borrador y después lo ajustás a mano o con tu IA.</p>
+    <div class="listos">
+      {% for clave, p in presets.items() %}
+      <form method="post" action="{{ url_for('diseno_listo') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <input type="hidden" name="preset" value="{{ clave }}">
+        <button type="submit" class="listo{% if actual and actual.principal == p.estilo.principal and actual.fondo == p.estilo.fondo %} elegido{% endif %}" style="background:{{ p.estilo.fondo }};color:{{ p.estilo.texto }}">
+          <span class="listo-muestra" aria-hidden="true"><span style="background:{{ p.estilo.principal }}"></span><span style="background:{{ p.estilo.acento }}"></span><span style="background:{{ p.estilo.superficie }}"></span></span>
+          <strong>{{ p.nombre }}</strong>
+          <span class="listo-detalle">{{ p.detalle }}</span>
+        </button>
+      </form>
+      {% endfor %}
+    </div>
   </section>
 
   <section class="card" id="con-ia">

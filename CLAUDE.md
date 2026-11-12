@@ -324,6 +324,9 @@ se publica. `_diseno_propio.html` va al final del cuerpo de publico*, con `disen
 otros sitios salvo Google Fonts). NUNCA HTML ni JavaScript propio: la página comparte dominio con
 el panel. `diseno.PARTES` es el contrato de clases que se le explica a la IA (`instrucciones`):
 si cambia el HTML de `/<slug>`, esas clases tienen que seguir (lo revisa test_seguimiento).
+Diseños listos (`diseno.PRESETS`, `/agenda/diseno/listo`): cargan un estilo completo como borrador
+(el CSS propio se mantiene). Publicar avisa a administración (`whatsapp.avisar_admin`, una línea con
+el link a `/<slug>`) para mirarlo rápido.
 
 `/sumate` (`migrations/060`, tabla `interesados`, de la plataforma como
 `admins`): formulario para profesionales; pide nombre y WhatsApp o mail, tiene un
@@ -1226,6 +1229,13 @@ a las 00:30 volvía a la misma persona), avisando al
   profesional recibe «Cata reservó…: lo sacamos de tu lista». «Ofrecer horario»
   del panel usa `guardar_y_ofrecer` (sin varios tipos de turno). El resumen de
   la mañana cuenta los de la lista sin horario guardado ni reserva.
+- Módulos del panel (`/agenda/acomodar`, `app.MODULOS_PANEL`): cada parte grande de agenda.html
+  lleva `data-bloque` (resolver, repaso, hoy, calendario, cobros, herramientas, fichas) dentro de
+  `.panel-modulos`. Con `preferencias_vista.panel` ({orden, anchos}, `_panel_valido`) `_disposicion`
+  arma una grilla de 6 columnas (`.tablero` pasa a `display:contents`; anchos entero/grande/mitad/
+  chica/oculto = 6/4/3/2/0, `order` según la lista; < 1000 px, una columna). Igual a
+  `PANEL_DE_FABRICA` = sin estilo propio, se ve como siempre. «Para resolver» no se oculta.
+  Una tarjeta grande nueva en agenda.html va dentro de un `data-bloque` existente o en uno nuevo.
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
 - GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +

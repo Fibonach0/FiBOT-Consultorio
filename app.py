@@ -2592,6 +2592,7 @@ def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
         "revision": _revision_semana(tenant, fichas, bloqueos, tz, ahora),
         "avisos_pagina": _avisos_pagina(tenant, ahora),
         "perfil_google": _perfil_google(tenant),
+        "disposicion": _disposicion(tenant),
     }
     comunes["buscador"] = buscador.indice(tenant, comunes, rubros.de(tenant), url_for)
     return comunes
@@ -2764,7 +2765,8 @@ def _pantalla_diseno(tenant: dict, **extra):
         hay_borrador=tenant.get("diseno_borrador") is not None,
         hay_publicado=bool(tenant.get("diseno") or tenant.get("css_propio")),
         instrucciones=diseno.instrucciones(tenant, url_for("publico", slug=tenant["slug"], _external=True)),
-        fuentes=list(diseno.FUENTES), modulos=diseno.MODULOS, css_max=diseno.CSS_MAX, **extra)))
+        fuentes=list(diseno.FUENTES), modulos=diseno.MODULOS, css_max=diseno.CSS_MAX, presets=diseno.PRESETS,
+        actual=estilo, **extra)))
 
 
 def _tenant_con_pagina():
@@ -2833,6 +2835,17 @@ def diseno_borrador():
     return _guardar_borrador(tenant, estilo, f.get("css") or "")
 
 
+@app.post("/agenda/diseno/listo")
+@login_required
+def diseno_listo():
+    """Carga un diseño listo (diseno.PRESETS) como borrador."""
+    tenant = _tenant_con_pagina()
+    preset = diseno.PRESETS.get(request.form.get("preset") or "")
+    if not tenant or not preset:
+        return redirect(url_for("diseno_pagina"))
+    return _guardar_borrador(tenant, dict(preset["estilo"]), None)
+
+
 @app.post("/agenda/diseno/publicar")
 @login_required
 def diseno_publicar():
@@ -2844,6 +2857,13 @@ def diseno_publicar():
                                       "css_propio": tenant.get("css_borrador") or None,
                                       "diseno_borrador": None, "css_borrador": None})
     db.registrar_actividad(tenant["nombre"], "publicó un diseño nuevo de su página", tenant["id"])
+    # A administración, para mirarlo rápido (una línea: va como parámetro de plantilla).
+    try:
+        whatsapp.avisar_admin(f"{tenant['nombre']} publicó un diseño nuevo en su página"
+                              f"{' (con CSS propio)' if tenant.get('css_borrador') else ''}: "
+                              f"{url_for('publico', slug=tenant['slug'], _external=True)}")
+    except Exception:
+        logger.warning("No se pudo avisar a administración del diseño nuevo")
     flash("Publicado: tus pacientes ya ven tu página con el diseño nuevo.")
     return redirect(url_for("diseno_pagina"))
 
@@ -2864,6 +2884,72 @@ def diseno_original():
     db.registrar_actividad(tenant.get("nombre") or "profesional", "volvió al diseño original de su página", session["tenant_id"])
     flash("Listo: tu página volvió al diseño original.")
     return redirect(url_for("diseno_pagina"))
+
+
+# --- Módulos del panel (/agenda/acomodar) ---
+# Cada [data-bloque] de agenda.html. Ancho en sextos de la fila: dos seguidos que
+# suman 6 o menos van lado a lado. La disposición de fábrica es la de siempre.
+MODULOS_PANEL = {"resolver": "Para resolver", "repaso": "Repaso de la semana", "hoy": "Hoy",
+                 "calendario": "Calendario", "cobros": "Resumen y pendientes de cobro",
+                 "herramientas": "Vacaciones, lista de espera y más", "fichas": "Fichas de pacientes"}
+ANCHOS_PANEL = {"entero": ("Toda la fila", 6), "grande": ("Grande (2/3)", 4), "mitad": ("Mitad", 3),
+                "chica": ("Chica (1/3)", 2), "oculto": ("No mostrar", 0)}
+PANEL_DE_FABRICA = {"orden": list(MODULOS_PANEL),
+                    "anchos": {"resolver": "entero", "repaso": "entero", "hoy": "entero", "calendario": "grande",
+                               "cobros": "chica", "herramientas": "chica", "fichas": "grande"}}
+NO_SE_OCULTAN = {"resolver"}  # pagos, mensajes y reservas que esperan algo de la profesional
+
+
+def _panel_valido(dato) -> dict | None:
+    if not isinstance(dato, dict):
+        return None
+    orden = [m for m in dict.fromkeys(dato.get("orden") or []) if m in MODULOS_PANEL]
+    orden += [m for m in MODULOS_PANEL if m not in orden]
+    anchos = {m: a for m, a in (dato.get("anchos") or {}).items()
+              if m in MODULOS_PANEL and a in ANCHOS_PANEL and not (a == "oculto" and m in NO_SE_OCULTAN)}
+    return {"orden": orden, "anchos": {**PANEL_DE_FABRICA["anchos"], **anchos}}
+
+
+def _disposicion(tenant: dict) -> str | None:
+    """El CSS de la disposición propia del panel, o None si es la de fábrica."""
+    d = _panel_valido((tenant.get("preferencias_vista") or {}).get("panel"))
+    if not d or d == PANEL_DE_FABRICA:
+        return None
+    reglas = [".panel-modulos.propia { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:16px;"
+              " align-items:start; margin-bottom:16px; }",
+              ".panel-modulos.propia > .tablero { display:contents; }",
+              ".panel-modulos.propia [data-bloque] { margin-bottom:0; min-width:0; }"]
+    for i, m in enumerate(d["orden"]):
+        lado = ANCHOS_PANEL[d["anchos"][m]][1]
+        reglas.append(f'.panel-modulos.propia [data-bloque="{m}"] {{ order:{i}; '
+                      + ("display:none; }" if not lado else f"grid-column:span {lado}; }}"))
+    reglas.append("@media (max-width: 1000px) { .panel-modulos.propia [data-bloque] { grid-column:1 / -1; } }")
+    return "\n".join(reglas)
+
+
+@app.route("/agenda/acomodar", methods=["GET", "POST"])
+@login_required
+def acomodar_panel():
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    pref = dict(tenant.get("preferencias_vista") or {})
+    if request.method == "POST":
+        if request.form.get("fabrica"):
+            pref.pop("panel", None)
+            flash("Listo: el panel volvió a como venía.")
+        else:
+            nuevo = _panel_valido({"orden": (request.form.get("orden") or "").split(","),
+                                   "anchos": {m: request.form.get(f"ancho_{m}") for m in MODULOS_PANEL}})
+            if nuevo == PANEL_DE_FABRICA:
+                pref.pop("panel", None)
+            else:
+                pref["panel"] = nuevo
+            flash("Listo, tu panel quedó acomodado.")
+        db.guardar_ajustes(tenant["id"], {"preferencias_vista": pref})
+        return redirect(url_for("agenda"))
+    d = _panel_valido(pref.get("panel")) or PANEL_DE_FABRICA
+    return _sin_cache(app.make_response(render_template(
+        "acomodar.html", tenant=tenant, disp=d, modulos=MODULOS_PANEL, anchos=ANCHOS_PANEL,
+        no_se_ocultan=NO_SE_OCULTAN, propia=bool(pref.get("panel")))))
 
 
 @app.get("/agenda/tarjeta")
