@@ -3438,7 +3438,10 @@ def _para_preparar(tenant: dict, tz: ZoneInfo, ahora: datetime, desde: date) -> 
             continue
         sin_sesion.append({"nombre": f["nombre"], "ref": f["ref"], "item": ultima})
     sin_sesion.sort(key=lambda x: x["nombre"].casefold())
-    return {"dias": dias, "sin_sesion": sin_sesion}
+    # «Todo junto»: lo que falta preparar en la semana, en una sola lista (para juntarlo de una vez).
+    todo_junto = [{"texto": x["item"]["para_proxima"].strip(), "nombre": x["nombre"], "dia": d["etiqueta"]}
+                  for d in dias for x in d["sesiones"] if x["item"] and not x["item"].get("proxima_hecha_at")]
+    return {"dias": dias, "sin_sesion": sin_sesion, "todo_junto": todo_junto}
 
 
 @app.get("/agenda/preparar")
@@ -5549,26 +5552,19 @@ def publico(slug):
         _evento(tenant, "visita")
     if tenant.get("pausado"):
         return render_template("publico.html", tenant=tenant, cambiar=None, pausado=True, dias=[], hay=False,
-                               anterior=None, siguiente=None, proximo_despues=None, titulo_semana="",
-                               hay_directorio=False)
+                               anterior=None, siguiente=None, proximo_despues=None, titulo_semana="")
     tipos = tipos_de(tenant)
     i_tipo, tipo = _tipo_elegido(tenant, request.args.get("tipo"))
     if tipos and tipo is None:
         return render_template("publico.html", tenant=tenant, cambiar=None, tipos=tipos, elegir_tipo=True, dias=[], hay=False,
-                               anterior=None, siguiente=None, proximo_despues=None, titulo_semana="",
-                               hay_directorio=sum(1 for t in db.tenants_activos()
-                                                  if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
+                               anterior=None, siguiente=None, proximo_despues=None, titulo_semana="")
     if request.args.get("vista") == "mes":
         return render_template("publico.html", tenant=tenant, cambiar=None, tipos=tipos, tipo=tipo, i_tipo=i_tipo,
                                vista_mes=True, dias=[], hay=True, anterior=None, siguiente=None, proximo_despues=None,
-                               titulo_semana="", **_mes_libre(tenant, request.args.get("mes"), tipo["minutos"] if tipo else None),
-                               hay_directorio=sum(1 for t in db.tenants_activos()
-                                                  if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
+                               titulo_semana="", **_mes_libre(tenant, request.args.get("mes"), tipo["minutos"] if tipo else None))
     return render_template("publico.html", tenant=tenant, cambiar=None, tipos=tipos, tipo=tipo, i_tipo=i_tipo,
                            serie_posible=pagos.activo(tenant),
-                           **_semana_libre(tenant, request.args.get("semana"), tipo["minutos"] if tipo else None),
-                           hay_directorio=sum(1 for t in db.tenants_activos()
-                                              if t.get("slug") and t.get("en_directorio", True) is not False) > 1)
+                           **_semana_libre(tenant, request.args.get("semana"), tipo["minutos"] if tipo else None))
 
 
 @app.get("/<slug>/reservar/<turno_id>")
@@ -5924,7 +5920,7 @@ def agendar_cambiar(token):
         return _tarde(tenant, turno)
     tz = ZoneInfo(tenant.get("timezone") or "America/Argentina/Buenos_Aires")
     return _sin_indexar(app.make_response(render_template(
-        "publico.html", tenant=tenant, cambiar=token, actual=_con_hora_local([turno], tz)[0], hay_directorio=False,
+        "publico.html", tenant=tenant, cambiar=token, actual=_con_hora_local([turno], tz)[0],
         **_semana_libre(tenant, request.args.get("semana"), _minutos_de(turno)))))
 
 

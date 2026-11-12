@@ -2,11 +2,11 @@
 {% block titulo %}Revisá tu turno — {{ tenant.nombre }}{% endblock %}
 {% block head %}{% include "_sitio.html" %}<style>main .card { border-radius:14px; } main h2 { font-family:var(--serif); font-weight:400; font-size:30px; }</style>{% endblock %}
 {% block cuerpo %}{% include "_color_pagina.html" %}
-{% import "_sitio_macros.html" as sitio %}{{ sitio.barra(volver=(url_for('publico', slug=tenant.slug), tenant.nombre)) }}
+{% import "_sitio_macros.html" as sitio %}{{ sitio.barra_propia(tenant, volver=True) }}
 <main>
   <div class="card">
     {% include "_reserva_revisar.html" %}
   </div>
 </main>
-{{ sitio.pie() }}
+{{ sitio.pie_propio() }}
 {% endblock %}
