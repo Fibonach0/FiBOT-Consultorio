@@ -5384,6 +5384,71 @@ chequear("tarjeta: se arma en el navegador con el link corto y el QR", _tj.statu
 chequear("tarjeta: pide sesión", _w.get("/agenda/tarjeta").status_code in (302, 401))
 chequear("tarjeta: está en ajustes", 'href="/agenda/tarjeta"' in cb.get("/ajustes?p=pagina").data.decode())
 _ts.update(sobre_mi=None, enfoques=None, foto=None, preguntas=None, titulo=None, ubicacion=None)
+
+# --- Diseño propio de la página ---
+import diseno as _dis  # noqa: E402
+for _k in ("diseno", "diseno_borrador", "css_propio", "css_borrador"):
+    _ts[_k] = None
+_ts.update(sobre_mi="Acompaño procesos de aprendizaje.", enfoques=["Lectura"], preguntas=[{"p": "¿Cuánto dura?", "r": "Una hora."}],
+           ubicacion="Caballito")
+_src = open("templates/publico.html", encoding="utf8").read() + open("templates/_sitio_macros.html", encoding="utf8").read()
+chequear("diseño: las partes que se le explican a la IA existen en la página",
+         all(c[1:] in _src for sel, _ in _dis.PARTES for c in re.findall(r"\.[a-z][a-z0-9-]*", sel))
+         and all(f'data-modulo="{m}"' in _src for m in _dis.MODULOS))
+_pg = _w.get("/marcos")
+chequear("diseño: sin diseño propio la página queda igual y sin CSP", 'id="diseno-estilo"' not in _pg.data.decode()
+         and "Content-Security-Policy" not in _pg.headers)
+_pd = cb.get("/agenda/diseno").data.decode()
+chequear("diseño: la pantalla trae las instrucciones para la IA con el link", "localhost/marcos" in _pd and "```json" in _pd
+         and "pf-caja" in _pd and "url()" in _pd)
+_resp = 'Acá va:\n```json\n{"principal": "#7a4b2a", "calendario": "izquierda", "orden": ["preguntas", "sobre"], "letra_titulos": "lora"}\n```\n```css\n.pf-cabeza h1 { letter-spacing: 0 !important; }\n```'
+cb.post("/agenda/diseno/pegar", data={"csrf_token": "tok", "respuesta": _resp})
+chequear("diseño: lo de la IA queda como borrador, sin publicar", _ts["diseno_borrador"]["principal"] == "#7a4b2a"
+         and _ts["diseno_borrador"]["letra_titulos"] == "Lora" and _ts["diseno_borrador"]["orden"][:2] == ["preguntas", "sobre"]
+         and _ts["css_borrador"] == ".pf-cabeza h1 { letter-spacing: 0; }" and not _ts["diseno"], (_ts["diseno_borrador"], _ts["css_borrador"]))
+chequear("diseño: los pacientes no ven el borrador", 'id="diseno-css"' not in _w.get("/marcos").data.decode()
+         and 'id="diseno-css"' not in _w.get("/marcos?borrador=1").data.decode())
+TABLAS["eventos_pagina"] = []
+_pb = cb.get("/marcos?borrador=1")
+_pbh = _pb.data.decode()
+chequear("diseño: la profesional ve su borrador, sin contar visita ni indexar", 'id="diseno-css"' in _pbh and "letter-spacing: 0;" in _pbh
+         and ".pf { flex-direction:row-reverse; }" in _pbh and "Borrador: así se vería" in _pbh
+         and _pb.headers.get("X-Robots-Tag") == "noindex" and not TABLAS["eventos_pagina"]
+         and "fonts.googleapis.com/css2?family=Lora" in _pbh)
+chequear("diseño: con diseño, la página no puede pedir nada a otros sitios", "connect-src 'self'" in _pb.headers.get("Content-Security-Policy", "")
+         and "img-src 'self' data: blob:" in _pb.headers["Content-Security-Policy"])
+chequear("diseño: el pie de urgencias va después del CSS propio", _pbh.index('id="diseno-fijo"') > _pbh.index('id="diseno-css"'))
+for _malo, _por in ((".a{background:url(https://malo.example/x?d=1)}", "url("), ('.a{background:image-set("https://malo.example/x" 1x)}', "image-set("),
+                    ("@import 'https://malo.example/a.css';", "@import"), (".a{color:red}</style><script>alert(1)</script>", "HTML"),
+                    (".a{background:u\\72l(x)}", "escapes"), (".a{color:red", "llaves sin cerrar"), ("@font-face{font-family:x}", "@font-face")):
+    _antes = _ts["css_borrador"]
+    _r = cb.post("/agenda/diseno/borrador", data={"csrf_token": "tok", "css": _malo})
+    chequear(f"diseño: rechaza CSS con {_por} y no lo guarda", _ts["css_borrador"] == _antes and "No lo guardé" in _r.data.decode(), _por)
+_r = cb.post("/agenda/diseno/pegar", data={"csrf_token": "tok", "respuesta": '```json\n{"texto": "#f4efe6"}\n```'})
+chequear("diseño: avisa si el texto no se lee sobre el fondo", "casi no se lee" in _r.data.decode() and _ts["diseno_borrador"]["principal"] == "#7a4b2a")
+cb.post("/agenda/diseno/publicar", data={"csrf_token": "tok"})
+_pp = _w.get("/marcos")
+chequear("diseño: publicado, lo ven los pacientes", _ts["diseno"]["principal"] == "#7a4b2a" and _ts["diseno_borrador"] is None
+         and 'id="diseno-css"' in _pp.data.decode() and "Content-Security-Policy" in _pp.headers
+         and "Borrador:" not in _pp.data.decode())
+chequear("diseño: también en las pantallas de reservar", 'id="diseno-estilo"' in _w.get(f"/marcos/reservar/{next((t['id'] for t in TABLAS['turnos'] if t['tenant_id'] == 't1' and t['estado'] == 'libre'), 'x')}").data.decode()
+         or not any(t["tenant_id"] == "t1" and t["estado"] == "libre" for t in TABLAS["turnos"]))
+cb.post("/agenda/diseno/borrador", data={"csrf_token": "tok", **{k: v for k, v in _dis.ORIGINAL.items() if isinstance(v, str)},
+                                         "principal": "#7a4b2a", "calendario": "derecha", "en_celular": "calendario_primero",
+                                         "orden": "donde,sobre,temas", "ocultar": ["mas"], "css": ""})
+chequear("diseño: a mano, guarda sólo lo que cambia (módulos incluidos)", _ts["diseno_borrador"] == {
+    "principal": "#7a4b2a", "en_celular": "calendario_primero", "orden": ["donde", "sobre", "temas", "formacion", "mas", "preguntas"],
+    "ocultar": ["mas"]} and _ts["css_borrador"] is None, _ts["diseno_borrador"])
+_pbh = cb.get("/marcos?borrador=1").data.decode()
+chequear("diseño: módulos en el orden elegido y el calendario primero en el celular", '[data-modulo="donde"] { order:0; }' in _pbh
+         and '.pf-secciones [data-modulo="mas"] { display:none; }' in _pbh and ".pf-lado { order:-1; }" in _pbh)
+cb.post("/agenda/diseno/original", data={"csrf_token": "tok"})
+chequear("diseño: «Volver al diseño original» borra todo", not any(_ts.get(k) for k in ("diseno", "diseno_borrador", "css_propio", "css_borrador"))
+         and 'id="diseno-estilo"' not in _w.get("/marcos").data.decode())
+chequear("diseño: pide CSRF y sesión", cb.post("/agenda/diseno/pegar", data={"respuesta": _resp}).status_code in (400, 403)
+         and _w.get("/agenda/diseno").status_code in (302, 401))
+chequear("diseño: está en ajustes", 'href="/agenda/diseno"' in cb.get("/ajustes?p=pagina").data.decode())
+_ts.update(sobre_mi=None, enfoques=None, preguntas=None, ubicacion=None)
 db.get_tenant_by_id, db.get_tenant_by_slug = _gtid_s, _gtbs
 
 if fallos:

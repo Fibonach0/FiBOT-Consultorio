@@ -1,0 +1,166 @@
+{% extends "base.html" %}
+{% block titulo %}Diseño de tu página · {{ tenant.nombre }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex">{% endblock %}
+{% block cuerpo %}
+{% include "_rapida_estilo.html" %}
+<style>
+  .rapida.diseno { max-width:820px; }
+  .diseno .card h3 { margin-top:0; }
+  .diseno textarea { width:100%; font:13px/1.45 ui-monospace, monospace; padding:10px; border:1px solid var(--rule); border-radius:8px; background:var(--card); color:var(--ink); }
+  .diseno .pasos-ia { margin:0 0 10px; padding-left:20px; }
+  .diseno .pasos-ia li { margin:3px 0; }
+  .colores { display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; }
+  .colores label { display:flex; align-items:center; gap:8px; margin:0; font-weight:400; }
+  .colores input[type=color] { width:42px; height:32px; padding:0; border:1px solid var(--rule); border-radius:6px; background:none; }
+  .opciones-diseno { display:grid; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); gap:10px; margin-top:12px; }
+  .opciones-diseno label { margin:0 0 2px; }
+  .opciones-diseno select { width:100%; }
+  .modulos { list-style:none; margin:6px 0 0; padding:0; border:1px solid var(--rule); border-radius:10px; overflow:hidden; background:var(--card); }
+  .modulos li { display:flex; align-items:center; gap:8px; padding:8px 10px; }
+  .modulos li + li { border-top:1px solid var(--rule); }
+  .modulos .nombre { flex:1; }
+  .modulos li.oculto .nombre { color:var(--muted); text-decoration:line-through; }
+  .modulos button { min-width:36px; min-height:36px; }
+  .modulos label { display:flex; align-items:center; gap:4px; margin:0; font-weight:400; font-size:.9rem; }
+  .estado-diseno { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .lados { display:flex; gap:10px; flex-wrap:wrap; margin-top:6px; }
+  .lados label { display:flex; align-items:center; gap:6px; margin:0; font-weight:400; border:1px solid var(--rule); border-radius:10px; padding:8px 12px; background:var(--card); }
+  .lados .mini { display:inline-grid; grid-template-columns:1fr 1fr; gap:3px; width:46px; height:28px; }
+  .lados .mini span { border-radius:3px; background:var(--chip-bg); }
+  .lados .mini span.cal { background:var(--green-solid); }
+</style>
+<header class="rapida-barra">
+  <a href="{{ url_for('ajustes', p='pagina') }}#mi-pagina">← Ajustes</a>
+  <strong>Diseño de tu página</strong>
+  <a href="{{ url_for('agenda') }}" class="rapida-mas">Panel</a>
+</header>
+<main class="rapida diseno">
+  {% for m in get_flashed_messages() %}<div class="aviso">{{ m }}</div>{% endfor %}
+  {% if errores %}
+  <div class="error" role="alert" id="errores-diseno"><strong>No lo guardé, hay que corregir esto:</strong>
+    <ul style="margin:6px 0 0;padding-left:20px">{% for e in errores %}<li>{{ e }}</li>{% endfor %}</ul>
+    <p style="margin:6px 0 0">Si lo armó una IA, pegale estos mensajes y pedile que lo corrija.</p></div>
+  {% endif %}
+
+  <section class="card" id="estado">
+    {% if hay_borrador %}
+    <p style="margin-top:0"><strong>Tenés un borrador sin publicar.</strong> Tus pacientes todavía ven tu página como antes.</p>
+    <div class="estado-diseno">
+      <a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="{{ url_for('publico', slug=tenant.slug, borrador=1) }}">Ver cómo queda</a>
+      <form method="post" action="{{ url_for('diseno_publicar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn secundario" type="submit">Publicar</button></form>
+      <form method="post" action="{{ url_for('diseno_descartar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Descartar el borrador</button></form>
+    </div>
+    {% elif hay_publicado %}
+    <p style="margin-top:0"><strong>Tu página tiene diseño propio.</strong> Podés seguir cambiándolo: los cambios quedan como borrador hasta que los publiques.</p>
+    {% else %}
+    <p style="margin-top:0">Tu página usa el diseño original. Cambiale colores, letras, el orden de las secciones o de qué lado va el calendario. Lo que cambies queda como <strong>borrador</strong>: lo mirás y recién después lo publicás.</p>
+    {% endif %}
+    {% if hay_publicado %}
+    <form method="post" action="{{ url_for('diseno_original') }}" style="margin-top:10px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn chico secundario" type="submit">Volver al diseño original</button></form>
+    {% endif %}
+  </section>
+
+  <section class="card" id="con-ia">
+    <h3>Con tu IA (ChatGPT, Claude, Gemini…)</h3>
+    <ol class="pasos-ia">
+      <li>Copiá las instrucciones de abajo.</li>
+      <li>Pegáselas a tu IA y contale cómo te imaginás tu página («cálida, en tonos tierra, que transmita calma»).</li>
+      <li>Copiá lo que te conteste y pegalo en el cuadro de más abajo.</li>
+    </ol>
+    <textarea id="instrucciones" rows="8" readonly>{{ instrucciones }}</textarea>
+    <button class="btn chico secundario" type="button" id="copiar-instrucciones" style="margin-top:6px">Copiar las instrucciones</button>
+    <form method="post" action="{{ url_for('diseno_pegar') }}" style="margin-top:16px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="respuesta">Lo que te contestó la IA</label>
+      <textarea id="respuesta" name="respuesta" rows="8" placeholder="```json&#10;{ &quot;principal&quot;: &quot;#7a4b2a&quot;, … }&#10;```&#10;```css&#10;.pf-cabeza h1 { … }&#10;```">{{ pegado or '' }}</textarea>
+      <button class="btn" type="submit" style="margin-top:8px">Probar este diseño</button>
+      <p class="tenue" style="font-size:.85rem">Sólo se aceptan estilos: nada de HTML ni de programas, y tu página no puede cargar nada de otros sitios. Así nadie puede usarla para leer los datos de quien reserva.</p>
+    </form>
+  </section>
+
+  <section class="card" id="a-mano">
+    <h3>A mano</h3>
+    <form method="post" action="{{ url_for('diseno_borrador') }}" id="form-diseno">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <strong>Dónde va el calendario</strong>
+      <div class="lados">
+        <label><input type="radio" name="calendario" value="derecha"{% if estilo.calendario == 'derecha' %} checked{% endif %}>
+          <span class="mini" aria-hidden="true"><span></span><span class="cal"></span></span> A la derecha</label>
+        <label><input type="radio" name="calendario" value="izquierda"{% if estilo.calendario == 'izquierda' %} checked{% endif %}>
+          <span class="mini" aria-hidden="true"><span class="cal"></span><span></span></span> A la izquierda</label>
+      </div>
+      <div class="opciones-diseno">
+        <div><label for="en_celular">En el celular, primero</label>
+          <select id="en_celular" name="en_celular">
+            <option value="perfil_primero"{% if estilo.en_celular == 'perfil_primero' %} selected{% endif %}>Quién sos, después el calendario</option>
+            <option value="calendario_primero"{% if estilo.en_celular == 'calendario_primero' %} selected{% endif %}>El calendario, después quién sos</option>
+          </select></div>
+      </div>
+
+      <p style="margin:16px 0 0"><strong>Secciones</strong> <span class="tenue">(movelas con las flechas; las vacías no se muestran)</span></p>
+      <input type="hidden" name="orden" id="orden" value="{{ estilo.orden|join(',') }}">
+      <ul class="modulos" id="modulos">
+        {% for m in estilo.orden %}
+        <li data-modulo="{{ m }}" class="{{ 'oculto' if m in estilo.ocultar }}">
+          <span class="nombre">{{ modulos[m] }}</span>
+          <button type="button" class="btn chico secundario" data-mover="-1" aria-label="Subir {{ modulos[m] }}">↑</button>
+          <button type="button" class="btn chico secundario" data-mover="1" aria-label="Bajar {{ modulos[m] }}">↓</button>
+          <label><input type="checkbox" name="ocultar" value="{{ m }}"{% if m in estilo.ocultar %} checked{% endif %}> Ocultar</label>
+        </li>
+        {% endfor %}
+      </ul>
+
+      <p style="margin:16px 0 6px"><strong>Colores</strong></p>
+      <div class="colores">
+        {% for k, nombre in [('principal', 'Principal (botones)'), ('acento', 'Acento'), ('fondo', 'Fondo'), ('superficie', 'Cajas'), ('texto', 'Texto')] %}
+        <label><input type="color" name="{{ k }}" value="{{ estilo[k] }}"> {{ nombre }}</label>
+        {% endfor %}
+      </div>
+      <div class="opciones-diseno">
+        <div><label for="letra_titulos">Letra de los títulos</label>
+          <select id="letra_titulos" name="letra_titulos">{% for f in fuentes %}<option{% if f == estilo.letra_titulos %} selected{% endif %}>{{ f }}</option>{% endfor %}</select></div>
+        <div><label for="letra_texto">Letra del texto</label>
+          <select id="letra_texto" name="letra_texto">{% for f in fuentes %}<option{% if f == estilo.letra_texto %} selected{% endif %}>{{ f }}</option>{% endfor %}</select></div>
+        <div><label for="bordes">Bordes</label>
+          <select id="bordes" name="bordes">{% for v, t in [('redondos', 'Redondos'), ('suaves', 'Suaves'), ('rectos', 'Rectos')] %}<option value="{{ v }}"{% if v == estilo.bordes %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+        <div><label for="foto">Tu foto</label>
+          <select id="foto" name="foto">{% for v, t in [('rectangulo', 'Rectángulo'), ('circulo', 'Círculo'), ('cuadrada', 'Cuadrada')] %}<option value="{{ v }}"{% if v == estilo.foto %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+        <div><label for="portada">Portada</label>
+          <select id="portada" name="portada">{% for v, t in [('normal', 'Normal'), ('baja', 'Baja'), ('alta', 'Alta'), ('sin', 'Sin portada')] %}<option value="{{ v }}"{% if v == estilo.portada %} selected{% endif %}>{{ t }}</option>{% endfor %}</select></div>
+      </div>
+
+      <details style="margin-top:16px"{% if css or css_escrito %} open{% endif %}>
+        <summary><strong>CSS propio</strong> <span class="tenue">(para quien sabe, o lo que te dio la IA)</span></summary>
+        <textarea name="css" rows="10" maxlength="{{ css_max }}" spellcheck="false" style="margin-top:8px" placeholder=".pf-cabeza h1 { letter-spacing:0; }">{{ css_escrito if css_escrito is not none else css }}</textarea>
+        <p class="tenue" style="font-size:.85rem">Sin url(), @import, HTML ni barras invertidas. Va sólo en tu página, nunca en el panel.</p>
+      </details>
+      <button class="btn" type="submit" style="margin-top:12px">Guardar como borrador</button>
+    </form>
+  </section>
+</main>
+<script>
+(() => {
+  document.getElementById('copiar-instrucciones').addEventListener('click', async (e) => {
+    const t = document.getElementById('instrucciones');
+    try { await navigator.clipboard.writeText(t.value); } catch (_) { t.select(); document.execCommand('copy'); }
+    e.target.textContent = 'Copiadas';
+    setTimeout(() => { e.target.textContent = 'Copiar las instrucciones'; }, 1800);
+  });
+  const lista = document.getElementById('modulos'), orden = document.getElementById('orden');
+  const guardarOrden = () => { orden.value = [...lista.children].map((li) => li.dataset.modulo).join(','); };
+  lista.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mover]');
+    if (!b) return;
+    const li = b.closest('li');
+    if (b.dataset.mover === '-1' && li.previousElementSibling) lista.insertBefore(li, li.previousElementSibling);
+    if (b.dataset.mover === '1' && li.nextElementSibling) lista.insertBefore(li.nextElementSibling, li);
+    guardarOrden();
+    b.focus();
+  });
+  lista.addEventListener('change', (e) => {
+    if (e.target.name === 'ocultar') e.target.closest('li').classList.toggle('oculto', e.target.checked);
+  });
+})();
+</script>
+{% endblock %}
