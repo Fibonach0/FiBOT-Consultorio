@@ -170,10 +170,32 @@
       · {{ estadisticas.get('cancelacion', 0) }} cancelada{{ '' if estadisticas.get('cancelacion', 0) == 1 else 's' }}
       · {{ estadisticas.get('cambio', 0) }} cambio{{ '' if estadisticas.get('cambio', 0) == 1 else 's' }} de horario
       · {{ estadisticas.get('espera', 0) }} a lista de espera</p>
+    {% set og = estadisticas.get('origenes') or {} %}
+    {% if estadisticas.get('visita', 0) %}
+    <p class="tenue" id="de-donde" style="margin-top:-6px">De dónde llegaron:
+      {% for clave, nombre in origenes_visita.items() if og.get(clave) %}{{ og[clave] }} desde {{ nombre }} · {% endfor %}{{ estadisticas.get('visita', 0) - og.values()|sum }} con el link directo (WhatsApp, mensajes, favoritos)</p>
+    {% endif %}
+    {% endif %}
+    {% if perfil_google %}
+    <div class="perfil-google" id="perfil-google">
+      <p style="margin:0 0 4px"><strong>Tu página en Google</strong> <span class="tenue">· {{ perfil_google.hechos }} de {{ perfil_google.total }}</span></p>
+      {% if perfil_google.faltan %}
+      <ul class="pasos" style="margin:0 0 6px">
+        {% for paso in perfil_google.pasos %}
+        <li class="{{ 'hecho' if paso.hecho }}"><span class="paso-marca" aria-hidden="true">{{ '✓' if paso.hecho else '·' }}</span>
+          {% if paso.hecho %}<span><s>{{ paso.titulo }}</s></span>{% else %}<a href="{{ perfil_google.url }}"><strong>{{ paso.titulo }}</strong> <span class="tenue">{{ paso.detalle }}</span></a>{% endif %}</li>
+        {% endfor %}
+      </ul>
+      {% else %}
+      <p class="tenue" style="margin:0 0 6px">Tu perfil está completo. Google tarda unos días en mostrar los cambios.</p>
+      {% endif %}
+    </div>
     {% endif %}
     <details class="que-es" style="margin-top:10px"><summary class="tenue">Código QR (para imprimir o poner en el consultorio)</summary>
       <img src="{{ url_for('agenda_qr_pagina') }}" alt="QR de tu página de turnos" width="220" height="220" loading="lazy" style="margin-top:8px">
     </details>
+    <p style="margin:10px 0 0"><a class="btn chico secundario" style="text-decoration:none" id="ir-tarjeta" href="{{ url_for('tarjeta') }}">Tarjeta para Instagram</a>
+      <span class="tenue" style="font-size:.85rem">Una imagen con tu foto, tu link y el QR, para historias o publicaciones.</span></p>
   </section>
   <script>
     document.getElementById('mi-pagina-copiar').addEventListener('click', async (e) => {

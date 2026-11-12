@@ -49,6 +49,12 @@ CATALOGO = [
      "google buscador aparecer encontrar seo directorio"),
     ("Ajustes", "Cambiar mi link", "consultorio.fibot.ar/tu-nombre", ("ajustes", {"p": "pagina"}, "mi-pagina"),
      "link corto slug direccion url pagina cambiar nombre"),
+    ("Ajustes", "Tu página en Google", "Qué le falta a tu perfil para que Google lo muestre bien", ("ajustes", {"p": "pagina"}, "mi-pagina"),
+     "google buscador seo perfil completar aparecer encontrar visitas"),
+    ("Ajustes", "De dónde llegan las visitas", "Cuántas desde Google, Instagram o el QR, este mes", ("ajustes", {"p": "pagina"}, "mi-pagina"),
+     "visitas estadisticas google instagram qr cuantos entraron"),
+    ("Acciones", "Tarjeta para Instagram", "Una imagen con tu foto, tu link y el QR", ("tarjeta", {}, None),
+     "instagram historia publicacion tarjeta imagen flyer qr compartir redes"),
     ("Ajustes", "Preguntas frecuentes de mi página", "Lo que te preguntan antes de empezar", ("ajustes", {"p": "pagina"}, "presentacion"),
      "preguntas frecuentes faq dudas"),
     # --- Ajustes · Cobros

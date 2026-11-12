@@ -24,7 +24,7 @@ from datetime import date, datetime, timedelta, time as dtime
 from zoneinfo import ZoneInfo
 
 import bcrypt
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from flask import Flask, flash, g, jsonify, redirect, render_template, request, send_file, session, url_for
 from werkzeug.middleware.proxy_fix import ProxyFix
@@ -2590,6 +2590,7 @@ def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
         "paciente_nuevo": _paciente_nuevo(fichas),
         "revision": _revision_semana(tenant, fichas, bloqueos, tz, ahora),
         "avisos_pagina": _avisos_pagina(tenant, ahora),
+        "perfil_google": _perfil_google(tenant),
     }
     comunes["buscador"] = buscador.indice(tenant, comunes, rubros.de(tenant), url_for)
     return comunes
@@ -2666,6 +2667,73 @@ def _primeros_pasos(tenant: dict, fichas: list[dict]) -> dict | None:
         return None
     return {"pasos": [{"titulo": t, "detalle": d, "hecho": h, "url": u} for t, d, h, u in pasos],
             "hechos": hechos, "total": len(pasos)}
+
+
+SOBRE_MI_MINIMO = 150
+
+
+def _perfil_google(tenant: dict) -> dict | None:
+    """Qué le falta a la página para que Google la muestre bien cuando alguien
+    busca al profesional (o «psicóloga en Caballito»). None si no tiene
+    página o eligió que Google no la muestre (eso ya lo avisa otro cartel)."""
+    if not tenant.get("slug") or tenant.get("en_directorio") is False:
+        return None
+    ir = url_for("ajustes", p="pagina") + "#presentacion"
+    pasos = [
+        ("tu título", "Título", "Google te muestra como «Psicóloga en …»; sin título, solo con tu nombre.",
+         bool((tenant.get("titulo") or "").strip())),
+        ("dónde atendés", "Dónde atendés", "Mucha gente busca por barrio: «psicopedagoga en Caballito».",
+         bool((tenant.get("ubicacion") or "").strip())),
+        ("«Sobre mí»", "Sobre mí", "Unas líneas sobre cómo trabajás: es lo que Google lee de tu página.",
+         len((tenant.get("sobre_mi") or "").strip()) >= SOBRE_MI_MINIMO),
+        ("los temas que trabajás", "Temas que trabajás", "Ansiedad, duelo, aprendizaje: lo que la gente escribe al buscar.",
+         bool(tenant.get("enfoques"))),
+        ("tu foto", "Foto", "Da confianza en los resultados y cuando alguien comparte tu link.",
+         bool(tenant.get("foto"))),
+        ("preguntas frecuentes", "Preguntas frecuentes", "Google a veces las muestra directo en los resultados.",
+         len(tenant.get("preguntas") or []) >= 2),
+    ]
+    faltan = [corto for corto, _, _, hecho in pasos if not hecho]
+    return {"pasos": [{"titulo": t, "detalle": d, "hecho": h} for _, t, d, h in pasos],
+            "faltan": faltan, "hechos": len(pasos) - len(faltan), "total": len(pasos), "url": ir,
+            "en_panel": bool(faltan) and not (tenant.get("preferencias_vista") or {}).get("sin_perfil_google")}
+
+
+def _lista_y(cosas: list[str]) -> str:
+    return cosas[0] if len(cosas) == 1 else ", ".join(cosas[:-1]) + " y " + cosas[-1]
+
+
+app.jinja_env.filters["lista_y"] = _lista_y
+
+
+@app.post("/agenda/perfil-google/ocultar")
+@login_required
+def agenda_perfil_google_ocultar():
+    tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
+    pref = dict(tenant.get("preferencias_vista") or {}, sin_perfil_google=True)
+    db.guardar_ajustes(session["tenant_id"], {"preferencias_vista": pref})
+    flash("Listo, ya no lo muestro en el panel. Lo que falta sigue en Ajustes → Página.")
+    return _volver_a_agenda()
+
+
+@app.get("/agenda/tarjeta")
+@login_required
+def tarjeta():
+    """Tarjeta para Instagram (historia o publicación) con la foto, el link
+    corto y el QR. Se dibuja en el navegador: no sale nada del sistema."""
+    tenant = db.get_tenant_by_id(session["tenant_id"])
+    if not tenant or not tenant.get("slug"):
+        return redirect(url_for("ajustes", p="pagina"))
+    import segno
+    qr = segno.make(url_for("publico", slug=tenant["slug"], desde="qr", _external=True), error="m")
+    return _sin_cache(app.make_response(render_template(
+        "tarjeta.html", tenant=tenant,
+        link_corto=f"{request.host}/{tenant['slug']}",
+        qr=["".join("1" if c else "0" for c in fila) for fila in qr.matrix],
+        rubro=tenant.get("titulo") or (tenant.get("rubro") or "").capitalize(),
+        portada=url_for("publico_portada", slug=tenant["slug"], v=tenant["portada_version"]) if tenant.get("portada_version") else None,
+        colores=[{"clave": k, "nombre": v["nombre"], "fuerte": v["muestra"], "suave": (v["claro"] or ("", "", "#eef3ec"))[2]}
+                 for k, v in COLORES_PAGINA.items()])))
 
 
 @app.post("/agenda/primeros-pasos/ocultar")
@@ -5359,7 +5427,7 @@ def agenda_qr_pagina():
     tenant = db.get_tenant_by_id(session["tenant_id"])
     if not tenant or not tenant.get("slug"):
         return "", 404
-    svg = seguridad.qr_svg(url_for("publico", slug=tenant["slug"], _external=True), escala=6)
+    svg = seguridad.qr_svg(url_for("publico", slug=tenant["slug"], desde="qr", _external=True), escala=6)
     return app.response_class(svg, mimetype="image/svg+xml")
 
 
@@ -5509,7 +5577,7 @@ def publico(slug):
             return redirect(url_for("publico", slug=nuevo, **request.args), code=301)
         return "No encontrado.", 404
     if "bot" not in (request.user_agent.string or "").lower() and request.args.get("semana") is None:
-        _evento(tenant, "visita")
+        _evento(tenant, "visita", _origen_visita())
     if tenant.get("pausado"):
         return render_template("publico.html", tenant=tenant, cambiar=None, pausado=True, dias=[], hay=False,
                                anterior=None, siguiente=None, proximo_despues=None, titulo_semana="")
@@ -5771,12 +5839,42 @@ def agendar(token):
         cambiado=request.args.get("cambiado") == "1")))
 
 
-def _evento(tenant: dict, tipo: str) -> None:
+def _evento(tenant: dict, tipo: str, origen: str | None = None) -> None:
     """Para las estadísticas de la página. Si falla, no importa."""
     try:
-        db.registrar_evento_pagina(tenant["id"], tipo)
+        db.registrar_evento_pagina(tenant["id"], tipo, origen)
     except Exception:
         logger.warning("No se pudo registrar el evento %s", tipo)
+
+
+ORIGENES_VISITA = {"google": "Google", "instagram": "Instagram", "facebook": "Facebook", "qr": "el QR", "otro": "otros sitios"}
+app.jinja_env.globals["origenes_visita"] = ORIGENES_VISITA
+
+
+def _origen_visita() -> str | None:
+    """De dónde llegó la visita, solo el sitio: el QR impreso lleva ?desde=qr;
+    Instagram y Facebook abren su propio navegador (se nota en el
+    User-Agent); lo demás sale del Referer. Sin Referer (WhatsApp, link
+    pegado, favoritos) es None: «directo». No se guarda nada de la persona."""
+    if request.args.get("desde") == "qr":
+        return "qr"
+    ua = request.user_agent.string or ""
+    if "Instagram" in ua:
+        return "instagram"
+    if "FBAN" in ua or "FBAV" in ua:
+        return "facebook"
+    host = (urlparse(request.referrer or "").hostname or "").lower()
+    if not host or host == (request.host or "").split(":")[0].lower():
+        return None
+    # www.google.com.ar, google.com y la app de Google en Android
+    # (android-app://com.google.android.googlequicksearchbox).
+    if re.search(r"(^|\.)google\.", host):
+        return "google"
+    if host == "instagram.com" or host.endswith(".instagram.com"):
+        return "instagram"
+    if host in ("facebook.com", "fb.com") or host.endswith(".facebook.com"):
+        return "facebook"
+    return "otro"
 
 
 def _puede_modificar(turno: dict, tenant: dict) -> bool:

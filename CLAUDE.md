@@ -303,6 +303,16 @@ completos, en «Cómo te presentás»): salen en `/<slug>` y como JSON-LD `FAQPa
 `pregunta_ld`). El `<title>` de `/<slug>` es «Nombre — título o rubro en ubicación · Turnos online»
 (lo que se busca en Google). «Cómo llegar» (link a Google Maps, no un mapa embebido) sólo donde
 ya se muestra la dirección: al elegir el horario y con la reserva hecha.
+«Tu página en Google» (`app._perfil_google`): título, dónde atendés, «Sobre mí» de `SOBRE_MI_MINIMO`
+letras, temas, foto y 2 preguntas; lista en «Tu página de turnos» y, si falta algo, aviso arriba de
+la agenda con «Ahora no» (`preferencias_vista.sin_perfil_google`). No sale si ocultó la página.
+De dónde llegan las visitas (`migrations/084`, `eventos_pagina.origen`, `app._origen_visita`):
+google / instagram / facebook (User-Agent del navegador de la app o Referer) / qr (`?desde=qr`, lo
+llevan el QR del panel y el de la tarjeta) / otro; sin Referer = directo (null). Sólo el sitio,
+nunca IP, navegador ni la URL de origen. «Tarjeta para Instagram» (`/agenda/tarjeta`,
+`templates/tarjeta.html`): historia 1080×1920 o publicación 1080×1350 dibujada en un canvas del
+navegador (foto, portada, nombre, título, lugar, frase, QR como matriz de `segno` y link corto);
+se descarga o se comparte con `navigator.share`. Nada se manda a servicios externos.
 
 `/sumate` (`migrations/060`, tabla `interesados`, de la plataforma como
 `admins`): formulario para profesionales; pide nombre y WhatsApp o mail, tiene un

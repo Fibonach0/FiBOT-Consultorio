@@ -1,0 +1,238 @@
+{% extends "base.html" %}
+{% block titulo %}Tarjeta para Instagram · {{ tenant.nombre }}{% endblock %}
+{% block head %}<meta name="robots" content="noindex">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500&family=Hanken+Grotesk:wght@400;600&display=swap" rel="stylesheet">{% endblock %}
+{% block cuerpo %}
+{% include "_rapida_estilo.html" %}
+<style>
+  .tarjeta-armado { display:grid; gap:18px; grid-template-columns:minmax(0, 1fr); }
+  @media (min-width: 760px) { .tarjeta-armado { grid-template-columns:minmax(0, 360px) minmax(0, 1fr); align-items:start; } .rapida.tarjeta { max-width:900px; } }
+  .tarjeta-vista { background:var(--card); border:1px solid var(--rule); border-radius:12px; padding:12px; text-align:center; }
+  .tarjeta-vista canvas { width:100%; max-width:340px; height:auto; border-radius:8px; box-shadow:0 2px 10px rgba(0,0,0,.12); }
+  .tarjeta-opciones fieldset { border:none; padding:0; margin:0 0 14px; }
+  .tarjeta-opciones legend { font-weight:600; margin-bottom:6px; padding:0; }
+  .tarjeta-opciones .opcion { display:inline-flex; align-items:center; gap:6px; margin:0 14px 6px 0; font-weight:400; }
+  .muestra-color { width:22px; height:22px; border-radius:50%; display:inline-block; border:1px solid var(--rule); }
+  .tarjeta-botones { display:flex; gap:8px; flex-wrap:wrap; margin-top:6px; }
+  .tarjeta-botones .btn { min-height:44px; }
+</style>
+<header class="rapida-barra">
+  <a href="{{ url_for('ajustes', p='pagina') }}#mi-pagina">← Ajustes</a>
+  <strong>Tarjeta para Instagram</strong>
+  <a href="{{ url_for('agenda') }}" class="rapida-mas">Panel</a>
+</header>
+<main class="rapida tarjeta">
+  <p class="tenue" style="margin-top:0">Una imagen lista con tu foto, tu link y un código QR. Subila como historia o publicación; se arma acá, en tu navegador.</p>
+  <div class="tarjeta-armado">
+    <div class="tarjeta-vista">
+      <canvas id="tarjeta" width="1080" height="1920" role="img" aria-label="Vista previa de la tarjeta"></canvas>
+    </div>
+    <form class="tarjeta-opciones" id="opciones" onsubmit="return false">
+      <fieldset>
+        <legend>Para</legend>
+        <label class="opcion"><input type="radio" name="formato" value="historia" checked> Historia</label>
+        <label class="opcion"><input type="radio" name="formato" value="post"> Publicación</label>
+      </fieldset>
+      <fieldset>
+        <legend>Color</legend>
+        {% for col in colores %}
+        <label class="opcion"><input type="radio" name="color" value="{{ col.clave }}"{% if col.clave == (tenant.color_pagina or 'verde') %} checked{% endif %}>
+          <span class="muestra-color" style="background:{{ col.fuerte }}" aria-hidden="true"></span> {{ col.nombre }}</label>
+        {% endfor %}
+      </fieldset>
+      <fieldset>
+        <legend><label for="titular" style="margin:0">Frase</label></legend>
+        <input type="text" id="titular" name="titular" maxlength="40" value="Sacá tu turno online" style="width:100%;max-width:360px">
+      </fieldset>
+      {% if portada %}
+      <fieldset>
+        <label class="opcion"><input type="checkbox" name="con_portada" checked> Usar tu portada arriba</label>
+      </fieldset>
+      {% endif %}
+      {% if not tenant.foto %}<p class="tenue">Sin foto va tu inicial. <a href="{{ url_for('ajustes', p='pagina') }}#presentacion">Subí tu foto</a> y queda más cálida.</p>{% endif %}
+      <div class="tarjeta-botones">
+        <button class="btn" type="button" id="descargar">Descargar imagen</button>
+        <button class="btn secundario" type="button" id="compartir" hidden>Compartir</button>
+      </div>
+      <p class="tenue" style="font-size:.9rem;margin-top:14px">En una historia, sumale el sticker «Enlace» con tu link: así se toca directo. El QR sirve cuando la ven desde otra pantalla o la imprimís. Y poné el link en tu biografía.</p>
+    </form>
+  </div>
+</main>
+<script>
+(() => {
+  const DATOS = {
+    nombre: {{ tenant.nombre|tojson }},
+    rubro: {{ rubro|tojson }},
+    ubicacion: {{ (tenant.ubicacion or '')|tojson }},
+    link: {{ link_corto|tojson }},
+    slug: {{ tenant.slug|tojson }},
+    foto: {{ (tenant.foto or '')|tojson }},
+    portada: {{ (portada or '')|tojson }},
+    qr: {{ qr|tojson }},
+    colores: {{ colores|tojson }},
+  };
+  const TINTA = '#1c1b19', TENUE = '#5b584f', FONDO = '#faf6ef';
+  const SERIF = 'Newsreader, Georgia, serif', SANS = '"Hanken Grotesk", system-ui, sans-serif';
+  const FORMATOS = {
+    // Historias: Instagram tapa ~250 px arriba y abajo, lo importante va en el medio.
+    historia: { W: 1080, H: 1920, banda: 520, radio: 170, nombre: 92, qr: 420, linkY: 1640 },
+    post: { W: 1080, H: 1350, banda: 280, radio: 115, nombre: 80, qr: 300, linkY: 1270 },
+  };
+  const cv = document.getElementById('tarjeta');
+  const form = document.getElementById('opciones');
+
+  const cargar = (src) => new Promise((ok) => {
+    if (!src) return ok(null);
+    const img = new Image();
+    img.onload = () => ok(img);
+    img.onerror = () => ok(null);
+    img.src = src;
+  });
+
+  function cubrir(c, img, x, y, w, h) {
+    const k = Math.max(w / img.width, h / img.height);
+    const sw = w / k, sh = h / k;
+    c.drawImage(img, (img.width - sw) / 2, (img.height - sh) / 2, sw, sh, x, y, w, h);
+  }
+
+  function partir(c, txt, maxW, max) {
+    const out = [];
+    let act = '';
+    for (const p of txt.split(/\s+/).filter(Boolean)) {
+      const prueba = act ? act + ' ' + p : p;
+      if (c.measureText(prueba).width <= maxW) { act = prueba; continue; }
+      if (!act || c.measureText(p).width > maxW) return null;
+      out.push(act);
+      act = p;
+    }
+    if (act) out.push(act);
+    return out.length <= max ? out : null;
+  }
+
+  function recortar(c, txt, maxW) {
+    while (txt.length > 1 && c.measureText(txt + '…').width > maxW) txt = txt.slice(0, -1);
+    return txt + '…';
+  }
+
+  // Escribe centrado; achica la letra hasta que entre en `max` renglones.
+  // Devuelve la línea de base del último renglón.
+  function escribir(c, W, txt, o) {
+    let tam = o.tam, lineas = null;
+    while (true) {
+      c.font = `${o.peso || 400} ${tam}px ${o.familia}`;
+      lineas = partir(c, txt, o.maxW, o.max || 2);
+      if (lineas || tam <= o.tam * 0.6) break;
+      tam -= 2;
+    }
+    if (!lineas) lineas = [recortar(c, txt, o.maxW)];
+    c.fillStyle = o.color;
+    c.textAlign = 'center';
+    c.textBaseline = 'alphabetic';
+    let y = o.y;
+    lineas.forEach((l, i) => { if (i) y += Math.round(tam * 1.15); c.fillText(l, W / 2, y); });
+    return y;
+  }
+
+  function redondo(c, x, y, w, h, r) {
+    c.beginPath();
+    if (c.roundRect) c.roundRect(x, y, w, h, r); else c.rect(x, y, w, h);
+  }
+
+  let imgs = { foto: null, portada: null };
+
+  function dibujar() {
+    const f = FORMATOS[form.formato.value];
+    const col = DATOS.colores.find((x) => x.clave === form.color.value) || DATOS.colores[0];
+    const conPortada = imgs.portada && (!form.con_portada || form.con_portada.checked);
+    const { W, H } = f;
+    cv.width = W; cv.height = H;
+    const c = cv.getContext('2d');
+    c.fillStyle = FONDO;
+    c.fillRect(0, 0, W, H);
+
+    // Banda de arriba: la portada o el color elegido.
+    if (conPortada) cubrir(c, imgs.portada, 0, 0, W, f.banda);
+    else { c.fillStyle = col.fuerte; c.fillRect(0, 0, W, f.banda); }
+
+    // Foto en círculo, montada sobre el borde de la banda.
+    const cx = W / 2, cy = f.banda;
+    c.fillStyle = FONDO;
+    c.beginPath(); c.arc(cx, cy, f.radio + 12, 0, Math.PI * 2); c.fill();
+    c.save();
+    c.beginPath(); c.arc(cx, cy, f.radio, 0, Math.PI * 2); c.clip();
+    if (imgs.foto) cubrir(c, imgs.foto, cx - f.radio, cy - f.radio, f.radio * 2, f.radio * 2);
+    else {
+      c.fillStyle = col.suave; c.fillRect(cx - f.radio, cy - f.radio, f.radio * 2, f.radio * 2);
+      c.fillStyle = col.fuerte; c.font = `500 ${Math.round(f.radio * 1.1)}px ${SERIF}`;
+      c.textAlign = 'center'; c.textBaseline = 'middle';
+      c.fillText((DATOS.nombre.trim()[0] || '·').toUpperCase(), cx, cy + f.radio * 0.06);
+    }
+    c.restore();
+
+    // Quién es.
+    const ancho = W - 160;
+    let y = escribir(c, W, DATOS.nombre, { tam: f.nombre, peso: 500, familia: SERIF, color: TINTA, y: cy + f.radio + Math.round(f.nombre * 1.05), maxW: ancho });
+    if (DATOS.rubro) y = escribir(c, W, DATOS.rubro, { tam: 40, familia: SANS, color: TENUE, y: y + 60, maxW: ancho });
+    if (DATOS.ubicacion) y = escribir(c, W, DATOS.ubicacion, { tam: 36, familia: SANS, color: TENUE, y: y + 52, maxW: ancho, max: 1 });
+
+    // Abajo, de abajo hacia arriba: el link, el QR y la frase.
+    const linkY = f.linkY;
+    escribir(c, W, DATOS.link, { tam: 50, peso: 600, familia: SANS, color: TINTA, y: linkY, maxW: W - 120, max: 1 });
+    const pad = 24, lado = f.qr + pad * 2;
+    const caja = { x: (W - lado) / 2, y: linkY - 70 - lado };
+    c.fillStyle = '#ffffff';
+    redondo(c, caja.x, caja.y, lado, lado, 28); c.fill();
+    c.strokeStyle = 'rgba(0,0,0,.08)'; c.lineWidth = 2; c.stroke();
+    const n = DATOS.qr.length, celda = f.qr / n;
+    c.fillStyle = col.fuerte;
+    DATOS.qr.forEach((fila, i) => {
+      for (let j = 0; j < n; j++) {
+        if (fila[j] === '1') c.fillRect(Math.floor(caja.x + pad + j * celda), Math.floor(caja.y + pad + i * celda), Math.ceil(celda), Math.ceil(celda));
+      }
+    });
+    const titular = (form.titular.value || '').trim();
+    if (titular) escribir(c, W, titular, { tam: 52, peso: 600, familia: SANS, color: col.fuerte, y: caja.y - 44, maxW: ancho, max: 1 });
+  }
+
+  function nombreArchivo() {
+    return `tarjeta-${DATOS.slug}-${form.formato.value}.png`;
+  }
+
+  document.getElementById('descargar').addEventListener('click', () => {
+    cv.toBlob((b) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(b);
+      a.download = nombreArchivo();
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    }, 'image/png');
+  });
+
+  const compartir = document.getElementById('compartir');
+  if (navigator.canShare && window.File) {
+    try {
+      if (navigator.canShare({ files: [new File([''], 'x.png', { type: 'image/png' })] })) compartir.hidden = false;
+    } catch (_) {}
+  }
+  compartir.addEventListener('click', () => {
+    cv.toBlob(async (b) => {
+      try { await navigator.share({ files: [new File([b], nombreArchivo(), { type: 'image/png' })] }); } catch (_) {}
+    }, 'image/png');
+  });
+
+  form.addEventListener('input', dibujar);
+  form.addEventListener('change', dibujar);
+
+  const fuentes = document.fonts ? Promise.all([
+    document.fonts.load(`500 80px ${SERIF}`), document.fonts.load(`400 40px ${SANS}`), document.fonts.load(`600 50px ${SANS}`),
+  ]).catch(() => null) : Promise.resolve();
+  Promise.all([cargar(DATOS.foto), cargar(DATOS.portada), fuentes]).then(([foto, portada]) => {
+    imgs = { foto, portada };
+    dibujar();
+  });
+  dibujar();
+})();
+</script>
+{% endblock %}
