@@ -5343,6 +5343,47 @@ chequear("google: si la oculta, noindex y fuera del sitemap", 'name="robots" con
 _ts["en_directorio"] = None
 chequear("google: si no, en el sitemap", "/marcos</loc>" in _w.get("/sitemap.xml").data.decode())
 _ts.update(preguntas=None, titulo=None, ubicacion=None)
+
+# --- De dónde llegan las visitas, «Tu página en Google» y tarjeta para Instagram ---
+TABLAS["eventos_pagina"] = []
+_w.get("/marcos", headers={"Referer": "https://www.google.com.ar/"})
+_w.get("/marcos", headers={"Referer": "android-app://com.google.android.googlequicksearchbox/"})
+_w.get("/marcos", headers={"User-Agent": "Mozilla/5.0 (iPhone) Instagram 300.0"})
+_w.get("/marcos", headers={"Referer": "https://l.facebook.com/"})
+_w.get("/marcos?desde=qr")
+_w.get("/marcos", headers={"Referer": "https://localhost/marcos?semana=2026-11-16"})
+_w.get("/marcos", headers={"Referer": "https://blog.example.com/nota"})
+_w.get("/marcos")
+_or = [e.get("origen") for e in TABLAS["eventos_pagina"] if e["tipo"] == "visita"]
+chequear("visitas: se anota sólo el sitio de origen", _or == ["google", "google", "instagram", "facebook", "qr", None, "otro", None], _or)
+chequear("visitas: no se guarda nada de la persona", all(set(e) <= {"id", "tenant_id", "tipo", "cuando", "origen", "created_at"} for e in TABLAS["eventos_pagina"]))
+_aj = cb.get("/ajustes?p=pagina").data.decode()
+chequear("visitas: «Este mes» dice de dónde llegaron", "2 desde Google" in _aj and "1 desde Instagram" in _aj and "1 desde el QR" in _aj
+         and "2 con el link directo" in _aj, _aj[_aj.find("De dónde"):_aj.find("De dónde") + 300])
+_ts.update(titulo="Psicopedagoga", ubicacion=None, sobre_mi="corto", enfoques=["Lectura"], foto=None, preguntas=None,
+           preferencias_vista={})
+_ag = _panel(cb)
+chequear("google: el panel dice qué falta del perfil", 'id="aviso-perfil-google"' in _ag
+         and "te falta dónde atendés, «Sobre mí», tu foto y preguntas frecuentes" in _ag)
+_aj = cb.get("/ajustes?p=pagina").data.decode()
+chequear("google: en ajustes, la lista con lo hecho tachado", 'id="perfil-google"' in _aj and "· 2 de 6" in _aj and "<s>Título</s>" in _aj)
+cb.post("/agenda/perfil-google/ocultar", data={"csrf_token": "tok"})
+chequear("google: «Ahora no» lo saca del panel pero no de ajustes", 'id="aviso-perfil-google"' not in _panel(cb)
+         and 'id="perfil-google"' in cb.get("/ajustes?p=pagina").data.decode())
+_ts.update(preferencias_vista={}, ubicacion="Caballito", sobre_mi="x" * 200, foto="data:image/png;base64,AAAA",
+           preguntas=[{"p": "a", "r": "b"}, {"p": "c", "r": "d"}])
+chequear("google: con todo completo no hay aviso", 'id="aviso-perfil-google"' not in _panel(cb)
+         and "Tu perfil está completo" in cb.get("/ajustes?p=pagina").data.decode())
+_ts["en_directorio"] = False
+chequear("google: si la ocultó, no le pide completar (ya avisa el otro cartel)", 'id="aviso-perfil-google"' not in _panel(cb))
+_ts["en_directorio"] = None
+_tj = cb.get("/agenda/tarjeta")
+_tjh = _tj.data.decode()
+chequear("tarjeta: se arma en el navegador con el link corto y el QR", _tj.status_code == 200 and '"localhost/marcos"' in _tjh
+         and 'qr: ["' in _tjh and "Psicopedagoga" in _tjh and "noindex" in _tjh)
+chequear("tarjeta: pide sesión", _w.get("/agenda/tarjeta").status_code in (302, 401))
+chequear("tarjeta: está en ajustes", 'href="/agenda/tarjeta"' in cb.get("/ajustes?p=pagina").data.decode())
+_ts.update(sobre_mi=None, enfoques=None, foto=None, preguntas=None, titulo=None, ubicacion=None)
 db.get_tenant_by_id, db.get_tenant_by_slug = _gtid_s, _gtbs
 
 if fallos:

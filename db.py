@@ -1832,17 +1832,23 @@ def marcar_aviso_sin_anotar(tenant_id: str, dia: str) -> None:
     _client.table("tenants").update({"ultimo_aviso_sin_anotar": dia}).eq("id", tenant_id).execute()
 
 
-def registrar_evento_pagina(tenant_id: str, tipo: str) -> None:
-    _client.table("eventos_pagina").insert({"tenant_id": tenant_id, "tipo": tipo,
-                                            "cuando": datetime.now(timezone.utc).isoformat()}).execute()
+def registrar_evento_pagina(tenant_id: str, tipo: str, origen: str | None = None) -> None:
+    fila = {"tenant_id": tenant_id, "tipo": tipo, "cuando": datetime.now(timezone.utc).isoformat()}
+    if origen:
+        fila["origen"] = origen
+    _client.table("eventos_pagina").insert(fila).execute()
 
 
-def eventos_pagina_desde(tenant_id: str, desde: datetime) -> dict[str, int]:
-    res = (_client.table("eventos_pagina").select("tipo").eq("tenant_id", tenant_id)
+def eventos_pagina_desde(tenant_id: str, desde: datetime) -> dict:
+    """Cuántos eventos de cada tipo, y en «origenes» de dónde llegaron las
+    visitas (google, instagram, facebook, qr, otro)."""
+    res = (_client.table("eventos_pagina").select("tipo,origen").eq("tenant_id", tenant_id)
            .gte("cuando", desde.isoformat()).limit(20000).execute())
-    cuenta: dict[str, int] = {}
+    cuenta: dict = {"origenes": {}}
     for f in res.data:
         cuenta[f["tipo"]] = cuenta.get(f["tipo"], 0) + 1
+        if f["tipo"] == "visita" and f.get("origen"):
+            cuenta["origenes"][f["origen"]] = cuenta["origenes"].get(f["origen"], 0) + 1
     return cuenta
 
 

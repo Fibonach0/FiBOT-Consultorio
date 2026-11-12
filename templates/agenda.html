@@ -94,6 +94,16 @@
     </form>
   </div>
   {% endif %}
+  {% if perfil_google and perfil_google.en_panel %}
+  <div class="card" id="aviso-perfil-google" role="status" style="border-left:4px solid var(--green-solid)">
+    <p style="margin:0 0 8px"><strong>Para que Google muestre bien tu página</strong>, te falta {{ perfil_google.faltan|lista_y }}.
+      <span class="tenue">Lo que escribas ahí es lo que Google lee cuando alguien te busca por tu nombre o por tu barrio.</span></p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <a class="btn chico" style="text-decoration:none" href="{{ perfil_google.url }}">Completar</a>
+      <form method="post" action="{{ url_for('agenda_perfil_google_ocultar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Ahora no</button></form>
+    </div>
+  </div>
+  {% endif %}
   {% if primeros_pasos %}
   <div class="card primeros-pasos" id="primeros-pasos">
     <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;flex-wrap:wrap">
