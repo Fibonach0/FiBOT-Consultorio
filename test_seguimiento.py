@@ -5387,7 +5387,7 @@ _ts.update(sobre_mi=None, enfoques=None, foto=None, preguntas=None, titulo=None,
 
 # --- Diseño propio de la página ---
 import diseno as _dis  # noqa: E402
-for _k in ("diseno", "diseno_borrador", "css_propio", "css_borrador"):
+for _k in ("diseno", "diseno_borrador", "css_propio", "css_borrador", "diseno_anterior", "css_anterior"):
     _ts[_k] = None
 _ts.update(sobre_mi="Acompaño procesos de aprendizaje.", enfoques=["Lectura"], preguntas=[{"p": "¿Cuánto dura?", "r": "Una hora."}],
            ubicacion="Caballito")
@@ -5470,6 +5470,34 @@ chequear("diseño: al publicar avisa a administración con el link", len(_admin)
 app.whatsapp.avisar_admin = _viejo_admin
 cb.post("/agenda/diseno/original", data={"csrf_token": "tok"})
 
+# --- Volver al diseño anterior ---
+chequear("anterior: volver al original guarda lo publicado", _ts["diseno_anterior"] == _dis.PRESETS["moderno"]["estilo"]
+         and _ts["css_anterior"] == ".pf-caja { padding:30px; }" and not _ts["diseno"], (_ts.get("diseno_anterior"), _ts.get("css_anterior")))
+chequear("anterior: el botón aparece", 'id="volver-anterior"' in cb.get("/agenda/diseno").data.decode())
+cb.post("/agenda/diseno/anterior", data={"csrf_token": "tok"})
+chequear("anterior: vuelve el publicado de antes (el original no ocupa el lugar)", _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"]
+         and _ts["css_propio"] == ".pf-caja { padding:30px; }" and not _ts["diseno_anterior"] and not _ts["css_anterior"]
+         and 'id="diseno-css"' in _w.get("/marcos").data.decode())
+cb.post("/agenda/diseno/listo", data={"csrf_token": "tok", "preset": "calido"})
+cb.post("/agenda/diseno/publicar", data={"csrf_token": "tok"})
+chequear("anterior: publicar guarda el que había", _ts["diseno"] == _dis.PRESETS["calido"]["estilo"]
+         and _ts["diseno_anterior"] == _dis.PRESETS["moderno"]["estilo"])
+cb.post("/agenda/diseno/borrador", data={"csrf_token": "tok", "css": ".pf-caja { padding:10px; }"})
+cb.post("/agenda/diseno/anterior", data={"csrf_token": "tok"})
+chequear("anterior: se intercambian (ir y volver) y se descarta el borrador", _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"]
+         and _ts["diseno_anterior"] == _dis.PRESETS["calido"]["estilo"] and _ts["diseno_borrador"] is None and _ts["css_borrador"] is None)
+_ts["css_anterior"] = ".a{background:url(https://malo.example/x)}"
+cb.post("/agenda/diseno/anterior", data={"csrf_token": "tok"})
+chequear("anterior: un CSS guardado que hoy no pasa la revisión no se publica", _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"]
+         and "malo.example" not in (_ts["css_propio"] or ""))
+_ts.update(diseno_anterior=None, css_anterior=None)
+cb.post("/agenda/diseno/anterior", data={"csrf_token": "tok"})
+chequear("anterior: sin anterior no cambia nada ni muestra el botón", _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"]
+         and 'id="volver-anterior"' not in cb.get("/agenda/diseno").data.decode())
+chequear("anterior: pide CSRF", cb.post("/agenda/diseno/anterior", data={}).status_code in (400, 403))
+cb.post("/agenda/diseno/original", data={"csrf_token": "tok"})
+_ts.update(diseno_anterior=None, css_anterior=None)
+
 _ts["preferencias_vista"] = {}
 _ag = cb.get("/agenda").data.decode()
 chequear("panel: de fábrica se ve como siempre", 'class="panel-modulos"' in _ag and "panel-modulos propia" not in _ag
@@ -5497,6 +5525,30 @@ cb.post("/agenda/acomodar", data={"csrf_token": "tok", "orden": ",".join(app.PAN
                                   **{f"ancho_{m}": a for m, a in app.PANEL_DE_FABRICA["anchos"].items()}})
 chequear("panel: guardar lo de fábrica no deja nada guardado", "panel" not in _ts["preferencias_vista"])
 chequear("panel: acomodar pide CSRF", cb.post("/agenda/acomodar", data={"orden": "fichas"}).status_code in (400, 403))
+# En el celular, otro orden
+cb.post("/agenda/acomodar", data={"csrf_token": "tok", "orden": _orden, "ancho_fichas": "chica", "ancho_calendario": "grande",
+                                  "orden_celular": "hoy,resolver,calendario", "oculto_celular": ["cobros", "resolver", "basura"]})
+_pc = _ts["preferencias_vista"].get("panel_celular") or {}
+chequear("celular: guarda su orden y ocultos («Para resolver» no se oculta)", _pc.get("orden", [])[:3] == ["hoy", "resolver", "calendario"]
+         and _pc.get("ocultos") == ["cobros"] and len(_pc["orden"]) == len(app.MODULOS_PANEL), _pc)
+_ag = cb.get("/agenda").data.decode()
+chequear("celular: la compu y el celular tienen cada uno su orden", "@media (min-width: 1001px)" in _ag and "@media (max-width: 1000px)" in _ag
+         and '[data-bloque="fichas"] { order:0; grid-column:span 2; }' in _ag and '[data-bloque="hoy"] { order:0; grid-column:1 / -1; }' in _ag
+         and '[data-bloque="cobros"] { order:4; display:none; }' in _ag and '[data-bloque="cobros"] { order:5; grid-column:span 2; }' in _ag)
+_acm = cb.get("/agenda/acomodar").data.decode()
+chequear("celular: la pantalla lo muestra con su orden", 'id="modulos-celular"' in _acm and 'id="celular-igual" checked' not in _acm
+         and 'value="hoy,resolver,calendario,' in _acm)
+cb.post("/agenda/acomodar", data={"csrf_token": "tok", "orden": _orden, "celular_igual": "1", "orden_celular": "hoy"})
+chequear("celular: «Igual que en la compu» borra el orden propio", "panel_celular" not in _ts["preferencias_vista"]
+         and "panel" in _ts["preferencias_vista"])
+cb.post("/agenda/acomodar", data={"csrf_token": "tok", "orden": ",".join(app.PANEL_DE_FABRICA["orden"]),
+                                  **{f"ancho_{m}": a for m, a in app.PANEL_DE_FABRICA["anchos"].items()}, "orden_celular": "hoy,calendario"})
+_ag = cb.get("/agenda").data.decode()
+chequear("celular: compu de fábrica y celular propio", "panel" not in _ts["preferencias_vista"] and "panel_celular" in _ts["preferencias_vista"]
+         and "panel-modulos propia" in _ag and "@media (min-width: 1001px)" not in _ag and '[data-bloque="hoy"] { order:0; grid-column:1 / -1; }' in _ag)
+cb.post("/agenda/acomodar", data={"csrf_token": "tok", "fabrica": "1"})
+chequear("celular: «Volver a como venía» también lo borra", not _ts["preferencias_vista"].get("panel_celular")
+         and "panel-modulos propia" not in cb.get("/agenda").data.decode())
 _ts["preferencias_vista"] = {}
 db.get_tenant_by_id, db.get_tenant_by_slug = _gtid_s, _gtbs
 

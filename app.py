@@ -2764,6 +2764,7 @@ def _pantalla_diseno(tenant: dict, **extra):
         "diseno.html", tenant=tenant, estilo={**diseno.ORIGINAL, **estilo}, css=css,
         hay_borrador=tenant.get("diseno_borrador") is not None,
         hay_publicado=bool(tenant.get("diseno") or tenant.get("css_propio")),
+        hay_anterior=bool(tenant.get("diseno_anterior") or tenant.get("css_anterior")),
         instrucciones=diseno.instrucciones(tenant, url_for("publico", slug=tenant["slug"], _external=True)),
         fuentes=list(diseno.FUENTES), modulos=diseno.MODULOS, css_max=diseno.CSS_MAX, presets=diseno.PRESETS,
         actual=estilo, **extra)))
@@ -2855,7 +2856,8 @@ def diseno_publicar():
         return redirect(url_for("diseno_pagina"))
     db.guardar_ajustes(tenant["id"], {"diseno": tenant.get("diseno_borrador") or None,
                                       "css_propio": tenant.get("css_borrador") or None,
-                                      "diseno_borrador": None, "css_borrador": None})
+                                      "diseno_borrador": None, "css_borrador": None,
+                                      **_guardar_como_anterior(tenant)})
     db.registrar_actividad(tenant["nombre"], "publicó un diseño nuevo de su página", tenant["id"])
     # A administración, para mirarlo rápido (una línea: va como parámetro de plantilla).
     try:
@@ -2876,13 +2878,49 @@ def diseno_descartar():
     return redirect(url_for("diseno_pagina"))
 
 
+def _guardar_como_anterior(tenant: dict) -> dict:
+    """Lo publicado hasta ahora pasa a ser «el anterior». Si era el original
+    (nada publicado), el anterior que había se conserva: volver al original
+    ya tiene su botón."""
+    if not (tenant.get("diseno") or tenant.get("css_propio")):
+        return {}
+    return {"diseno_anterior": tenant.get("diseno") or None, "css_anterior": tenant.get("css_propio") or None}
+
+
+@app.post("/agenda/diseno/anterior")
+@login_required
+def diseno_anterior():
+    """Vuelve al diseño publicado antes del último cambio. Se intercambian:
+    el de ahora queda como anterior, así se puede ir y volver."""
+    tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
+    if not (tenant.get("diseno_anterior") or tenant.get("css_anterior")):
+        flash("No hay un diseño anterior guardado.")
+        return redirect(url_for("diseno_pagina"))
+    # El CSS guardado se vuelve a revisar: las reglas de limpiar_css pueden
+    # haberse endurecido desde que se publicó.
+    css, errores, _ = diseno.limpiar_css(tenant.get("css_anterior") or "")
+    estilo, err_estilo = diseno.leer(tenant.get("diseno_anterior") or {})
+    if errores or err_estilo:
+        flash("El diseño anterior ya no pasa la revisión de hoy; cargalo de nuevo desde tu IA.")
+        return redirect(url_for("diseno_pagina"))
+    db.guardar_ajustes(tenant["id"], {"diseno": estilo or None, "css_propio": css or None,
+                                      "diseno_borrador": None, "css_borrador": None,
+                                      "diseno_anterior": tenant.get("diseno") or None,
+                                      "css_anterior": tenant.get("css_propio") or None})
+    db.registrar_actividad(tenant.get("nombre") or "profesional", "volvió al diseño anterior de su página", tenant["id"])
+    flash("Listo: tu página volvió al diseño anterior. El que tenías quedó guardado, por si querés volver.")
+    return redirect(url_for("diseno_pagina"))
+
+
 @app.post("/agenda/diseno/original")
 @login_required
 def diseno_original():
     tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
-    db.guardar_ajustes(session["tenant_id"], {"diseno": None, "css_propio": None, "diseno_borrador": None, "css_borrador": None})
+    db.guardar_ajustes(session["tenant_id"], {"diseno": None, "css_propio": None, "diseno_borrador": None, "css_borrador": None,
+                                              **_guardar_como_anterior(tenant)})
     db.registrar_actividad(tenant.get("nombre") or "profesional", "volvió al diseño original de su página", session["tenant_id"])
-    flash("Listo: tu página volvió al diseño original.")
+    flash("Listo: tu página volvió al diseño original."
+          + (" El que tenías quedó guardado: «Volver al diseño anterior»." if _guardar_como_anterior(tenant) else ""))
     return redirect(url_for("diseno_pagina"))
 
 
@@ -2910,20 +2948,47 @@ def _panel_valido(dato) -> dict | None:
     return {"orden": orden, "anchos": {**PANEL_DE_FABRICA["anchos"], **anchos}}
 
 
-def _disposicion(tenant: dict) -> str | None:
-    """El CSS de la disposición propia del panel, o None si es la de fábrica."""
-    d = _panel_valido((tenant.get("preferencias_vista") or {}).get("panel"))
-    if not d or d == PANEL_DE_FABRICA:
+ANCHO_CELULAR = 1000  # px: debajo, una columna con el orden «en el celular»
+
+
+def _celular_valido(dato) -> dict | None:
+    """Orden y ocultos del panel en el celular (una columna, sin anchos)."""
+    if not isinstance(dato, dict):
         return None
-    reglas = [".panel-modulos.propia { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:16px;"
-              " align-items:start; margin-bottom:16px; }",
-              ".panel-modulos.propia > .tablero { display:contents; }",
-              ".panel-modulos.propia [data-bloque] { margin-bottom:0; min-width:0; }"]
-    for i, m in enumerate(d["orden"]):
-        lado = ANCHOS_PANEL[d["anchos"][m]][1]
-        reglas.append(f'.panel-modulos.propia [data-bloque="{m}"] {{ order:{i}; '
-                      + ("display:none; }" if not lado else f"grid-column:span {lado}; }}"))
-    reglas.append("@media (max-width: 1000px) { .panel-modulos.propia [data-bloque] { grid-column:1 / -1; } }")
+    orden = [m for m in dict.fromkeys(dato.get("orden") or []) if m in MODULOS_PANEL]
+    orden += [m for m in MODULOS_PANEL if m not in orden]
+    ocultos = sorted({m for m in dato.get("ocultos") or [] if m in MODULOS_PANEL and m not in NO_SE_OCULTAN})
+    return {"orden": orden, "ocultos": ocultos}
+
+
+def _celular_de(compu: dict) -> dict:
+    """Sin orden propio, el celular sigue el de la compu."""
+    return {"orden": list(compu["orden"]), "ocultos": sorted(m for m in compu["orden"] if compu["anchos"][m] == "oculto")}
+
+
+def _disposicion(tenant: dict) -> str | None:
+    """El CSS de la disposición propia del panel, o None si es la de fábrica
+    en la compu y en el celular."""
+    pref = tenant.get("preferencias_vista") or {}
+    compu = _panel_valido(pref.get("panel")) or PANEL_DE_FABRICA
+    celu = _celular_valido(pref.get("panel_celular")) or _celular_de(compu)
+    if compu == PANEL_DE_FABRICA and celu == _celular_de(PANEL_DE_FABRICA):
+        return None
+    base = ".panel-modulos.propia > .tablero { display:contents; } .panel-modulos.propia [data-bloque] { margin-bottom:0; min-width:0; }"
+    reglas = []
+    if compu != PANEL_DE_FABRICA:
+        compu_css = [".panel-modulos.propia { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:16px;"
+                     " align-items:start; margin-bottom:16px; }", base]
+        for i, m in enumerate(compu["orden"]):
+            lado = ANCHOS_PANEL[compu["anchos"][m]][1]
+            compu_css.append(f'.panel-modulos.propia [data-bloque="{m}"] {{ order:{i}; '
+                             + ("display:none; }" if not lado else f"grid-column:span {lado}; }}"))
+        reglas.append(f"@media (min-width: {ANCHO_CELULAR + 1}px) {{\n" + "\n".join(compu_css) + "\n}")
+    celu_css = [".panel-modulos.propia { display:grid; grid-template-columns:minmax(0, 1fr); gap:16px; margin-bottom:16px; }", base]
+    for i, m in enumerate(celu["orden"]):
+        celu_css.append(f'.panel-modulos.propia [data-bloque="{m}"] {{ order:{i}; '
+                        + ("display:none; }" if m in celu["ocultos"] else "grid-column:1 / -1; }"))
+    reglas.append(f"@media (max-width: {ANCHO_CELULAR}px) {{\n" + "\n".join(celu_css) + "\n}")
     return "\n".join(reglas)
 
 
@@ -2935,6 +3000,7 @@ def acomodar_panel():
     if request.method == "POST":
         if request.form.get("fabrica"):
             pref.pop("panel", None)
+            pref.pop("panel_celular", None)
             flash("Listo: el panel volvió a como venía.")
         else:
             nuevo = _panel_valido({"orden": (request.form.get("orden") or "").split(","),
@@ -2943,13 +3009,23 @@ def acomodar_panel():
                 pref.pop("panel", None)
             else:
                 pref["panel"] = nuevo
+            celu = None
+            if not request.form.get("celular_igual"):
+                celu = _celular_valido({"orden": (request.form.get("orden_celular") or "").split(","),
+                                        "ocultos": request.form.getlist("oculto_celular")})
+            if not celu or celu == _celular_de(nuevo):
+                pref.pop("panel_celular", None)
+            else:
+                pref["panel_celular"] = celu
             flash("Listo, tu panel quedó acomodado.")
         db.guardar_ajustes(tenant["id"], {"preferencias_vista": pref})
         return redirect(url_for("agenda"))
     d = _panel_valido(pref.get("panel")) or PANEL_DE_FABRICA
+    celu = _celular_valido(pref.get("panel_celular"))
     return _sin_cache(app.make_response(render_template(
         "acomodar.html", tenant=tenant, disp=d, modulos=MODULOS_PANEL, anchos=ANCHOS_PANEL,
-        no_se_ocultan=NO_SE_OCULTAN, propia=bool(pref.get("panel")))))
+        no_se_ocultan=NO_SE_OCULTAN, celu=celu or _celular_de(d), celular_propio=bool(celu),
+        propia=bool(pref.get("panel") or celu))))
 
 
 @app.get("/agenda/tarjeta")

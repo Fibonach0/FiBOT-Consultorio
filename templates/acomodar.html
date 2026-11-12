@@ -17,6 +17,11 @@
   .maqueta { display:grid; grid-template-columns:repeat(6, minmax(0, 1fr)); gap:6px; padding:10px; border:1px solid var(--rule); border-radius:10px; background:var(--cream); }
   .maqueta div { background:var(--green-bg); color:var(--green); border:1px solid var(--green-mid); border-radius:6px; padding:8px 6px; font-size:.8rem; font-weight:600; min-height:46px; overflow:hidden; }
   .maqueta div.alto { min-height:90px; }
+  .celular { margin-top:22px; }
+  .celular .modulos li { grid-template-columns:auto minmax(0, 1fr) auto auto; }
+  .celular .modulos input[type=checkbox] { width:22px; height:22px; }
+  .celular.igual .modulos { display:none; }
+  .maqueta.tel { grid-template-columns:minmax(0, 1fr); max-width:190px; border-radius:18px; padding:12px 10px; }
 </style>
 <header class="rapida-barra">
   <a href="{{ url_for('agenda') }}">← Panel</a>
@@ -24,7 +29,7 @@
   <a href="{{ url_for('ajustes') }}" class="rapida-mas">Ajustes</a>
 </header>
 <main class="rapida acomodar">
-  <p class="tenue" style="margin-top:0">Ordená las partes de tu panel y elegí qué tan anchas son. Dos seguidas que entran en una fila van lado a lado: Grande + Chica, Mitad + Mitad o tres Chicas. En el celular van una debajo de la otra, en este orden.</p>
+  <p class="tenue" style="margin-top:0">Ordená las partes de tu panel y elegí qué tan anchas son. Dos seguidas que entran en una fila van lado a lado: Grande + Chica, Mitad + Mitad o tres Chicas. En el celular van una debajo de la otra: abajo elegís si siguen este orden o uno propio.</p>
   <form method="post" id="form-acomodar">
     <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
     <input type="hidden" name="orden" id="orden" value="{{ disp.orden|join(',') }}">
@@ -49,6 +54,31 @@
         <p class="tenue" style="font-size:.85rem">«Para resolver» no se puede ocultar: ahí aparecen pagos, mensajes y reservas que esperan algo tuyo. Si no hay nada, no se ve.</p>
       </div>
     </div>
+    <section class="celular{{ ' igual' if not celular_propio }}" id="celular">
+      <h3 style="margin-bottom:4px">En el celular</h3>
+      <label style="display:flex;gap:8px;align-items:center;min-height:40px">
+        <input type="checkbox" name="celular_igual" value="1" id="celular-igual"{% if not celular_propio %} checked{% endif %}>
+        Igual que en la compu, una debajo de la otra</label>
+      <input type="hidden" name="orden_celular" id="orden-celular" value="{{ celu.orden|join(',') }}">
+      <div class="acomodar-grid">
+        <ul class="modulos" id="modulos-celular">
+          {% for m in celu.orden %}
+          <li data-modulo="{{ m }}" class="{{ 'oculto' if m in celu.ocultos }}">
+            {% if m in no_se_ocultan %}<span aria-hidden="true"></span>{% else %}
+            <input type="checkbox" name="oculto_celular" value="{{ m }}" aria-label="No mostrar {{ modulos[m] }} en el celular" title="No mostrar"{% if m in celu.ocultos %} checked{% endif %}>{% endif %}
+            <span class="nombre">{{ modulos[m] }}</span>
+            <button type="button" class="btn chico secundario" data-mover="-1" aria-label="Subir {{ modulos[m] }} en el celular">↑</button>
+            <button type="button" class="btn chico secundario" data-mover="1" aria-label="Bajar {{ modulos[m] }} en el celular">↓</button>
+          </li>
+          {% endfor %}
+        </ul>
+        <div>
+          <strong>Así queda en el celular</strong>
+          <div class="maqueta tel" id="maqueta-celular" aria-hidden="true" style="margin-top:6px"></div>
+          <p class="tenue" style="font-size:.85rem">Tildá lo que <strong>no</strong> querés ver en el celular. Por ejemplo, «Hoy» primero para atender y los cobros sólo en la compu.</p>
+        </div>
+      </div>
+    </section>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
       <button class="btn" type="submit">Guardar</button>
       {% if propia %}<button class="btn secundario" type="submit" name="fabrica" value="1">Volver a como venía</button>{% endif %}
@@ -84,6 +114,36 @@
   });
   lista.addEventListener('change', dibujar);
   dibujar();
+
+  const seccion = document.getElementById('celular'), igual = document.getElementById('celular-igual');
+  const listaC = document.getElementById('modulos-celular'), ordenC = document.getElementById('orden-celular'), maquetaC = document.getElementById('maqueta-celular');
+  function dibujarCelular() {
+    ordenC.value = [...listaC.children].map((li) => li.dataset.modulo).join(',');
+    maquetaC.innerHTML = '';
+    // «Igual que en la compu»: el orden y lo oculto de arriba.
+    const filas = igual.checked
+      ? [...lista.children].filter((li) => ANCHOS[li.querySelector('select').value][1]).map((li) => li)
+      : [...listaC.children].filter((li) => { const c = li.querySelector('input[type=checkbox]'); li.classList.toggle('oculto', !!(c && c.checked)); return !(c && c.checked); });
+    filas.forEach((li) => {
+      const d = document.createElement('div');
+      d.textContent = li.querySelector('.nombre').textContent;
+      maquetaC.appendChild(d);
+    });
+  }
+  listaC.addEventListener('click', (e) => {
+    const b = e.target.closest('[data-mover]');
+    if (!b) return;
+    const li = b.closest('li');
+    if (b.dataset.mover === '-1' && li.previousElementSibling) listaC.insertBefore(li, li.previousElementSibling);
+    if (b.dataset.mover === '1' && li.nextElementSibling) listaC.insertBefore(li.nextElementSibling, li);
+    dibujarCelular();
+    b.focus();
+  });
+  listaC.addEventListener('change', dibujarCelular);
+  igual.addEventListener('change', () => { seccion.classList.toggle('igual', igual.checked); dibujarCelular(); });
+  lista.addEventListener('click', dibujarCelular);
+  lista.addEventListener('change', dibujarCelular);
+  dibujarCelular();
 })();
 </script>
 {% endblock %}
