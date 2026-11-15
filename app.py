@@ -2592,7 +2592,10 @@ def _comunes_panel(tenant: dict, tz: ZoneInfo, ahora: datetime) -> dict:
         "revision": _revision_semana(tenant, fichas, bloqueos, tz, ahora),
         "avisos_pagina": _avisos_pagina(tenant, ahora),
         "perfil_google": _perfil_google(tenant),
-        "disposicion": _disposicion(tenant),
+        # ?probar_panel=1 (la vista previa de /agenda/acomodar): la disposición
+        # sin guardar que viene en la query. Sólo cambia el CSS de esta página.
+        "disposicion": _disposicion({"preferencias_vista": _panel_de_form(request.args, tenant.get("preferencias_vista") or {})}
+                                    if request.args.get("probar_panel") else tenant),
     }
     comunes["buscador"] = buscador.indice(tenant, comunes, rubros.de(tenant), url_for)
     return comunes
@@ -2724,10 +2727,15 @@ def _diseno_pagina(tenant: dict) -> dict | None:
     """Lo que _diseno_propio.html pone en las páginas del paciente. Con
     ?borrador=1 y la sesión de ESE profesional, el borrador. Lo guardado se
     vuelve a revisar al mostrarlo (por si se cargó por otro lado)."""
-    borrador = (request.args.get("borrador") == "1" and session.get("tenant_id") == tenant.get("id")
-                and tenant.get("diseno_borrador") is not None)
-    estilo = (tenant.get("diseno_borrador") if borrador else tenant.get("diseno")) or {}
-    css = (tenant.get("css_borrador") if borrador else tenant.get("css_propio")) or ""
+    propia = session.get("tenant_id") == tenant.get("id")
+    version = db.diseno_del_historial(tenant["id"], request.args["version"]) \
+        if propia and _ID_VALIDO.fullmatch(request.args.get("version") or "") else None
+    borrador = bool(version) or (request.args.get("borrador") == "1" and propia and tenant.get("diseno_borrador") is not None)
+    if version:
+        estilo, css = version.get("diseno") or {}, version.get("css") or ""
+    else:
+        estilo = (tenant.get("diseno_borrador") if borrador else tenant.get("diseno")) or {}
+        css = (tenant.get("css_borrador") if borrador else tenant.get("css_propio")) or ""
     if not estilo and not css and not borrador:
         return None
     estilo, _ = diseno.leer(estilo)
@@ -2735,7 +2743,7 @@ def _diseno_pagina(tenant: dict) -> dict | None:
     g.con_csp = True
     g.borrador = borrador
     return {"estilo": diseno.css_de_estilo(estilo), "css": "" if errores else css, "fijo": diseno.CSS_FIJO,
-            "fuentes": diseno.fuentes_url(estilo), "borrador": borrador}
+            "fuentes": diseno.fuentes_url(estilo), "borrador": borrador, "version": bool(version)}
 
 
 app.jinja_env.globals["diseno_pagina"] = _diseno_pagina
@@ -2764,7 +2772,7 @@ def _pantalla_diseno(tenant: dict, **extra):
         "diseno.html", tenant=tenant, estilo={**diseno.ORIGINAL, **estilo}, css=css,
         hay_borrador=tenant.get("diseno_borrador") is not None,
         hay_publicado=bool(tenant.get("diseno") or tenant.get("css_propio")),
-        hay_anterior=bool(tenant.get("diseno_anterior") or tenant.get("css_anterior")),
+        historial=_historial_para_pantalla(tenant),
         instrucciones=diseno.instrucciones(tenant, url_for("publico", slug=tenant["slug"], _external=True)),
         fuentes=list(diseno.FUENTES), modulos=diseno.MODULOS, css_max=diseno.CSS_MAX, presets=diseno.PRESETS,
         actual=estilo, **extra)))
@@ -2854,10 +2862,10 @@ def diseno_publicar():
     if not tenant or tenant.get("diseno_borrador") is None:
         flash("No hay un borrador para publicar.")
         return redirect(url_for("diseno_pagina"))
+    _al_historial(tenant)
     db.guardar_ajustes(tenant["id"], {"diseno": tenant.get("diseno_borrador") or None,
                                       "css_propio": tenant.get("css_borrador") or None,
-                                      "diseno_borrador": None, "css_borrador": None,
-                                      **_guardar_como_anterior(tenant)})
+                                      "diseno_borrador": None, "css_borrador": None})
     db.registrar_actividad(tenant["nombre"], "publicó un diseño nuevo de su página", tenant["id"])
     # A administración, para mirarlo rápido (una línea: va como parámetro de plantilla).
     try:
@@ -2878,37 +2886,64 @@ def diseno_descartar():
     return redirect(url_for("diseno_pagina"))
 
 
-def _guardar_como_anterior(tenant: dict) -> dict:
-    """Lo publicado hasta ahora pasa a ser «el anterior». Si era el original
-    (nada publicado), el anterior que había se conserva: volver al original
-    ya tiene su botón."""
-    if not (tenant.get("diseno") or tenant.get("css_propio")):
-        return {}
-    return {"diseno_anterior": tenant.get("diseno") or None, "css_anterior": tenant.get("css_propio") or None}
+HISTORIAL_DISENOS = 3  # diseños publicados que se guardan para «Volver a este»
+_ID_VALIDO = re.compile(r"[0-9A-Za-z_-]{1,64}")
 
 
-@app.post("/agenda/diseno/anterior")
+def _publicado(tenant: dict) -> bool:
+    return bool(tenant.get("diseno") or tenant.get("css_propio"))
+
+
+def _al_historial(tenant: dict) -> bool:
+    """Lo publicado hasta ahora pasa al historial. El original (nada publicado)
+    no ocupa lugar: tiene su propio botón."""
+    if not _publicado(tenant):
+        return False
+    db.guardar_en_historial(tenant["id"], tenant.get("diseno") or None, tenant.get("css_propio") or None,
+                            HISTORIAL_DISENOS)
+    return True
+
+
+def _historial_para_pantalla(tenant: dict) -> list[dict]:
+    """Cada diseño guardado con lo que hace falta para su miniatura."""
+    filas = []
+    for f in db.historial_disenos(tenant["id"], HISTORIAL_DISENOS):
+        estilo, _ = diseno.leer(f.get("diseno") or {})
+        m = {**diseno.ORIGINAL, **estilo}
+        try:
+            cuando = datetime.fromisoformat(str(f.get("created_at"))).astimezone(_tz_de(tenant))
+            fecha = f"{cuando.day}/{cuando.month} {cuando:%H:%M}"
+        except (ValueError, TypeError):
+            fecha = ""
+        filas.append({"id": f["id"], "fecha": fecha, "css": bool(f.get("css")), "m": m,
+                      "radio": diseno.BORDES.get(m["bordes"], (10, 12))[0],
+                      "familia_titulos": f"'{m['letra_titulos']}', {diseno.FUENTES.get(m['letra_titulos'], 'serif')}",
+                      "familia_texto": f"'{m['letra_texto']}', {diseno.FUENTES.get(m['letra_texto'], 'sans-serif')}"})
+    return filas
+
+
+@app.post("/agenda/diseno/historial/<id_>")
 @login_required
-def diseno_anterior():
-    """Vuelve al diseño publicado antes del último cambio. Se intercambian:
-    el de ahora queda como anterior, así se puede ir y volver."""
+def diseno_volver_a(id_):
+    """Vuelve a un diseño del historial. El publicado de ahora entra al
+    historial y el elegido sale de ahí (es el actual), así se puede ir y volver."""
     tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
-    if not (tenant.get("diseno_anterior") or tenant.get("css_anterior")):
-        flash("No hay un diseño anterior guardado.")
+    fila = db.diseno_del_historial(tenant["id"], id_) if _ID_VALIDO.fullmatch(id_) else None
+    if not fila:
+        flash("Ese diseño ya no está guardado.")
         return redirect(url_for("diseno_pagina"))
-    # El CSS guardado se vuelve a revisar: las reglas de limpiar_css pueden
-    # haberse endurecido desde que se publicó.
-    css, errores, _ = diseno.limpiar_css(tenant.get("css_anterior") or "")
-    estilo, err_estilo = diseno.leer(tenant.get("diseno_anterior") or {})
+    # Se vuelve a revisar: las reglas de limpiar_css pueden haberse endurecido.
+    css, errores, _ = diseno.limpiar_css(fila.get("css") or "")
+    estilo, err_estilo = diseno.leer(fila.get("diseno") or {})
     if errores or err_estilo:
-        flash("El diseño anterior ya no pasa la revisión de hoy; cargalo de nuevo desde tu IA.")
+        flash("Ese diseño ya no pasa la revisión de hoy; cargalo de nuevo desde tu IA.")
         return redirect(url_for("diseno_pagina"))
+    db.borrar_del_historial(tenant["id"], fila["id"])
+    _al_historial(tenant)
     db.guardar_ajustes(tenant["id"], {"diseno": estilo or None, "css_propio": css or None,
-                                      "diseno_borrador": None, "css_borrador": None,
-                                      "diseno_anterior": tenant.get("diseno") or None,
-                                      "css_anterior": tenant.get("css_propio") or None})
-    db.registrar_actividad(tenant.get("nombre") or "profesional", "volvió al diseño anterior de su página", tenant["id"])
-    flash("Listo: tu página volvió al diseño anterior. El que tenías quedó guardado, por si querés volver.")
+                                      "diseno_borrador": None, "css_borrador": None})
+    db.registrar_actividad(tenant.get("nombre") or "profesional", "volvió a un diseño anterior de su página", tenant["id"])
+    flash("Listo: tu página volvió a ese diseño. El que tenías quedó guardado en «Diseños anteriores».")
     return redirect(url_for("diseno_pagina"))
 
 
@@ -2916,11 +2951,11 @@ def diseno_anterior():
 @login_required
 def diseno_original():
     tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
-    db.guardar_ajustes(session["tenant_id"], {"diseno": None, "css_propio": None, "diseno_borrador": None, "css_borrador": None,
-                                              **_guardar_como_anterior(tenant)})
+    guardado = bool(tenant) and _al_historial(tenant)
+    db.guardar_ajustes(session["tenant_id"], {"diseno": None, "css_propio": None, "diseno_borrador": None, "css_borrador": None})
     db.registrar_actividad(tenant.get("nombre") or "profesional", "volvió al diseño original de su página", session["tenant_id"])
     flash("Listo: tu página volvió al diseño original."
-          + (" El que tenías quedó guardado: «Volver al diseño anterior»." if _guardar_como_anterior(tenant) else ""))
+          + (" El que tenías quedó guardado en «Diseños anteriores»." if guardado else ""))
     return redirect(url_for("diseno_pagina"))
 
 
@@ -2966,6 +3001,27 @@ def _celular_de(compu: dict) -> dict:
     return {"orden": list(compu["orden"]), "ocultos": sorted(m for m in compu["orden"] if compu["anchos"][m] == "oculto")}
 
 
+def _panel_de_form(form, pref: dict) -> dict:
+    """preferencias_vista con el panel que viene en el form de acomodar (o en
+    la query de la vista previa). Lo que es igual a lo de fábrica no se guarda."""
+    pref = dict(pref)
+    nuevo = _panel_valido({"orden": (form.get("orden") or "").split(","),
+                           "anchos": {m: form.get(f"ancho_{m}") for m in MODULOS_PANEL}})
+    if nuevo == PANEL_DE_FABRICA:
+        pref.pop("panel", None)
+    else:
+        pref["panel"] = nuevo
+    celu = None
+    if not form.get("celular_igual"):
+        celu = _celular_valido({"orden": (form.get("orden_celular") or "").split(","),
+                                "ocultos": form.getlist("oculto_celular")})
+    if not celu or celu == _celular_de(nuevo):
+        pref.pop("panel_celular", None)
+    else:
+        pref["panel_celular"] = celu
+    return pref
+
+
 def _disposicion(tenant: dict) -> str | None:
     """El CSS de la disposición propia del panel, o None si es la de fábrica
     en la compu y en el celular."""
@@ -3003,20 +3059,7 @@ def acomodar_panel():
             pref.pop("panel_celular", None)
             flash("Listo: el panel volvió a como venía.")
         else:
-            nuevo = _panel_valido({"orden": (request.form.get("orden") or "").split(","),
-                                   "anchos": {m: request.form.get(f"ancho_{m}") for m in MODULOS_PANEL}})
-            if nuevo == PANEL_DE_FABRICA:
-                pref.pop("panel", None)
-            else:
-                pref["panel"] = nuevo
-            celu = None
-            if not request.form.get("celular_igual"):
-                celu = _celular_valido({"orden": (request.form.get("orden_celular") or "").split(","),
-                                        "ocultos": request.form.getlist("oculto_celular")})
-            if not celu or celu == _celular_de(nuevo):
-                pref.pop("panel_celular", None)
-            else:
-                pref["panel_celular"] = celu
+            pref = _panel_de_form(request.form, pref)
             flash("Listo, tu panel quedó acomodado.")
         db.guardar_ajustes(tenant["id"], {"preferencias_vista": pref})
         return redirect(url_for("agenda"))
@@ -5889,7 +5932,7 @@ def publico(slug):
             return redirect(url_for("publico", slug=nuevo, **request.args), code=301)
         return "No encontrado.", 404
     if "bot" not in (request.user_agent.string or "").lower() and request.args.get("semana") is None \
-            and request.args.get("borrador") is None:
+            and request.args.get("borrador") is None and request.args.get("version") is None:
         _evento(tenant, "visita", _origen_visita())
     if tenant.get("pausado"):
         return render_template("publico.html", tenant=tenant, cambiar=None, pausado=True, dias=[], hay=False,

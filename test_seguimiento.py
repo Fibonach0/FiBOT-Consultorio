@@ -175,7 +175,11 @@ class _Query:
             return _Res(creadas)
         if self.op == "insert":
             # created_at como contador: ordena por orden de alta, igual que Postgres.
-            filas.append({"id": f"{self.tabla}-{len(filas) + 1}", "created_at": f"{next(_ALTAS):08d}", **self.payload})
+            # Tras borrar filas, len + 1 puede repetir un id que sigue existiendo.
+            n, usados = len(filas) + 1, {f.get("id") for f in filas}
+            while f"{self.tabla}-{n}" in usados:
+                n += 1
+            filas.append({"id": f"{self.tabla}-{n}", "created_at": f"{next(_ALTAS):08d}", **self.payload})
             return _Res([dict(filas[-1])])
         match = [f for f in filas if all(p(f) for p in self.filtros)]
         if self.op == "delete":
@@ -5387,8 +5391,9 @@ _ts.update(sobre_mi=None, enfoques=None, foto=None, preguntas=None, titulo=None,
 
 # --- Diseño propio de la página ---
 import diseno as _dis  # noqa: E402
-for _k in ("diseno", "diseno_borrador", "css_propio", "css_borrador", "diseno_anterior", "css_anterior"):
+for _k in ("diseno", "diseno_borrador", "css_propio", "css_borrador"):
     _ts[_k] = None
+TABLAS["disenos_publicados"] = []
 _ts.update(sobre_mi="Acompaño procesos de aprendizaje.", enfoques=["Lectura"], preguntas=[{"p": "¿Cuánto dura?", "r": "Una hora."}],
            ubicacion="Caballito")
 _src = open("templates/publico.html", encoding="utf8").read() + open("templates/_sitio_macros.html", encoding="utf8").read()
@@ -5470,33 +5475,56 @@ chequear("diseño: al publicar avisa a administración con el link", len(_admin)
 app.whatsapp.avisar_admin = _viejo_admin
 cb.post("/agenda/diseno/original", data={"csrf_token": "tok"})
 
-# --- Volver al diseño anterior ---
-chequear("anterior: volver al original guarda lo publicado", _ts["diseno_anterior"] == _dis.PRESETS["moderno"]["estilo"]
-         and _ts["css_anterior"] == ".pf-caja { padding:30px; }" and not _ts["diseno"], (_ts.get("diseno_anterior"), _ts.get("css_anterior")))
-chequear("anterior: el botón aparece", 'id="volver-anterior"' in cb.get("/agenda/diseno").data.decode())
-cb.post("/agenda/diseno/anterior", data={"csrf_token": "tok"})
-chequear("anterior: vuelve el publicado de antes (el original no ocupa el lugar)", _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"]
-         and _ts["css_propio"] == ".pf-caja { padding:30px; }" and not _ts["diseno_anterior"] and not _ts["css_anterior"]
-         and 'id="diseno-css"' in _w.get("/marcos").data.decode())
+# --- Diseños anteriores (historial) ---
+def _hist():
+    return sorted((f for f in TABLAS["disenos_publicados"] if f["tenant_id"] == "t1"), key=lambda f: f["created_at"], reverse=True)
+
+
+chequear("historial: volver al original guarda lo publicado", _hist()[0]["diseno"] == _dis.PRESETS["moderno"]["estilo"]
+         and _hist()[0]["css"] == ".pf-caja { padding:30px; }" and not _ts["diseno"], _hist()[:1])
+_pd = cb.get("/agenda/diseno").data.decode()
+chequear("historial: la pantalla muestra los anteriores con miniatura", 'id="anteriores"' in _pd and 'id="volver-anterior"' in _pd
+         and f'background:{_dis.PRESETS["moderno"]["estilo"]["fondo"]}' in _pd and "con CSS propio" in _pd
+         and f'version={_hist()[0]["id"]}' in _pd)
+TABLAS["eventos_pagina"] = []
+_pv = cb.get(f"/marcos?version={_hist()[0]['id']}")
+chequear("historial: «Ver» muestra ese diseño sin contar visita ni indexar", 'id="diseno-css"' in _pv.data.decode()
+         and "padding:30px" in _pv.data.decode() and "Diseño anterior: así se veía" in _pv.data.decode()
+         and _pv.headers.get("X-Robots-Tag") == "noindex" and not TABLAS["eventos_pagina"])
+chequear("historial: «Ver» sin sesión no muestra nada guardado", "padding:30px" not in _w.get(f"/marcos?version={_hist()[0]['id']}").data.decode())
+_moderno = _hist()[0]["id"]
+cb.post(f"/agenda/diseno/historial/{_moderno}", data={"csrf_token": "tok"})
+chequear("historial: «Volver a este» lo publica y sale del historial (el original no ocupa lugar)",
+         _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"] and _ts["css_propio"] == ".pf-caja { padding:30px; }"
+         and all(f["id"] != _moderno for f in _hist()) and 'id="diseno-css"' in _w.get("/marcos").data.decode())
 cb.post("/agenda/diseno/listo", data={"csrf_token": "tok", "preset": "calido"})
 cb.post("/agenda/diseno/publicar", data={"csrf_token": "tok"})
-chequear("anterior: publicar guarda el que había", _ts["diseno"] == _dis.PRESETS["calido"]["estilo"]
-         and _ts["diseno_anterior"] == _dis.PRESETS["moderno"]["estilo"])
+chequear("historial: publicar guarda el que había", _ts["diseno"] == _dis.PRESETS["calido"]["estilo"]
+         and _hist()[0]["diseno"] == _dis.PRESETS["moderno"]["estilo"])
 cb.post("/agenda/diseno/borrador", data={"csrf_token": "tok", "css": ".pf-caja { padding:10px; }"})
-cb.post("/agenda/diseno/anterior", data={"csrf_token": "tok"})
-chequear("anterior: se intercambian (ir y volver) y se descarta el borrador", _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"]
-         and _ts["diseno_anterior"] == _dis.PRESETS["calido"]["estilo"] and _ts["diseno_borrador"] is None and _ts["css_borrador"] is None)
-_ts["css_anterior"] = ".a{background:url(https://malo.example/x)}"
-cb.post("/agenda/diseno/anterior", data={"csrf_token": "tok"})
-chequear("anterior: un CSS guardado que hoy no pasa la revisión no se publica", _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"]
-         and "malo.example" not in (_ts["css_propio"] or ""))
-_ts.update(diseno_anterior=None, css_anterior=None)
-cb.post("/agenda/diseno/anterior", data={"csrf_token": "tok"})
-chequear("anterior: sin anterior no cambia nada ni muestra el botón", _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"]
+cb.post(f"/agenda/diseno/historial/{_hist()[0]['id']}", data={"csrf_token": "tok"})
+chequear("historial: se puede ir y volver, y se descarta el borrador", _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"]
+         and _hist()[0]["diseno"] == _dis.PRESETS["calido"]["estilo"] and _ts["diseno_borrador"] is None and _ts["css_borrador"] is None)
+for _p in ("minimalista", "sereno", "calido"):
+    cb.post("/agenda/diseno/listo", data={"csrf_token": "tok", "preset": _p})
+    cb.post("/agenda/diseno/publicar", data={"csrf_token": "tok"})
+chequear("historial: guarda sólo los últimos 3", len(_hist()) == app.HISTORIAL_DISENOS
+         and [f["diseno"] for f in _hist()] == [_dis.PRESETS[k]["estilo"] for k in ("sereno", "minimalista", "moderno")],
+         [f["diseno"].get("principal") for f in _hist()])
+_hist()[0]["css"] = ".a{background:url(https://malo.example/x)}"
+cb.post(f"/agenda/diseno/historial/{_hist()[0]['id']}", data={"csrf_token": "tok"})
+chequear("historial: un CSS guardado que hoy no pasa la revisión no se publica", _ts["diseno"] == _dis.PRESETS["calido"]["estilo"]
+         and "malo.example" not in (_ts["css_propio"] or ""), (_ts["diseno"], _ts["css_propio"]))
+TABLAS["disenos_publicados"].append({"id": "ajeno-1", "tenant_id": "t2", "created_at": "99999999", "diseno": {"principal": "#000000"}, "css": None})
+cb.post("/agenda/diseno/historial/ajeno-1", data={"csrf_token": "tok"})
+chequear("historial: no se puede usar el diseño de otra cuenta", _ts["diseno"] == _dis.PRESETS["calido"]["estilo"]
+         and "#000000" not in cb.get("/marcos?version=ajeno-1").data.decode())
+chequear("historial: pide CSRF", cb.post(f"/agenda/diseno/historial/{_hist()[0]['id']}", data={}).status_code in (400, 403))
+TABLAS["disenos_publicados"] = []
+chequear("historial: vacío no muestra la sección ni el botón", 'id="anteriores"' not in cb.get("/agenda/diseno").data.decode()
          and 'id="volver-anterior"' not in cb.get("/agenda/diseno").data.decode())
-chequear("anterior: pide CSRF", cb.post("/agenda/diseno/anterior", data={}).status_code in (400, 403))
 cb.post("/agenda/diseno/original", data={"csrf_token": "tok"})
-_ts.update(diseno_anterior=None, css_anterior=None)
+TABLAS["disenos_publicados"] = []
 
 _ts["preferencias_vista"] = {}
 _ag = cb.get("/agenda").data.decode()
@@ -5546,6 +5574,12 @@ cb.post("/agenda/acomodar", data={"csrf_token": "tok", "orden": ",".join(app.PAN
 _ag = cb.get("/agenda").data.decode()
 chequear("celular: compu de fábrica y celular propio", "panel" not in _ts["preferencias_vista"] and "panel_celular" in _ts["preferencias_vista"]
          and "panel-modulos propia" in _ag and "@media (min-width: 1001px)" not in _ag and '[data-bloque="hoy"] { order:0; grid-column:1 / -1; }' in _ag)
+_pp = cb.get("/agenda?probar_panel=1&orden=" + ",".join(app.PANEL_DE_FABRICA["orden"]) + "&orden_celular=fichas,hoy&oculto_celular=cobros")
+_pref_antes = dict(_ts["preferencias_vista"])
+chequear("vista previa: usa lo que viene en la query, sin guardarlo", '[data-bloque="fichas"] { order:0; grid-column:1 / -1; }' in _pp.data.decode()
+         and '[data-bloque="cobros"] { order:' in _pp.data.decode() and _ts["preferencias_vista"] == _pref_antes)
+chequear("vista previa: la pantalla trae el botón y el iframe sin formularios", 'id="ver-celular"' in cb.get("/agenda/acomodar").data.decode()
+         and 'sandbox="allow-same-origin allow-scripts"' in cb.get("/agenda/acomodar").data.decode())
 cb.post("/agenda/acomodar", data={"csrf_token": "tok", "fabrica": "1"})
 chequear("celular: «Volver a como venía» también lo borra", not _ts["preferencias_vista"].get("panel_celular")
          and "panel-modulos propia" not in cb.get("/agenda").data.decode())
