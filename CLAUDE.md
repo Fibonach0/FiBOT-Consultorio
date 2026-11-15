@@ -326,10 +326,14 @@ el panel. `diseno.PARTES` es el contrato de clases que se le explica a la IA (`i
 si cambia el HTML de `/<slug>`, esas clases tienen que seguir (lo revisa test_seguimiento).
 Diseños listos (`diseno.PRESETS`, `/agenda/diseno/listo`): cargan un estilo completo como borrador
 (el CSS propio se mantiene). Publicar avisa a administración (`whatsapp.avisar_admin`, una línea con
-el link a `/<slug>`) para mirarlo rápido. Publicar y «Volver al original» guardan lo publicado en
-`diseno_anterior`/`css_anterior` (`migrations/086`, `app._guardar_como_anterior`; si lo publicado era el
-original, el anterior que había se conserva). «Volver al diseño anterior» (`/agenda/diseno/anterior`)
-los intercambia, revisando otra vez estilo y CSS con las reglas de hoy, y descarta el borrador.
+el link a `/<slug>`) para mirarlo rápido. Publicar y «Volver al original» pasan lo publicado al historial
+(`disenos_publicados`, `migrations/087`, aparte de `tenants` por el tamaño del CSS; `app._al_historial`,
+últimos `HISTORIAL_DISENOS`; el original no ocupa lugar). «Diseños anteriores» en `/agenda/diseno` los
+muestra con una miniatura dibujada con su estilo (`_historial_para_pantalla`), «Ver» =
+`/<slug>?version=<id>` (como el borrador: sólo con la sesión de ESA cuenta, noindex, no cuenta visita)
+y «Volver a este» (`/agenda/diseno/historial/<id>`) lo saca del historial, mete el actual y lo publica,
+revisando otra vez estilo y CSS con las reglas de hoy; descarta el borrador. `migrations/088` borra
+las columnas viejas `diseno_anterior`/`css_anterior` (se aplicó después del deploy).
 
 `/sumate` (`migrations/060`, tabla `interesados`, de la plataforma como
 `admins`): formulario para profesionales; pide nombre y WhatsApp o mail, tiene un
@@ -1242,6 +1246,9 @@ a las 00:30 volvía a la misma persona), avisando al
   En el celular (`ANCHO_CELULAR`, ≤ 1000 px) `preferencias_vista.panel_celular` ({orden, ocultos},
   `_celular_valido`) da otro orden y oculta otras partes; sin él sigue el de la compu (`_celular_de`).
   La grilla de la compu va en `@media (min-width: 1001px)` y la del celular en `max-width: 1000px`.
+  «Ver cómo queda en el celular»: `<dialog>` con un iframe angosto de `/agenda?probar_panel=1&…` (los
+  campos del form sin guardar; `_panel_de_form` los lee igual que el POST y sólo cambian el CSS de esa
+  página). El iframe va con `sandbox` sin `allow-forms`: adentro no se puede cambiar nada.
 - «Primeros pasos» (`_primeros_pasos`): horario, precio, presentación, WhatsApp
   vinculado, primer paciente. Se oculta con `preferencias_vista.sin_primeros_pasos`.
 - GIFs de la ayuda: `scripts/guia/` (servidor local con datos inventados +

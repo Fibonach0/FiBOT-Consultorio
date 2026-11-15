@@ -37,6 +37,15 @@
   .lados .mini { display:inline-grid; grid-template-columns:1fr 1fr; gap:3px; width:46px; height:28px; }
   .lados .mini span { border-radius:3px; background:var(--chip-bg); }
   .lados .mini span.cal { background:var(--green-solid); }
+  .anteriores { display:grid; gap:12px; grid-template-columns:repeat(auto-fill, minmax(200px, 1fr)); }
+  .anterior { border:1px solid var(--rule); border-radius:10px; padding:10px; display:flex; flex-direction:column; gap:8px; background:var(--card); }
+  .mini { border-radius:8px; padding:10px; height:96px; box-sizing:border-box; border:1px solid var(--rule); overflow:hidden; }
+  .mini-titulo { font-size:1.05rem; font-weight:600; margin-bottom:6px; }
+  .mini-caja { padding:8px; display:flex; flex-direction:column; gap:5px; }
+  .mini-linea { display:block; height:4px; border-radius:2px; opacity:.55; width:80%; }
+  .mini-linea.corta { width:50%; }
+  .mini-boton { display:block; height:12px; width:46%; }
+  .anterior-botones { display:flex; gap:6px; flex-wrap:wrap; }
 </style>
 <header class="rapida-barra">
   <a href="{{ url_for('ajustes', p='pagina') }}#mi-pagina">← Ajustes</a>
@@ -64,20 +73,44 @@
     {% else %}
     <p style="margin-top:0">Tu página usa el diseño original. Cambiale colores, letras, el orden de las secciones o de qué lado va el calendario. Lo que cambies queda como <strong>borrador</strong>: lo mirás y recién después lo publicás.</p>
     {% endif %}
-    {% if hay_publicado or hay_anterior %}
-    <div class="estado-diseno" style="margin-top:10px">
-      {% if hay_anterior %}
-      <form method="post" action="{{ url_for('diseno_anterior') }}" id="volver-anterior"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn chico secundario" type="submit">Volver al diseño anterior</button></form>
-      {% endif %}
-      {% if hay_publicado %}
-      <form method="post" action="{{ url_for('diseno_original') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button class="btn chico secundario" type="submit">Volver al diseño original</button></form>
-      {% endif %}
-    </div>
-    {% if hay_anterior %}<p class="tenue" style="font-size:.85rem;margin-bottom:0">Cada vez que publicás, el diseño que había queda guardado. Si el nuevo no te convence, volvés al anterior con un toque{% if hay_borrador %} (el borrador se descarta){% endif %}.</p>{% endif %}
+    {% if historial %}
+    <form method="post" action="{{ url_for('diseno_volver_a', id_=historial[0].id) }}" id="volver-anterior" style="margin-top:10px;display:inline-block"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn chico secundario" type="submit">Volver al diseño anterior</button></form>
+    {% endif %}
+    {% if hay_publicado %}
+    <form method="post" action="{{ url_for('diseno_original') }}" style="margin-top:10px;display:inline-block"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button class="btn chico secundario" type="submit">Volver al diseño original</button></form>
     {% endif %}
   </section>
+
+  {% if historial %}
+  <section class="card" id="anteriores">
+    <h3>Diseños anteriores</h3>
+    <p class="tenue corto" style="margin-top:0">Los últimos {{ historial|length }} que tuviste publicados. Cada vez que publicás, el que había queda acá{% if hay_borrador %}; volver a uno descarta el borrador{% endif %}.</p>
+    <div class="anteriores">
+      {% for h in historial %}
+      <div class="anterior">
+        <div class="mini" aria-hidden="true" style="background:{{ h.m.fondo }};color:{{ h.m.texto }};font-family:{{ h.familia_texto }}">
+          <div class="mini-titulo" style="color:{{ h.m.principal }};font-family:{{ h.familia_titulos }}">Tu nombre</div>
+          <div class="mini-caja" style="background:{{ h.m.superficie }};border-radius:{{ [h.radio, 8]|min }}px">
+            <span class="mini-linea" style="background:{{ h.m.texto }}"></span><span class="mini-linea corta" style="background:{{ h.m.texto }}"></span>
+            <span class="mini-boton" style="background:{{ h.m.acento }};border-radius:{{ [h.radio, 12]|min }}px"></span>
+          </div>
+        </div>
+        <div class="anterior-datos">
+          <strong>{{ h.m.letra_titulos }}</strong>{% if h.css %} · con CSS propio{% endif %}
+          {% if h.fecha %}<div class="tenue" style="font-size:.85rem">Publicado hasta el {{ h.fecha }}</div>{% endif %}
+        </div>
+        <div class="anterior-botones">
+          <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ url_for('publico', slug=tenant.slug, version=h.id) }}">Ver</a>
+          <form method="post" action="{{ url_for('diseno_volver_a', id_=h.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn chico" type="submit">Volver a este</button></form>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+  {% endif %}
 
   <section class="card" id="listos">
     <h3>Diseños listos</h3>

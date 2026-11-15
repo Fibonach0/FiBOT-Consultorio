@@ -21,6 +21,10 @@
   .celular .modulos li { grid-template-columns:auto minmax(0, 1fr) auto auto; }
   .celular .modulos input[type=checkbox] { width:22px; height:22px; }
   .celular.igual .modulos { display:none; }
+  #vista-celular { border:none; border-radius:28px; padding:14px; background:#1c1b19; max-width:calc(100vw - 32px); }
+  #vista-celular::backdrop { background:rgba(0,0,0,.55); }
+  #vista-celular iframe { display:block; width:390px; max-width:calc(100vw - 60px); height:min(760px, calc(100vh - 140px)); border:0; border-radius:16px; background:var(--cream); }
+  #vista-celular .vista-pie { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:10px; color:#fff; font-size:.85rem; }
   .maqueta.tel { grid-template-columns:minmax(0, 1fr); max-width:190px; border-radius:18px; padding:12px 10px; }
 </style>
 <header class="rapida-barra">
@@ -75,10 +79,16 @@
         <div>
           <strong>Así queda en el celular</strong>
           <div class="maqueta tel" id="maqueta-celular" aria-hidden="true" style="margin-top:6px"></div>
+          <button type="button" class="btn chico secundario" id="ver-celular" style="margin:10px 0 4px">📱 Ver cómo queda en el celular</button>
           <p class="tenue" style="font-size:.85rem">Tildá lo que <strong>no</strong> querés ver en el celular. Por ejemplo, «Hoy» primero para atender y los cobros sólo en la compu.</p>
         </div>
       </div>
     </section>
+    <dialog id="vista-celular" aria-label="Así se ve tu panel en el celular">
+      <iframe title="Tu panel en el celular" sandbox="allow-same-origin allow-scripts"></iframe>
+      <div class="vista-pie"><span>Así se ve en el celular, todavía sin guardar.</span>
+        <button type="button" class="btn chico" id="cerrar-celular">Cerrar</button></div>
+    </dialog>
     <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px">
       <button class="btn" type="submit">Guardar</button>
       {% if propia %}<button class="btn secundario" type="submit" name="fabrica" value="1">Volver a como venía</button>{% endif %}
@@ -144,6 +154,18 @@
   lista.addEventListener('click', dibujarCelular);
   lista.addEventListener('change', dibujarCelular);
   dibujarCelular();
+
+  // Vista previa: el panel de verdad, angosto, con lo que todavía no se guardó.
+  // Sin allow-forms: adentro no se puede tocar nada que cambie datos.
+  const dlg = document.getElementById('vista-celular'), marco = dlg.querySelector('iframe');
+  document.getElementById('ver-celular').addEventListener('click', () => {
+    const q = new URLSearchParams(new FormData(document.getElementById('form-acomodar')));
+    q.delete('csrf_token');
+    q.set('probar_panel', '1');
+    marco.src = '{{ url_for("agenda") }}?' + q.toString();
+    dlg.showModal();
+  });
+  document.getElementById('cerrar-celular').addEventListener('click', () => { dlg.close(); marco.src = 'about:blank'; });
 })();
 </script>
 {% endblock %}
