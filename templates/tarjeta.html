@@ -3,7 +3,8 @@
 {% block head %}<meta name="robots" content="noindex">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500&family=Hanken+Grotesk:wght@400;600&display=swap" rel="stylesheet">{% endblock %}
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,500&family=Hanken+Grotesk:wght@400;600&display=swap" rel="stylesheet">
+{% if fuentes_diseno %}<link href="{{ fuentes_diseno }}" rel="stylesheet">{% endif %}{% endblock %}
 {% block cuerpo %}
 {% include "_rapida_estilo.html" %}
 <style>
@@ -38,7 +39,7 @@
       <fieldset>
         <legend>Color</legend>
         {% for col in colores %}
-        <label class="opcion"><input type="radio" name="color" value="{{ col.clave }}"{% if col.clave == (tenant.color_pagina or 'verde') %} checked{% endif %}>
+        <label class="opcion"><input type="radio" name="color" value="{{ col.clave }}"{% if col.clave == (colores[0].clave if colores[0].clave == 'diseno' else (tenant.color_pagina or 'verde')) %} checked{% endif %}>
           <span class="muestra-color" style="background:{{ col.fuerte }}" aria-hidden="true"></span> {{ col.nombre }}</label>
         {% endfor %}
       </fieldset>
@@ -72,9 +73,20 @@
     portada: {{ (portada or '')|tojson }},
     qr: {{ qr|tojson }},
     colores: {{ colores|tojson }},
+    letras: {{ letras|tojson }},
   };
-  const TINTA = '#1c1b19', TENUE = '#5b584f', FONDO = '#faf6ef';
-  const SERIF = 'Newsreader, Georgia, serif', SANS = '"Hanken Grotesk", system-ui, sans-serif';
+  const BASE = { TINTA: '#1c1b19', TENUE: '#5b584f', FONDO: '#faf6ef',
+                 SERIF: 'Newsreader, Georgia, serif', SANS: '"Hanken Grotesk", system-ui, sans-serif' };
+  // La paleta del diseño publicado (col.letras) usa su fondo, tinta y letras.
+  let TINTA = BASE.TINTA, TENUE = BASE.TENUE, FONDO = BASE.FONDO, SERIF = BASE.SERIF, SANS = BASE.SANS;
+  function paleta(col) {
+    const propia = col.letras && DATOS.letras;
+    TINTA = col.tinta || BASE.TINTA;
+    TENUE = col.tinta ? col.tinta + 'b3' : BASE.TENUE;
+    FONDO = col.fondo || BASE.FONDO;
+    SERIF = propia ? DATOS.letras.titulos : BASE.SERIF;
+    SANS = propia ? DATOS.letras.texto : BASE.SANS;
+  }
   const FORMATOS = {
     // Historias: Instagram tapa ~250 px arriba y abajo, lo importante va en el medio.
     historia: { W: 1080, H: 1920, banda: 520, radio: 170, nombre: 92, qr: 420, linkY: 1640 },
@@ -145,6 +157,7 @@
   function dibujar() {
     const f = FORMATOS[form.formato.value];
     const col = DATOS.colores.find((x) => x.clave === form.color.value) || DATOS.colores[0];
+    paleta(col);
     const conPortada = imgs.portada && (!form.con_portada || form.con_portada.checked);
     const { W, H } = f;
     cv.width = W; cv.height = H;
@@ -225,9 +238,10 @@
   form.addEventListener('input', dibujar);
   form.addEventListener('change', dibujar);
 
-  const fuentes = document.fonts ? Promise.all([
-    document.fonts.load(`500 80px ${SERIF}`), document.fonts.load(`400 40px ${SANS}`), document.fonts.load(`600 50px ${SANS}`),
-  ]).catch(() => null) : Promise.resolve();
+  const familias = [BASE.SERIF, BASE.SANS].concat(DATOS.letras ? [DATOS.letras.titulos, DATOS.letras.texto] : []);
+  const fuentes = document.fonts ? Promise.all(familias.flatMap((f) => [
+    document.fonts.load(`500 80px ${f}`), document.fonts.load(`400 40px ${f}`), document.fonts.load(`600 50px ${f}`),
+  ])).catch(() => null) : Promise.resolve();
   Promise.all([cargar(DATOS.foto), cargar(DATOS.portada), fuentes]).then(([foto, portada]) => {
     imgs = { foto, portada };
     dibujar();

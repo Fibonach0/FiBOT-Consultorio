@@ -46,6 +46,13 @@
   .mini-linea.corta { width:50%; }
   .mini-boton { display:block; height:12px; width:46%; }
   .anterior-botones { display:flex; gap:6px; flex-wrap:wrap; }
+  .anterior.fijado { border-color:var(--green-mid); }
+  .anterior-nombre summary { cursor:pointer; font-size:.85rem; color:var(--muted); }
+  .anterior-nombre input[type=text] { width:100%; margin-top:6px; }
+  #vista-celular { border:none; border-radius:28px; padding:14px; background:#1c1b19; max-width:calc(100vw - 32px); }
+  #vista-celular::backdrop { background:rgba(0,0,0,.55); }
+  #vista-celular iframe { display:block; width:390px; max-width:calc(100vw - 60px); height:min(760px, calc(100vh - 140px)); border:0; border-radius:16px; background:#fff; }
+  #vista-celular .vista-pie { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:10px; color:#fff; font-size:.85rem; }
 </style>
 <header class="rapida-barra">
   <a href="{{ url_for('ajustes', p='pagina') }}#mi-pagina">← Ajustes</a>
@@ -65,6 +72,7 @@
     <p style="margin-top:0"><strong>Tenés un borrador sin publicar.</strong> Tus pacientes todavía ven tu página como antes.</p>
     <div class="estado-diseno">
       <a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="{{ url_for('publico', slug=tenant.slug, borrador=1) }}">Ver cómo queda</a>
+      <button type="button" class="btn secundario" data-ver-celular="{{ url_for('publico', slug=tenant.slug, borrador=1) }}" id="borrador-celular">📱 En el celular</button>
       <form method="post" action="{{ url_for('diseno_publicar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn secundario" type="submit">Publicar</button></form>
       <form method="post" action="{{ url_for('diseno_descartar') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn chico secundario" type="submit">Descartar el borrador</button></form>
     </div>
@@ -73,8 +81,8 @@
     {% else %}
     <p style="margin-top:0">Tu página usa el diseño original. Cambiale colores, letras, el orden de las secciones o de qué lado va el calendario. Lo que cambies queda como <strong>borrador</strong>: lo mirás y recién después lo publicás.</p>
     {% endif %}
-    {% if historial %}
-    <form method="post" action="{{ url_for('diseno_volver_a', id_=historial[0].id) }}" id="volver-anterior" style="margin-top:10px;display:inline-block"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+    {% if anterior %}
+    <form method="post" action="{{ url_for('diseno_volver_a', id_=anterior.id) }}" id="volver-anterior" style="margin-top:10px;display:inline-block"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn chico secundario" type="submit">Volver al diseño anterior</button></form>
     {% endif %}
     {% if hay_publicado %}
@@ -86,10 +94,10 @@
   {% if historial %}
   <section class="card" id="anteriores">
     <h3>Diseños anteriores</h3>
-    <p class="tenue corto" style="margin-top:0">Los últimos {{ historial|length }} que tuviste publicados. Cada vez que publicás, el que había queda acá{% if hay_borrador %}; volver a uno descarta el borrador{% endif %}.</p>
+    <p class="tenue corto" style="margin-top:0">Cada vez que publicás, el que había queda acá (se guardan los últimos 3). Ponele nombre y fijalo para que no se borre nunca: «Navidad», «el de siempre»… (hasta {{ fijados_max }} fijados){% if hay_borrador %}. Volver a uno descarta el borrador{% endif %}.</p>
     <div class="anteriores">
       {% for h in historial %}
-      <div class="anterior">
+      <div class="anterior{{ ' fijado' if h.fijado }}" id="guardado-{{ h.id }}">
         <div class="mini" aria-hidden="true" style="background:{{ h.m.fondo }};color:{{ h.m.texto }};font-family:{{ h.familia_texto }}">
           <div class="mini-titulo" style="color:{{ h.m.principal }};font-family:{{ h.familia_titulos }}">Tu nombre</div>
           <div class="mini-caja" style="background:{{ h.m.superficie }};border-radius:{{ [h.radio, 8]|min }}px">
@@ -98,14 +106,25 @@
           </div>
         </div>
         <div class="anterior-datos">
-          <strong>{{ h.m.letra_titulos }}</strong>{% if h.css %} · con CSS propio{% endif %}
-          {% if h.fecha %}<div class="tenue" style="font-size:.85rem">Publicado hasta el {{ h.fecha }}</div>{% endif %}
+          <strong>{% if h.fijado %}📌 {% endif %}{{ h.nombre or h.m.letra_titulos }}</strong>
+          <div class="tenue" style="font-size:.85rem">{% if h.nombre %}{{ h.m.letra_titulos }}{% if h.css %} · {% endif %}{% endif %}{% if h.css %}con CSS propio{% endif %}
+            {% if h.es_actual %}<br><strong style="color:var(--green)">Es el que está publicado ahora</strong>{% elif h.fecha %}<br>Guardado el {{ h.fecha }}{% endif %}</div>
         </div>
         <div class="anterior-botones">
           <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ url_for('publico', slug=tenant.slug, version=h.id) }}">Ver</a>
-          <form method="post" action="{{ url_for('diseno_volver_a', id_=h.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button class="btn chico" type="submit">Volver a este</button></form>
+          <button type="button" class="btn chico secundario" data-ver-celular="{{ url_for('publico', slug=tenant.slug, version=h.id) }}" aria-label="Ver en el celular">📱</button>
+          {% if not h.es_actual %}<form method="post" action="{{ url_for('diseno_volver_a', id_=h.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button class="btn chico" type="submit">Volver a este</button></form>{% endif %}
         </div>
+        <details class="anterior-nombre"{% if not h.nombre and not h.fijado %}{% endif %}>
+          <summary>{{ 'Cambiar nombre' if h.nombre else 'Ponerle nombre' }}{{ ' o desfijar' if h.fijado else ' o fijarlo' }}</summary>
+          <form method="post" action="{{ url_for('diseno_nombrar', id_=h.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="text" name="nombre" maxlength="{{ nombre_max }}" value="{{ h.nombre }}" placeholder="Ej.: Navidad" aria-label="Nombre del diseño">
+            <label style="display:flex;gap:6px;align-items:center;margin:6px 0"><input type="checkbox" name="fijado" value="1"{% if h.fijado %} checked{% endif %}> Fijado (no se borra solo)</label>
+            <button class="btn chico" type="submit">Guardar</button>
+          </form>
+        </details>
       </div>
       {% endfor %}
     </div>
@@ -230,6 +249,23 @@
   lista.addEventListener('change', (e) => {
     if (e.target.name === 'ocultar') e.target.closest('li').classList.toggle('oculto', e.target.checked);
   });
+})();
+</script>
+<dialog id="vista-celular" aria-label="Así se ve tu página en el celular">
+  <iframe title="Tu página en el celular" sandbox="allow-same-origin allow-scripts"></iframe>
+  <div class="vista-pie"><span>Así la ve un paciente desde el celular. Acá no se puede reservar.</span>
+    <button type="button" class="btn chico" id="cerrar-celular">Cerrar</button></div>
+</dialog>
+<script>
+(() => {
+  // Tu página angosta como un teléfono (borrador o diseño guardado). Sin
+  // allow-forms: adentro no se puede reservar ni mandar nada.
+  const dlg = document.getElementById('vista-celular'), marco = dlg.querySelector('iframe');
+  document.querySelectorAll('[data-ver-celular]').forEach((b) => b.addEventListener('click', () => {
+    marco.src = b.dataset.verCelular;
+    dlg.showModal();
+  }));
+  document.getElementById('cerrar-celular').addEventListener('click', () => { dlg.close(); marco.src = 'about:blank'; });
 })();
 </script>
 {% endblock %}

@@ -2772,7 +2772,7 @@ def _pantalla_diseno(tenant: dict, **extra):
         "diseno.html", tenant=tenant, estilo={**diseno.ORIGINAL, **estilo}, css=css,
         hay_borrador=tenant.get("diseno_borrador") is not None,
         hay_publicado=bool(tenant.get("diseno") or tenant.get("css_propio")),
-        historial=_historial_para_pantalla(tenant),
+        **_historial_y_anterior(tenant),
         instrucciones=diseno.instrucciones(tenant, url_for("publico", slug=tenant["slug"], _external=True)),
         fuentes=list(diseno.FUENTES), modulos=diseno.MODULOS, css_max=diseno.CSS_MAX, presets=diseno.PRESETS,
         actual=estilo, **extra)))
@@ -2886,7 +2886,9 @@ def diseno_descartar():
     return redirect(url_for("diseno_pagina"))
 
 
-HISTORIAL_DISENOS = 3  # diseños publicados que se guardan para «Volver a este»
+HISTORIAL_DISENOS = 3  # diseños publicados sin fijar que se guardan para «Volver a este»
+FIJADOS_MAX = 3        # diseños con nombre fijados (no se borran solos)
+NOMBRE_DISENO_MAX = 40
 _ID_VALIDO = re.compile(r"[0-9A-Za-z_-]{1,64}")
 
 
@@ -2904,10 +2906,23 @@ def _al_historial(tenant: dict) -> bool:
     return True
 
 
+def _historial_y_anterior(tenant: dict) -> dict:
+    """El historial y el más nuevo que no es el publicado ahora (el de «Volver
+    al diseño anterior»)."""
+    h = _historial_para_pantalla(tenant)
+    previos = sorted((x for x in h if not x["es_actual"]), key=lambda x: x["_creado"], reverse=True)
+    return {"historial": h, "anterior": previos[0] if previos else None, "fijados_max": FIJADOS_MAX,
+            "nombre_max": NOMBRE_DISENO_MAX}
+
+
 def _historial_para_pantalla(tenant: dict) -> list[dict]:
     """Cada diseño guardado con lo que hace falta para su miniatura."""
     filas = []
-    for f in db.historial_disenos(tenant["id"], HISTORIAL_DISENOS):
+    actual = (tenant.get("diseno") or None, tenant.get("css_propio") or None)
+    guardados = db.historial_disenos(tenant["id"], HISTORIAL_DISENOS, FIJADOS_MAX)
+    # Los fijados primero; dentro de cada grupo, el más nuevo primero.
+    guardados = [f for f in guardados if f.get("fijado")] + [f for f in guardados if not f.get("fijado")]
+    for f in guardados:
         estilo, _ = diseno.leer(f.get("diseno") or {})
         m = {**diseno.ORIGINAL, **estilo}
         try:
@@ -2916,10 +2931,33 @@ def _historial_para_pantalla(tenant: dict) -> list[dict]:
         except (ValueError, TypeError):
             fecha = ""
         filas.append({"id": f["id"], "fecha": fecha, "css": bool(f.get("css")), "m": m,
+                      "nombre": f.get("nombre") or "", "fijado": bool(f.get("fijado")), "_creado": str(f.get("created_at") or ""),
+                      "es_actual": ((f.get("diseno") or None), (f.get("css") or None)) == actual and _publicado(tenant),
                       "radio": diseno.BORDES.get(m["bordes"], (10, 12))[0],
                       "familia_titulos": f"'{m['letra_titulos']}', {diseno.FUENTES.get(m['letra_titulos'], 'serif')}",
                       "familia_texto": f"'{m['letra_texto']}', {diseno.FUENTES.get(m['letra_texto'], 'sans-serif')}"})
     return filas
+
+
+@app.post("/agenda/diseno/historial/<id_>/nombre")
+@login_required
+def diseno_nombrar(id_):
+    """Nombre y «fijar» de un diseño guardado. Fijado no se borra solo."""
+    tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
+    fila = db.diseno_del_historial(tenant["id"], id_) if _ID_VALIDO.fullmatch(id_) else None
+    if not fila:
+        flash("Ese diseño ya no está guardado.")
+        return redirect(url_for("diseno_pagina") + "#anteriores")
+    nombre = " ".join((request.form.get("nombre") or "").split())[:NOMBRE_DISENO_MAX] or None
+    fijado = bool(request.form.get("fijado"))
+    if fijado and not fila.get("fijado"):
+        ya = sum(1 for f in db.historial_disenos(tenant["id"], HISTORIAL_DISENOS, FIJADOS_MAX) if f.get("fijado"))
+        if ya >= FIJADOS_MAX:
+            flash(f"Ya tenés {FIJADOS_MAX} diseños fijados. Desfijá uno para fijar este.")
+            return redirect(url_for("diseno_pagina") + "#anteriores")
+    db.nombrar_diseno(tenant["id"], fila["id"], nombre, fijado)
+    flash("Listo, guardado." + (" Queda fijado: no se borra solo." if fijado else ""))
+    return redirect(url_for("diseno_pagina") + "#anteriores")
 
 
 @app.post("/agenda/diseno/historial/<id_>")
@@ -2938,7 +2976,8 @@ def diseno_volver_a(id_):
     if errores or err_estilo:
         flash("Ese diseño ya no pasa la revisión de hoy; cargalo de nuevo desde tu IA.")
         return redirect(url_for("diseno_pagina"))
-    db.borrar_del_historial(tenant["id"], fila["id"])
+    if not fila.get("fijado"):
+        db.borrar_del_historial(tenant["id"], fila["id"])
     _al_historial(tenant)
     db.guardar_ajustes(tenant["id"], {"diseno": estilo or None, "css_propio": css or None,
                                       "diseno_borrador": None, "css_borrador": None})
@@ -3087,8 +3126,31 @@ def tarjeta():
         qr=["".join("1" if c else "0" for c in fila) for fila in qr.matrix],
         rubro=tenant.get("titulo") or (tenant.get("rubro") or "").capitalize(),
         portada=url_for("publico_portada", slug=tenant["slug"], v=tenant["portada_version"]) if tenant.get("portada_version") else None,
-        colores=[{"clave": k, "nombre": v["nombre"], "fuerte": v["muestra"], "suave": (v["claro"] or ("", "", "#eef3ec"))[2]}
-                 for k, v in COLORES_PAGINA.items()])))
+        colores=_colores_tarjeta(tenant), letras=_letras_tarjeta(tenant),
+        fuentes_diseno=diseno.fuentes_url(diseno.leer(tenant.get("diseno") or {})[0]) if tenant.get("diseno") else None)))
+
+
+def _colores_tarjeta(tenant: dict) -> list[dict]:
+    """Las paletas de la página y, si publicó un diseño, primero «Como tu
+    página» con sus colores (fondo y tinta incluidos)."""
+    colores = [{"clave": k, "nombre": v["nombre"], "fuerte": v["muestra"], "suave": (v["claro"] or ("", "", "#eef3ec"))[2]}
+               for k, v in COLORES_PAGINA.items()]
+    estilo, _ = diseno.leer(tenant.get("diseno") or {})
+    if estilo:
+        m = {**diseno.ORIGINAL, **estilo}
+        colores.insert(0, {"clave": "diseno", "nombre": "Como tu página", "fuerte": m["principal"], "suave": m["superficie"],
+                           "fondo": m["fondo"], "tinta": m["texto"], "acento": m["acento"], "letras": True})
+    return colores
+
+
+def _letras_tarjeta(tenant: dict) -> dict | None:
+    """Las letras del diseño publicado, como familias CSS para el canvas."""
+    estilo, _ = diseno.leer(tenant.get("diseno") or {})
+    if not estilo:
+        return None
+    m = {**diseno.ORIGINAL, **estilo}
+    return {"titulos": f"\"{m['letra_titulos']}\", {diseno.FUENTES.get(m['letra_titulos'], 'serif')}",
+            "texto": f"\"{m['letra_texto']}\", {diseno.FUENTES.get(m['letra_texto'], 'sans-serif')}"}
 
 
 @app.post("/agenda/primeros-pasos/ocultar")

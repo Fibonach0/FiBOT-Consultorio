@@ -312,7 +312,9 @@ llevan el QR del panel y el de la tarjeta) / otro; sin Referer = directo (null).
 nunca IP, navegador ni la URL de origen. «Tarjeta para Instagram» (`/agenda/tarjeta`,
 `templates/tarjeta.html`): historia 1080×1920 o publicación 1080×1350 dibujada en un canvas del
 navegador (foto, portada, nombre, título, lugar, frase, QR como matriz de `segno` y link corto);
-se descarga o se comparte con `navigator.share`. Nada se manda a servicios externos.
+se descarga o se comparte con `navigator.share`. Nada se manda a servicios externos. Con diseño
+publicado, la primera paleta es «Como tu página» (`app._colores_tarjeta` / `_letras_tarjeta`: principal,
+superficie, fondo, texto y las letras del diseño, con su Google Fonts) y viene elegida.
 Diseño propio (`diseno.py`, `migrations/085`, `/agenda/diseno`): `tenants.diseno` (JSON de estilo:
 colores con contraste revisado, letras de `FUENTES`, bordes, foto, portada y MÓDULOS: `calendario`
 derecha/izquierda, `en_celular`, `orden` y `ocultar` de las secciones `data-modulo` de `/<slug>`) y
@@ -332,7 +334,13 @@ el link a `/<slug>`) para mirarlo rápido. Publicar y «Volver al original» pas
 muestra con una miniatura dibujada con su estilo (`_historial_para_pantalla`), «Ver» =
 `/<slug>?version=<id>` (como el borrador: sólo con la sesión de ESA cuenta, noindex, no cuenta visita)
 y «Volver a este» (`/agenda/diseno/historial/<id>`) lo saca del historial, mete el actual y lo publica,
-revisando otra vez estilo y CSS con las reglas de hoy; descarta el borrador. `migrations/088` borra
+revisando otra vez estilo y CSS con las reglas de hoy; descarta el borrador. `migrations/089`:
+`nombre` y `fijado` (`/agenda/diseno/historial/<id>/nombre`, `FIJADOS_MAX`, `NOMBRE_DISENO_MAX`): los
+fijados no cuentan para el límite ni se borran, y «Volver a este» no los saca del historial.
+`db.guardar_en_historial` no repite un diseño igual a uno guardado; el que es igual al publicado se
+marca «Es el que está publicado ahora» y «Volver al diseño anterior» usa el más nuevo que no lo es.
+«📱 En el celular» (borrador y cada guardado): `<dialog>` con iframe de 390 px de `/<slug>?borrador=1`
+o `?version=`, `sandbox` sin `allow-forms` (no se reserva desde ahí). `migrations/088` borra
 las columnas viejas `diseno_anterior`/`css_anterior` (se aplicó después del deploy).
 
 `/sumate` (`migrations/060`, tabla `interesados`, de la plataforma como
