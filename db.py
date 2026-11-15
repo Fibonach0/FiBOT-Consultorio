@@ -1637,27 +1637,36 @@ def borrar_portada(tenant_id: str) -> None:
     _client.table("tenants").update({"portada_version": 0}).eq("id", tenant_id).execute()
 
 
-def historial_disenos(tenant_id: str, limite: int = 3) -> list[dict]:
-    """Los diseños publicados antes del actual, el más nuevo primero."""
-    res = (_client.table("disenos_publicados").select("id,created_at,diseno,css").eq("tenant_id", tenant_id)
-           .order("created_at", desc=True).limit(limite).execute())
+def historial_disenos(tenant_id: str, limite: int = 3, fijados: int = 3) -> list[dict]:
+    """Los diseños guardados: los fijados y los últimos `limite` sin fijar, el
+    más nuevo primero."""
+    res = (_client.table("disenos_publicados").select("id,created_at,diseno,css,nombre,fijado")
+           .eq("tenant_id", tenant_id).order("created_at", desc=True).limit(limite + fijados).execute())
     return res.data or []
 
 
 def diseno_del_historial(tenant_id: str, id_: str) -> dict | None:
-    res = (_client.table("disenos_publicados").select("id,created_at,diseno,css").eq("tenant_id", tenant_id)
+    res = (_client.table("disenos_publicados").select("id,created_at,diseno,css,nombre,fijado").eq("tenant_id", tenant_id)
            .eq("id", id_).limit(1).execute())
     return (res.data or [None])[0]
 
 
 def guardar_en_historial(tenant_id: str, diseno: dict | None, css: str | None, limite: int = 3) -> None:
-    """Suma un diseño al historial y borra los que quedan más allá del límite."""
-    _client.table("disenos_publicados").insert({"tenant_id": tenant_id, "diseno": diseno, "css": css}).execute()
-    res = (_client.table("disenos_publicados").select("id").eq("tenant_id", tenant_id)
+    """Suma un diseño al historial (si ya hay uno igual, no lo repite) y borra
+    los sin fijar que quedan más allá del límite."""
+    res = (_client.table("disenos_publicados").select("id,diseno,css,fijado").eq("tenant_id", tenant_id)
            .order("created_at", desc=True).execute())
-    sobran = [f["id"] for f in (res.data or [])[limite:]]
+    filas = res.data or []
+    if not any((f.get("diseno") or None) == (diseno or None) and (f.get("css") or None) == (css or None) for f in filas):
+        _client.table("disenos_publicados").insert({"tenant_id": tenant_id, "diseno": diseno, "css": css}).execute()
+        filas = [{"id": None, "fijado": False}] + filas
+    sobran = [f["id"] for f in [f for f in filas if not f.get("fijado")][limite:] if f["id"]]
     if sobran:
         _client.table("disenos_publicados").delete().eq("tenant_id", tenant_id).in_("id", sobran).execute()
+
+
+def nombrar_diseno(tenant_id: str, id_: str, nombre: str | None, fijado: bool) -> None:
+    _client.table("disenos_publicados").update({"nombre": nombre, "fijado": fijado}).eq("tenant_id", tenant_id).eq("id", id_).execute()
 
 
 def borrar_del_historial(tenant_id: str, id_: str) -> None:

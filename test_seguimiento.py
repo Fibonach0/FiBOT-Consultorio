@@ -5520,6 +5520,45 @@ cb.post("/agenda/diseno/historial/ajeno-1", data={"csrf_token": "tok"})
 chequear("historial: no se puede usar el diseño de otra cuenta", _ts["diseno"] == _dis.PRESETS["calido"]["estilo"]
          and "#000000" not in cb.get("/marcos?version=ajeno-1").data.decode())
 chequear("historial: pide CSRF", cb.post(f"/agenda/diseno/historial/{_hist()[0]['id']}", data={}).status_code in (400, 403))
+# Nombre y fijar
+_mod = next(f for f in _hist() if f["diseno"] == _dis.PRESETS["moderno"]["estilo"])
+cb.post(f"/agenda/diseno/historial/{_mod['id']}/nombre", data={"csrf_token": "tok", "nombre": "  El   de siempre " + "x" * 60, "fijado": "1"})
+chequear("nombre: guarda el nombre (limpio y corto) y lo fija", _mod["fijado"] is True and _mod["nombre"].startswith("El de siempre x")
+         and len(_mod["nombre"]) == app.NOMBRE_DISENO_MAX, _mod)
+for _p in ("minimalista", "sereno", "moderno", "calido"):
+    cb.post("/agenda/diseno/listo", data={"csrf_token": "tok", "preset": _p})
+    cb.post("/agenda/diseno/publicar", data={"csrf_token": "tok"})
+chequear("nombre: el fijado no se borra ni cuenta para el límite, y no se repite",
+         any(f["id"] == _mod["id"] for f in _hist()) and len([f for f in _hist() if not f.get("fijado")]) == app.HISTORIAL_DISENOS
+         and len([f for f in _hist() if f["diseno"] == _dis.PRESETS["moderno"]["estilo"]]) == 1, [(f["diseno"].get("principal"), f.get("fijado")) for f in _hist()])
+cb.post(f"/agenda/diseno/historial/{_mod['id']}", data={"csrf_token": "tok"})
+_pd = cb.get("/agenda/diseno").data.decode()
+chequear("nombre: volver a un fijado lo deja guardado y lo marca como el publicado", _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"]
+         and any(f["id"] == _mod["id"] for f in _hist()) and "Es el que está publicado ahora" in _pd and "📌 El de siempre" in _pd
+         and f'action="/agenda/diseno/historial/{_mod["id"]}" id="volver-anterior"' not in _pd)
+_otros = [f for f in _hist() if not f.get("fijado")]
+for _f in _otros[:2]:
+    cb.post(f"/agenda/diseno/historial/{_f['id']}/nombre", data={"csrf_token": "tok", "nombre": "", "fijado": "1"})
+_r = cb.post(f"/agenda/diseno/historial/{_otros[2]['id']}/nombre", data={"csrf_token": "tok", "nombre": "Uno más", "fijado": "1"}, follow_redirects=True)
+chequear("nombre: no deja fijar más de FIJADOS_MAX", not _otros[2].get("fijado") and "Desfijá uno" in _r.data.decode()
+         and len([f for f in _hist() if f.get("fijado")]) == app.FIJADOS_MAX)
+cb.post("/agenda/diseno/historial/ajeno-1/nombre", data={"csrf_token": "tok", "nombre": "mío", "fijado": "1"})
+chequear("nombre: no toca diseños de otra cuenta", not next(f for f in TABLAS["disenos_publicados"] if f["id"] == "ajeno-1").get("nombre"))
+chequear("nombre: pide CSRF", cb.post(f"/agenda/diseno/historial/{_mod['id']}/nombre", data={"nombre": "x"}).status_code in (400, 403))
+cb.post("/agenda/diseno/borrador", data={"csrf_token": "tok", "css": ".pf-caja { padding:12px; }"})
+_pd = cb.get("/agenda/diseno").data.decode()
+chequear("celular: el borrador y los guardados se ven en el celular, sin poder reservar", 'id="borrador-celular"' in _pd
+         and 'data-ver-celular="/marcos?borrador=1"' in _pd and f'data-ver-celular="/marcos?version={_mod["id"]}"' in _pd
+         and 'sandbox="allow-same-origin allow-scripts"' in _pd)
+cb.post("/agenda/diseno/descartar", data={"csrf_token": "tok"})
+_tj = cb.get("/agenda/tarjeta").data.decode()
+chequear("tarjeta: con diseño publicado ofrece «Como tu página» elegida, con sus letras", "Como tu página" in _tj
+         and 'value="diseno" checked' in _tj and _dis.PRESETS["moderno"]["estilo"]["principal"] in _tj
+         and _dis.PRESETS["moderno"]["estilo"]["letra_titulos"] in _tj)
+TABLAS["disenos_publicados"] = []
+cb.post("/agenda/diseno/original", data={"csrf_token": "tok"})
+_tj = cb.get("/agenda/tarjeta").data.decode()
+chequear("tarjeta: sin diseño, las paletas de siempre", "Como tu página" not in _tj and 'value="diseno"' not in _tj)
 TABLAS["disenos_publicados"] = []
 chequear("historial: vacío no muestra la sección ni el botón", 'id="anteriores"' not in cb.get("/agenda/diseno").data.decode()
          and 'id="volver-anterior"' not in cb.get("/agenda/diseno").data.decode())
