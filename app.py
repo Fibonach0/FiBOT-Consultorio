@@ -40,6 +40,7 @@ import db
 import rubros
 import cuestionarios
 import diseno
+import disenos_programados
 import directorio
 import fluidez
 import informe
@@ -2772,7 +2773,9 @@ def _pantalla_diseno(tenant: dict, **extra):
         "diseno.html", tenant=tenant, estilo={**diseno.ORIGINAL, **estilo}, css=css,
         hay_borrador=tenant.get("diseno_borrador") is not None,
         hay_publicado=bool(tenant.get("diseno") or tenant.get("css_propio")),
-        **_historial_y_anterior(tenant),
+        **_historial_y_anterior(tenant), programado=_programado_para_pantalla(tenant),
+        hoy=datetime.now(_tz_de(tenant)).date().isoformat(),
+        codigo_publicado=diseno.codigo(tenant.get("diseno")) if tenant.get("diseno") else None,
         instrucciones=diseno.instrucciones(tenant, url_for("publico", slug=tenant["slug"], _external=True)),
         fuentes=list(diseno.FUENTES), modulos=diseno.MODULOS, css_max=diseno.CSS_MAX, presets=diseno.PRESETS,
         actual=estilo, **extra)))
@@ -2902,7 +2905,7 @@ def _al_historial(tenant: dict) -> bool:
     if not _publicado(tenant):
         return False
     db.guardar_en_historial(tenant["id"], tenant.get("diseno") or None, tenant.get("css_propio") or None,
-                            HISTORIAL_DISENOS)
+                            HISTORIAL_DISENOS, conservar=disenos_programados.conservar(tenant))
     return True
 
 
@@ -2933,7 +2936,7 @@ def _historial_para_pantalla(tenant: dict) -> list[dict]:
         filas.append({"id": f["id"], "fecha": fecha, "css": bool(f.get("css")), "m": m,
                       "nombre": f.get("nombre") or "", "fijado": bool(f.get("fijado")), "_creado": str(f.get("created_at") or ""),
                       "es_actual": ((f.get("diseno") or None), (f.get("css") or None)) == actual and _publicado(tenant),
-                      "radio": diseno.BORDES.get(m["bordes"], (10, 12))[0],
+                      "radio": diseno.BORDES.get(m["bordes"], (10, 12))[0], "codigo": diseno.codigo(estilo),
                       "familia_titulos": f"'{m['letra_titulos']}', {diseno.FUENTES.get(m['letra_titulos'], 'serif')}",
                       "familia_texto": f"'{m['letra_texto']}', {diseno.FUENTES.get(m['letra_texto'], 'sans-serif')}"})
     return filas
@@ -2996,6 +2999,91 @@ def diseno_original():
     flash("Listo: tu página volvió al diseño original."
           + (" El que tenías quedó guardado en «Diseños anteriores»." if guardado else ""))
     return redirect(url_for("diseno_pagina"))
+
+
+def _programado_para_pantalla(tenant: dict) -> dict | None:
+    p = disenos_programados.leer(tenant)
+    if not p:
+        return None
+    fecha = lambda d: f"{DIAS_LARGOS[d.weekday()]} {d.day}/{d.month}" if d else None
+    return {"nombre": p.get("nombre") or "el diseño programado", "id": p["id"], "desde": fecha(p["desde"]),
+            "hasta": fecha(p["hasta"]), "puesto": p["estado"] == "puesto"}
+
+
+def _fecha_form(valor: str | None) -> date | None:
+    try:
+        return date.fromisoformat((valor or "")[:10])
+    except ValueError:
+        return None
+
+
+@app.post("/agenda/diseno/programar")
+@login_required
+def diseno_programar():
+    """Programa un diseño guardado: se publica el día `desde` y, si hay
+    `hasta`, ese día vuelve al de antes (disenos_programados.aplicar, desde el
+    scheduler). Lo fija para que no se borre mientras espera."""
+    tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
+    id_ = request.form.get("id") or ""
+    fila = db.diseno_del_historial(tenant["id"], id_) if _ID_VALIDO.fullmatch(id_) else None
+    volver = redirect(url_for("diseno_pagina") + "#programar")
+    if not fila:
+        flash("Ese diseño ya no está guardado.")
+        return volver
+    hoy = datetime.now(_tz_de(tenant)).date()
+    desde, hasta = _fecha_form(request.form.get("desde")), _fecha_form(request.form.get("hasta"))
+    problema = disenos_programados.validar(desde, hasta, hoy)
+    if not problema and not fila.get("fijado"):
+        ya = sum(1 for f in db.historial_disenos(tenant["id"], HISTORIAL_DISENOS, FIJADOS_MAX) if f.get("fijado"))
+        if ya >= FIJADOS_MAX:
+            problema = f"Para programarlo lo tengo que fijar y ya tenés {FIJADOS_MAX} fijados. Desfijá uno."
+    if problema:
+        flash(problema)
+        return volver
+    estilo, _ = diseno.leer(fila.get("diseno") or {})
+    nombre = fila.get("nombre") or ({**diseno.ORIGINAL, **estilo})["letra_titulos"]
+    if not fila.get("fijado"):
+        db.nombrar_diseno(tenant["id"], fila["id"], fila.get("nombre"), True)
+    programado = {"id": fila["id"], "nombre": nombre, "desde": desde.isoformat(),
+                  "hasta": hasta.isoformat() if hasta else None, "estado": "esperando", "volver_id": None}
+    db.guardar_ajustes(tenant["id"], {"diseno_programado": programado})
+    db.registrar_actividad(tenant.get("nombre") or "profesional", f"programó el diseño «{nombre}» de su página", tenant["id"])
+    if desde == hoy:
+        disenos_programados.aplicar({**tenant, "diseno_programado": programado}, hoy)
+        flash(f"Listo: «{nombre}» ya está en tu página."
+              + (f" Vuelve al de antes el {hasta.day}/{hasta.month}." if hasta else ""))
+    else:
+        flash(f"Listo: el {desde.day}/{desde.month} tu página pasa a «{nombre}»"
+              + (f" y el {hasta.day}/{hasta.month} vuelve a la de antes." if hasta else ".")
+              + " Te aviso por WhatsApp cuando cambie.")
+    return volver
+
+
+@app.post("/agenda/diseno/programar/cancelar")
+@login_required
+def diseno_programar_cancelar():
+    tenant = db.get_tenant_by_id(session["tenant_id"]) or {}
+    p = disenos_programados.leer(tenant)
+    db.guardar_ajustes(tenant["id"], {"diseno_programado": None})
+    if p and p["estado"] == "puesto":
+        flash("Listo, cancelé la vuelta: tu página se queda con este diseño. Para volver al de antes, «Volver al diseño anterior».")
+    else:
+        flash("Listo, cancelé la programación. Tu página sigue como está.")
+    return redirect(url_for("diseno_pagina") + "#programar")
+
+
+@app.post("/agenda/diseno/codigo")
+@login_required
+def diseno_codigo():
+    """Carga como borrador el diseño de un código que pasó una colega (sólo
+    estilo: el CSS propio de cada una queda como está)."""
+    tenant = _tenant_con_pagina()
+    if not tenant:
+        return redirect(url_for("ajustes", p="pagina"))
+    estilo, errores = diseno.de_codigo((request.form.get("codigo") or "")[:diseno.CODIGO_MAX + 50])
+    if errores:
+        return _pantalla_diseno(tenant, errores=errores)
+    return _guardar_borrador(tenant, estilo, None)
 
 
 # --- Módulos del panel (/agenda/acomodar) ---
@@ -3127,7 +3215,17 @@ def tarjeta():
         rubro=tenant.get("titulo") or (tenant.get("rubro") or "").capitalize(),
         portada=url_for("publico_portada", slug=tenant["slug"], v=tenant["portada_version"]) if tenant.get("portada_version") else None,
         colores=_colores_tarjeta(tenant), letras=_letras_tarjeta(tenant),
+        vuelta=_vuelta_tarjeta(tenant), modelo="vuelta" if request.args.get("modelo") == "vuelta" else "turnos",
         fuentes_diseno=diseno.fuentes_url(diseno.leer(tenant.get("diseno") or {})[0]) if tenant.get("diseno") else None)))
+
+
+def _vuelta_tarjeta(tenant: dict) -> str | None:
+    """La fecha de vuelta de la pausa (AAAA-MM-DD) si todavía no llegó: la
+    tarjeta «Vuelvo el…» viene con esa fecha."""
+    if not tenant.get("pausado"):
+        return None
+    hasta = _fecha_form(tenant.get("pausado_hasta"))
+    return hasta.isoformat() if hasta and hasta > datetime.now(_tz_de(tenant)).date() else None
 
 
 def _colores_tarjeta(tenant: dict) -> list[dict]:

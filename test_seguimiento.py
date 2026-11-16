@@ -5565,6 +5565,103 @@ chequear("historial: vacío no muestra la sección ni el botón", 'id="anteriore
 cb.post("/agenda/diseno/original", data={"csrf_token": "tok"})
 TABLAS["disenos_publicados"] = []
 
+# --- Pasarle un diseño a una colega (código) ---
+import disenos_programados as _dprog
+from datetime import timedelta as _td
+cb.post("/agenda/diseno/listo", data={"csrf_token": "tok", "preset": "moderno"})
+cb.post("/agenda/diseno/borrador", data={"csrf_token": "tok", "css": ".pf-caja { padding:7px; }", **_dis.PRESETS["moderno"]["estilo"]})
+cb.post("/agenda/diseno/publicar", data={"csrf_token": "tok"})
+_pd = cb.get("/agenda/diseno").data.decode()
+_cod = _dis.codigo(_ts["diseno"])
+chequear("código: la pantalla da el código del publicado, sin el CSS", _cod and _cod in _pd and _cod.startswith("DISENO-")
+         and _dis.de_codigo(_cod) == (_dis.leer(_ts["diseno"])[0], []) and "padding" not in str(_dis.de_codigo(_cod)[0]))
+_ts["css_borrador"], _ts["diseno_borrador"] = None, None
+cb.post("/agenda/diseno/original", data={"csrf_token": "tok"})
+cb.post("/agenda/diseno/borrador", data={"csrf_token": "tok", "css": ".pf-cabeza { margin:0; }"})
+cb.post("/agenda/diseno/codigo", data={"csrf_token": "tok", "codigo": "  " + _cod[:20] + "\n" + _cod[20:] + " "})
+chequear("código: cargar el de una colega lo deja como borrador y conserva mi CSS", _ts["diseno_borrador"]
+         and _ts["diseno_borrador"].get("principal") == _dis.PRESETS["moderno"]["estilo"]["principal"]
+         and _ts["css_borrador"] == ".pf-cabeza { margin:0; }" and not _ts["diseno"], (_ts["diseno_borrador"], _ts["css_borrador"]))
+import base64 as _b64, json as _json
+_malo = "DISENO-" + _b64.urlsafe_b64encode(_json.dumps({"texto": "#ffffff", "fondo": "#ffffff"}).encode()).decode()
+_antes = dict(_ts["diseno_borrador"])
+for _c, _txt in (("cualquier cosa", "no es de un diseño"), ("DISENO-abc", "cortado"), (_malo, "casi no se lee")):
+    _r = cb.post("/agenda/diseno/codigo", data={"csrf_token": "tok", "codigo": _c})
+    chequear(f"código: rechaza «{_c[:14]}»", _txt in _r.data.decode() and _ts["diseno_borrador"] == _antes, _r.data.decode()[:300])
+chequear("código: pide CSRF", cb.post("/agenda/diseno/codigo", data={"codigo": _cod}).status_code in (400, 403))
+cb.post("/agenda/diseno/descartar", data={"csrf_token": "tok"})
+_pd = cb.get("/agenda/diseno").data.decode()
+chequear("código: sin diseño publicado no hay código, pero sí dónde pegar uno", "Pasarle tu diseño" not in _pd and 'id="codigo-colega"' in _pd)
+
+# --- Programar un diseño ---
+TABLAS["disenos_publicados"] = []
+for _p in ("calido", "moderno"):
+    cb.post("/agenda/diseno/listo", data={"csrf_token": "tok", "preset": _p})
+    cb.post("/agenda/diseno/publicar", data={"csrf_token": "tok"})
+_hoy = app.datetime.now(app._tz_de(_ts)).date()
+_cal = next(f for f in _hist() if f["diseno"] == _dis.PRESETS["calido"]["estilo"])
+_cal["nombre"] = "Navidad"
+for _d, _h, _txt in ((_hoy - _td(days=1), None, "ya pasó"), (_hoy + _td(days=3), _hoy + _td(days=2), "después del de inicio"),
+                     (_hoy + _td(days=400), None, "un año")):
+    _r = cb.post("/agenda/diseno/programar", data={"csrf_token": "tok", "id": _cal["id"], "desde": _d.isoformat(),
+                                                  "hasta": _h.isoformat() if _h else ""}, follow_redirects=True)
+    chequear(f"programar: rechaza fechas ({_txt})", _txt in _r.data.decode() and not _ts.get("diseno_programado"))
+cb.post("/agenda/diseno/programar", data={"csrf_token": "tok", "id": "ajeno-1", "desde": _hoy.isoformat()})
+chequear("programar: no usa diseños de otra cuenta", not _ts.get("diseno_programado"))
+_r = cb.post("/agenda/diseno/programar", data={"csrf_token": "tok", "id": _cal["id"], "desde": (_hoy + _td(days=1)).isoformat(),
+                                              "hasta": (_hoy + _td(days=4)).isoformat()}, follow_redirects=True)
+chequear("programar: queda esperando, fijado y se muestra", _ts["diseno_programado"]["estado"] == "esperando" and _cal["fijado"] is True
+         and _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"] and "tu página pasa a «Navidad»" in _r.data.decode()
+         and "📅 Programado" in _r.data.decode())
+chequear("programar: antes de la fecha no cambia nada", _dprog.aplicar(_ts, _hoy) is None and _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"])
+_ts["borrador_prueba"] = None
+_ts["diseno_borrador"], _ts["css_borrador"] = {"principal": "#123456"}, ".x{}"
+TABLAS["actividad"] = []
+chequear("programar: ese día se publica y guarda el de antes", _dprog.aplicar(_ts, _hoy + _td(days=1)) == "puesto"
+         and _ts["diseno"] == _dis.PRESETS["calido"]["estilo"] and _ts["diseno_programado"]["estado"] == "puesto"
+         and _ts["diseno_borrador"] == {"principal": "#123456"}
+         and next(f for f in _hist() if f["id"] == _ts["diseno_programado"]["volver_id"])["diseno"] == _dis.PRESETS["moderno"]["estilo"]
+         and any("Navidad" in a["accion"] for a in TABLAS["actividad"]), _ts["diseno_programado"])
+_ts["diseno_borrador"], _ts["css_borrador"] = None, None
+for _i in range(5):
+    db.guardar_en_historial("t1", {"principal": f"#00000{_i}"}, None, app.HISTORIAL_DISENOS, conservar=_dprog.conservar(_ts))
+chequear("programar: el de antes no se borra mientras dura", any(f["id"] == _ts["diseno_programado"]["volver_id"] for f in _hist())
+         and len([f for f in _hist() if not f.get("fijado") and f["id"] != _ts["diseno_programado"]["volver_id"]]) == app.HISTORIAL_DISENOS)
+chequear("programar: el día de volver, vuelve al de antes", _dprog.aplicar(_ts, _hoy + _td(days=4)) == "vuelto"
+         and _ts["diseno"] == _dis.PRESETS["moderno"]["estilo"] and not _ts["diseno_programado"])
+# Si en el medio publicó otro, no se toca.
+cb.post("/agenda/diseno/programar", data={"csrf_token": "tok", "id": _cal["id"], "desde": _hoy.isoformat(), "hasta": (_hoy + _td(days=2)).isoformat()})
+chequear("programar: desde hoy se publica en el momento", _ts["diseno"] == _dis.PRESETS["calido"]["estilo"]
+         and _ts["diseno_programado"]["estado"] == "puesto")
+cb.post("/agenda/diseno/listo", data={"csrf_token": "tok", "preset": "sereno"})
+cb.post("/agenda/diseno/publicar", data={"csrf_token": "tok"})
+chequear("programar: si publicó otro en el medio, al terminar lo respeta", _dprog.aplicar(_ts, _hoy + _td(days=2)) == "terminado"
+         and _ts["diseno"] == _dis.PRESETS["sereno"]["estilo"] and not _ts["diseno_programado"])
+cb.post("/agenda/diseno/programar", data={"csrf_token": "tok", "id": _cal["id"], "desde": (_hoy + _td(days=5)).isoformat()})
+cb.post("/agenda/diseno/programar/cancelar", data={"csrf_token": "tok"})
+chequear("programar: cancelar la borra", not _ts["diseno_programado"] and _dprog.aplicar(_ts, _hoy + _td(days=9)) is None)
+cb.post("/agenda/diseno/programar", data={"csrf_token": "tok", "id": _cal["id"], "desde": (_hoy + _td(days=1)).isoformat()})
+TABLAS["disenos_publicados"] = [f for f in TABLAS["disenos_publicados"] if f["id"] != _cal["id"]]
+chequear("programar: si el diseño ya no está, avisa y no cambia nada", _dprog.aplicar(_ts, _hoy + _td(days=1)) == "terminado"
+         and _ts["diseno"] == _dis.PRESETS["sereno"]["estilo"] and not _ts["diseno_programado"])
+chequear("programar: lo corre el scheduler", "disenos_programados.aplicar(tenant" in open("scheduler.py").read())
+chequear("programar: pide CSRF", cb.post("/agenda/diseno/programar", data={"id": "x"}).status_code in (400, 403))
+TABLAS["disenos_publicados"] = []
+cb.post("/agenda/diseno/original", data={"csrf_token": "tok"})
+TABLAS["disenos_publicados"] = []
+
+# --- Tarjeta «Vuelvo el…» ---
+_tj = cb.get("/agenda/tarjeta?modelo=vuelta").data.decode()
+chequear("tarjeta vuelta: se elige con ?modelo=vuelta", 'value="vuelta" checked' in _tj and 'id="vuelvo"' in _tj)
+_ts["pausado"], _ts["pausado_hasta"] = True, (_hoy + _td(days=6)).isoformat()
+_tj = cb.get("/agenda/tarjeta?modelo=vuelta").data.decode()
+chequear("tarjeta vuelta: viene con la fecha de la pausa", f'value="{_ts["pausado_hasta"]}"' in _tj)
+chequear("tarjeta vuelta: link desde Vacaciones", 'id="tarjeta-vuelta"' in cb.get("/agenda").data.decode())
+_ts["pausado_hasta"] = (_hoy - _td(days=1)).isoformat()
+chequear("tarjeta vuelta: sin fecha futura va vacía", 'id="vuelvo" name="vuelvo" value=""' in cb.get("/agenda/tarjeta?modelo=vuelta").data.decode())
+_ts["pausado"], _ts["pausado_hasta"] = False, None
+chequear("tarjeta: por defecto, la de turnos", 'value="turnos" checked' in cb.get("/agenda/tarjeta").data.decode())
+
 _ts["preferencias_vista"] = {}
 _ag = cb.get("/agenda").data.decode()
 chequear("panel: de fábrica se ve como siempre", 'class="panel-modulos"' in _ag and "panel-modulos propia" not in _ag

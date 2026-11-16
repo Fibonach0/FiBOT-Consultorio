@@ -382,3 +382,38 @@ El texto tiene que leerse bien sobre el fondo y sobre las cajas (contraste 4.5 o
 Partes de la página que podés tocar (son clases de CSS):
 {partes}
 """
+
+
+# --- Pasarle un diseño a una colega ---
+# Un código de texto con SÓLO el estilo (colores, letras, bordes, orden): nada
+# del CSS propio ni de la cuenta. Quien lo recibe lo carga como borrador y pasa
+# por `leer`, como cualquier estilo.
+PREFIJO_CODIGO = "DISENO-"
+CODIGO_MAX = 2000
+
+
+def codigo(estilo: dict | None) -> str | None:
+    import base64
+    estilo, _ = leer(estilo or {})
+    if not estilo:
+        return None
+    crudo = json.dumps(estilo, separators=(",", ":"), ensure_ascii=False).encode()
+    return PREFIJO_CODIGO + base64.urlsafe_b64encode(crudo).decode().rstrip("=")
+
+
+def de_codigo(texto: str) -> tuple[dict, list[str]]:
+    import base64
+    t = "".join((texto or "").split())
+    if not t.upper().startswith(PREFIJO_CODIGO):
+        return {}, ["Ese código no es de un diseño. Copialo entero, empieza con DISENO-."]
+    t = t[len(PREFIJO_CODIGO):].rstrip("=")
+    if not t or len(t) > CODIGO_MAX or not re.fullmatch(r"[A-Za-z0-9_-]+", t):
+        return {}, ["Ese código no es de un diseño. Copialo entero, empieza con DISENO-."]
+    try:
+        dato = json.loads(base64.urlsafe_b64decode(t + "=" * (-len(t) % 4)).decode())
+    except (ValueError, UnicodeDecodeError):
+        return {}, ["Ese código está cortado o tiene algo de más. Pedile a tu colega que lo copie de nuevo."]
+    estilo, errores = leer(dato)
+    if not estilo and not errores:
+        errores = ["Ese código no trae ningún cambio de diseño."]
+    return estilo, errores

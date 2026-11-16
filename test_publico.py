@@ -89,7 +89,12 @@ r = client.get("/anaperez")
 html = r.data.decode()
 hora_local = datetime.fromisoformat(TURNO_LIBRE["inicio"]).astimezone(app.ZoneInfo(TENANT["timezone"])).strftime("%H:%M")
 assert r.status_code == 200 and "Lic. Ana P" in html and 'href="/anaperez/reservar/turno-a"' in html and f'>{hora_local}</a>' in html, html[:400]
-assert "Semana del" in html and "Semana anterior" not in html
+# Abre en la semana del turno: «Semana anterior» sólo si cae en la que viene
+# (pasa el domingo a la noche, cuando ahora + 2 h ya es lunes).
+_zona = app.ZoneInfo(TENANT["timezone"])
+_otra_semana = (datetime.fromisoformat(TURNO_LIBRE["inicio"]).astimezone(_zona).isocalendar()[:2]
+                != datetime.now(_zona).isocalendar()[:2])
+assert "Semana del" in html and ("Semana anterior" in html) == _otra_semana
 print("GET /anaperez -> 200 OK, calendario de la semana con el turno libre")
 # Sitio propio: la página del profesional (y su reserva) no lleva al directorio ni a otros profesionales.
 for _url in ("/anaperez", "/anaperez/reservar/turno-a"):

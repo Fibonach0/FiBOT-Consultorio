@@ -1651,18 +1651,27 @@ def diseno_del_historial(tenant_id: str, id_: str) -> dict | None:
     return (res.data or [None])[0]
 
 
-def guardar_en_historial(tenant_id: str, diseno: dict | None, css: str | None, limite: int = 3) -> None:
+def guardar_en_historial(tenant_id: str, diseno: dict | None, css: str | None, limite: int = 3,
+                         conservar: tuple = ()) -> str | None:
     """Suma un diseño al historial (si ya hay uno igual, no lo repite) y borra
-    los sin fijar que quedan más allá del límite."""
+    los sin fijar que quedan más allá del límite, salvo los de `conservar`
+    (el diseño al que vuelve una programación). Devuelve el id del guardado."""
     res = (_client.table("disenos_publicados").select("id,diseno,css,fijado").eq("tenant_id", tenant_id)
            .order("created_at", desc=True).execute())
     filas = res.data or []
-    if not any((f.get("diseno") or None) == (diseno or None) and (f.get("css") or None) == (css or None) for f in filas):
-        _client.table("disenos_publicados").insert({"tenant_id": tenant_id, "diseno": diseno, "css": css}).execute()
-        filas = [{"id": None, "fijado": False}] + filas
-    sobran = [f["id"] for f in [f for f in filas if not f.get("fijado")][limite:] if f["id"]]
+    igual = next((f for f in filas if (f.get("diseno") or None) == (diseno or None)
+                  and (f.get("css") or None) == (css or None)), None)
+    if igual:
+        id_ = igual["id"]
+    else:
+        nuevo = _client.table("disenos_publicados").insert({"tenant_id": tenant_id, "diseno": diseno, "css": css}).execute()
+        id_ = ((nuevo.data or [{}])[0]).get("id")
+        filas = [{"id": id_, "fijado": False}] + filas
+    sin_fijar = [f for f in filas if not f.get("fijado") and f.get("id") not in conservar]
+    sobran = [f["id"] for f in sin_fijar[limite:] if f["id"] and f["id"] != id_]
     if sobran:
         _client.table("disenos_publicados").delete().eq("tenant_id", tenant_id).in_("id", sobran).execute()
+    return id_
 
 
 def nombrar_diseno(tenant_id: str, id_: str, nombre: str | None, fijado: bool) -> None:

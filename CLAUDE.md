@@ -341,7 +341,17 @@ fijados no cuentan para el límite ni se borran, y «Volver a este» no los saca
 marca «Es el que está publicado ahora» y «Volver al diseño anterior» usa el más nuevo que no lo es.
 «📱 En el celular» (borrador y cada guardado): `<dialog>` con iframe de 390 px de `/<slug>?borrador=1`
 o `?version=`, `sandbox` sin `allow-forms` (no se reserva desde ahí). `migrations/088` borra
-las columnas viejas `diseno_anterior`/`css_anterior` (se aplicó después del deploy).
+las columnas viejas `diseno_anterior`/`css_anterior` (vacías y sin uso; falta aplicarla en Supabase).
+Programar (`migrations/090`, `disenos_programados.py`): `tenants.diseno_programado` = {id, nombre, desde,
+hasta, estado esperando|puesto, volver_id}, chico a propósito (el CSS sigue en `disenos_publicados`).
+`/agenda/diseno/programar` fija el diseño elegido; `aplicar` corre en el tick: el día `desde` (zona del
+profesional) lo publica y guarda el de antes (`volver_id`, protegido del recorte con `conservar` en
+`guardar_en_historial`); el día `hasta` vuelve, salvo que lo publicado ya no sea el programado (lo
+respeta). Nunca toca el borrador. Avisa con `scheduler.avisar_profesional` y a la actividad.
+Código para una colega (`diseno.codigo` / `de_codigo`): `DISENO-` + base64url del estilo, SIN CSS ni
+datos de la cuenta; `/agenda/diseno/codigo` lo pasa por `leer` y lo deja como borrador (el CSS propio
+de quien lo carga queda). Tarjeta «Vuelvo de vacaciones» (`?modelo=vuelta`, `app._vuelta_tarjeta`:
+fecha de `pausado_hasta` si está pausado y no llegó): día, «Faltan N días» (contado en el navegador) y QR.
 
 `/sumate` (`migrations/060`, tabla `interesados`, de la plataforma como
 `admins`): formulario para profesionales; pide nombre y WhatsApp o mail, tiene un
