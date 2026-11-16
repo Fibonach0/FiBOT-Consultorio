@@ -3764,8 +3764,21 @@ chequear("vuelta: 2 días antes le avisa a la lista y al profesional",
          _canc3.avisar_vuelta_si_toca(dict(_t1), _a10(8)) == 1 and _men[0][0] == "5491144445555"
          and f"vuelvo a tomar turnos el {app.DIAS_LARGOS[_v10.weekday()]} {_v10.day}/{_v10.month}" in _men[0][1]
          and "/marcos" in _men[0][1] and _t1["vuelta_avisada"] == _v10.isoformat()
-         and "le avisamos a 1 de tu lista de espera" in _avs[-1], (_men, _avs))
-chequear("vuelta: una sola vez", _canc3.avisar_vuelta_si_toca(dict(_t1), _a10(9)) == 0 and len(_men) == 1)
+         and "le avisamos a 1 de tu lista de espera" in _avs[-1]
+         and _avs[-1].startswith(f"faltan 2 días para que termine tu pausa (volvés el {app.DIAS_LARGOS[_v10.weekday()]} {_v10.day}/{_v10.month})"), (_men, _avs))
+chequear("vuelta: al profesional le llega el link a la tarjeta «Vuelvo el…»",
+         "/agenda/tarjeta?modelo=vuelta" in _avs[-1] and "Tu tarjeta «Vuelvo el…» para Instagram" in _avs[-1], _avs[-1:])
+_navs = len(_avs)
+chequear("vuelta: una sola vez", _canc3.avisar_vuelta_si_toca(dict(_t1), _a10(9)) == 0 and len(_men) == 1
+         and len(_avs) == _navs)
+_le, TABLAS["lista_espera"] = TABLAS["lista_espera"], []
+_t1["vuelta_avisada"] = None
+chequear("vuelta: sin lista de espera igual le manda la tarjeta (mañana)",
+         _canc3.avisar_vuelta_si_toca(dict(_t1), _a10(9)) == 0 and len(_men) == 1
+         and _avs[-1].startswith("falta 1 día para que termine tu pausa (volvés mañana). Tu tarjeta")
+         and "/agenda/tarjeta?modelo=vuelta" in _avs[-1], _avs[-1:])
+TABLAS["lista_espera"] = _le
+_t1["vuelta_avisada"] = _v10.isoformat()
 _canc3.whatsapp.enviar_texto = lambda numero, to, texto: _men.append((to, texto)) or True
 _t1.update(mensaje_vuelta="Vuelvo renovada después del congreso.", vuelta_avisada=None)
 chequear("vuelta: con mensaje propio va ese texto y el link",
@@ -3950,10 +3963,10 @@ panel_c.post("/agenda/horario", data={"csrf_token": "tok", "dia0_desde1": "09:00
                                       "dia0_desde2": "15:00", "dia0_hasta2": "16:00", "horario_semanas": "2"})
 _lunes = [t for t in TABLAS["turnos"] if t["id"] not in _previos]
 _horas = sorted({datetime.fromisoformat(t["inicio"]).astimezone(app.ZoneInfo(TZ)).strftime("%H:%M") for t in _lunes})
-# 9 a 11 con turnos de 50: 9:00 y 9:50 (el de 10:40 no entra); 15 a 16: 15:00. Dos lunes (o tres si hoy es lunes temprano).
+# 9 a 11 con turnos de 50: 9:00 y 9:50 (el de 10:40 no entra); 15 a 16: 15:00. Dos lunes (o tres si hoy es lunes temprano; uno y pico si es lunes a la tarde).
 chequear("horario: genera las franjas de los lunes", _horas == ["09:00", "09:50", "15:00"]
          and all(datetime.fromisoformat(t["inicio"]).astimezone(app.ZoneInfo(TZ)).weekday() == 0 for t in _lunes)
-         and len(_lunes) in (5, 6, 7, 8, 9))
+         and len(_lunes) in range(3, 10))  # un lunes a la tarde, el de hoy ya pasó en parte
 _antes = len(TABLAS["turnos"])
 chequear("horario: generar de nuevo no duplica", scheduler.generar_desde_horario(dict(_t1)) == 0 and len(TABLAS["turnos"]) == _antes)
 chequear("horario: el panel lo muestra", 'value="09:00"' in _panel(panel_c))
@@ -4832,8 +4845,9 @@ _ag = panel_c.get("/agenda").data.decode()
 chequear("paciente nuevo: la guía sale con lo que le falta", 'id="paciente-nuevo"' in _ag and "Paciente Recién Llegada quedó agendado/a" in _ag
          and "Sin WhatsApp no le llegan" in _ag and "Sin valor no sabés" in _ag and "Quedó una sola sesión" in _ag)
 chequear("paciente nuevo: sale una sola vez", 'id="paciente-nuevo"' not in panel_c.get("/agenda").data.decode())
-_libre2 = next(t for t in TABLAS["turnos"] if t["tenant_id"] == "t1" and t["estado"] == "libre"
-               and datetime.fromisoformat(t["inicio"]) > datetime.now(timezone.utc))
+# Un libre propio: los que quedan de antes dependen del día y la hora en que corre el test.
+TABLAS["turnos"].append(turno("libre-nuevo-2", "t1", (datetime.now(timezone.utc) + timedelta(days=3)).replace(minute=0, second=0, microsecond=0)))
+_libre2 = next(t for t in TABLAS["turnos"] if t["id"] == "libre-nuevo-2")
 panel_c.post(f"/agenda/agendar/{_libre2['id']}", data={"csrf_token": "tok", "nombre": "Paciente Recién Llegada"})
 chequear("paciente nuevo: a alguien que ya tenía sesiones no se le repite", 'id="paciente-nuevo"' not in panel_c.get("/agenda").data.decode())
 

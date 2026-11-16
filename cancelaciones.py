@@ -447,9 +447,10 @@ _DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domin
 
 def avisar_vuelta_si_toca(tenant: dict, ahora: datetime) -> int:
     """Pausa con fecha de vuelta: DIAS_ANTES_VUELTA días antes, desde las 10,
-    a la lista de espera le avisamos que vuelve (una vez por fecha de vuelta,
-    `tenants.vuelta_avisada`; se marca antes de mandar). Devuelve a cuántos
-    se les pudo escribir."""
+    a la lista de espera le avisamos que vuelve, y al profesional le llega el
+    link a su tarjeta «Vuelvo el…» para Instagram (aunque no haya lista). Una
+    vez por fecha de vuelta (`tenants.vuelta_avisada`; se marca antes de
+    mandar). Devuelve a cuántos de la lista se les pudo escribir."""
     from datetime import date
     hasta_txt = str(tenant.get("pausado_hasta") or "")[:10]
     if not tenant.get("pausado") or not hasta_txt or not tenant.get("slug") or ahora.hour < 10:
@@ -463,12 +464,26 @@ def avisar_vuelta_si_toca(tenant: dict, ahora: datetime) -> int:
         return 0
     espera = db.lista_de_espera(tenant["id"])
     db.guardar_ajustes(tenant["id"], {"vuelta_avisada": hasta_txt})
-    if not espera:
-        return 0
+    cuando = "mañana" if faltan == 1 else f"el {_DIAS[hasta.weekday()]} {hasta.day}/{hasta.month}"
+    avisados = _avisar_vuelta_a_la_espera(tenant, espera, cuando) if espera else 0
+    texto = (f"falta 1 día" if faltan == 1 else f"faltan {faltan} días") + f" para que termine tu pausa (volvés {cuando})"
+    if avisados:
+        texto += f"; le avisamos a {avisados} de tu lista de espera"
+    scheduler.avisar_profesional(tenant, f"{texto}. {tarjeta_vuelta_texto()}")
+    return avisados
+
+
+def tarjeta_vuelta_texto() -> str:
+    """La parte del aviso con el link a la tarjeta «Vuelvo el…» del panel
+    (pide la sesión: no lleva ningún dato en el link)."""
+    return ("Tu tarjeta «Vuelvo el…» para Instagram, con la cuenta regresiva y el QR, está lista: "
+            f"{base_url()}/agenda/tarjeta?modelo=vuelta")
+
+
+def _avisar_vuelta_a_la_espera(tenant: dict, espera: list, cuando: str) -> int:
     numero = whatsapp.numero_de(tenant)
     if not numero:
         return 0
-    cuando = "mañana" if faltan == 1 else f"el {_DIAS[hasta.weekday()]} {hasta.day}/{hasta.month}"
     link = f"{base_url()}/{tenant['slug']}"
     propio = " ".join((tenant.get("mensaje_vuelta") or "").split())
     if propio:
@@ -484,9 +499,6 @@ def avisar_vuelta_si_toca(tenant: dict, ahora: datetime) -> int:
         else:
             ok = whatsapp.enviar_texto(numero, p["telefono"], f"Hola. *{tenant['nombre']}*: {mensaje}")
         avisados += 1 if ok else 0
-    if avisados:
-        scheduler.avisar_profesional(tenant, f"faltan {faltan} día{'s' if faltan != 1 else ''} para que termine tu "
-                                             f"pausa: le avisamos a {avisados} de tu lista de espera que volvés {cuando}")
     return avisados
 
 
