@@ -1219,7 +1219,8 @@ si no (o si falló), consultan como siempre. Medido con 100 ms por consulta: 3,4
   días/horas/min/seg y sin JS quedan los días). `DIAS_ANTES_VUELTA` (2) días
   antes, desde las 10, `cancelaciones.avisar_vuelta_si_toca` (tick) le escribe a
   la lista de espera que vuelve (`MENSAJE_PROFESIONAL_TEMPLATE` si está) y avisa
-  al profesional; una vez por fecha (`tenants.vuelta_avisada`, `migrations/075`).
+  al profesional con el link a la tarjeta «Vuelvo el…» (`tarjeta_vuelta_texto`; sale aunque
+  no haya lista); una vez por fecha (`tenants.vuelta_avisada`, `migrations/075`).
   El texto lo puede cambiar el profesional («Mensaje a tu lista de espera…» en
   Vacaciones, `/agenda/pausa/mensaje-vuelta`, `tenants.mensaje_vuelta`,
   `migrations/076`, en una línea, siempre con el link). Junto a la cuenta,
