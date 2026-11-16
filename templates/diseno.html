@@ -49,6 +49,12 @@
   .anterior.fijado { border-color:var(--green-mid); }
   .anterior-nombre summary { cursor:pointer; font-size:.85rem; color:var(--muted); }
   .anterior-nombre input[type=text] { width:100%; margin-top:6px; }
+  .codigo-colega summary { cursor:pointer; font-size:.85rem; color:var(--muted); }
+  .codigo-colega input { width:100%; font:12px ui-monospace, monospace; margin-top:6px; }
+  .programar-campos { display:grid; gap:10px; grid-template-columns:repeat(auto-fill, minmax(170px, 1fr)); align-items:end; }
+  .programar-campos label { margin:0 0 2px; }
+  .programar-campos select, .programar-campos input { width:100%; }
+  .programado { border-left:4px solid var(--green-solid); padding:8px 12px; background:var(--chip-bg); border-radius:8px; margin-bottom:12px; }
   #vista-celular { border:none; border-radius:28px; padding:14px; background:#1c1b19; max-width:calc(100vw - 32px); }
   #vista-celular::backdrop { background:rgba(0,0,0,.55); }
   #vista-celular iframe { display:block; width:390px; max-width:calc(100vw - 60px); height:min(760px, calc(100vh - 140px)); border:0; border-radius:16px; background:#fff; }
@@ -85,6 +91,14 @@
     <form method="post" action="{{ url_for('diseno_volver_a', id_=anterior.id) }}" id="volver-anterior" style="margin-top:10px;display:inline-block"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn chico secundario" type="submit">Volver al diseño anterior</button></form>
     {% endif %}
+    {% if codigo_publicado %}
+    <details class="codigo-colega" style="margin-top:10px">
+      <summary>Pasarle tu diseño a una colega</summary>
+      <p class="tenue" style="font-size:.85rem;margin:6px 0 0">Mandale este código: lo pega en «¿Te pasaron un código?» de su panel y le queda como borrador. Lleva sólo colores, letras y el orden; nada de tu cuenta ni tu CSS propio.</p>
+      <input type="text" readonly value="{{ codigo_publicado }}" aria-label="Código de tu diseño" data-codigo>
+      <button type="button" class="btn chico secundario" data-copiar style="margin-top:6px">Copiar el código</button>
+    </details>
+    {% endif %}
     {% if hay_publicado %}
     <form method="post" action="{{ url_for('diseno_original') }}" style="margin-top:10px;display:inline-block"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn chico secundario" type="submit">Volver al diseño original</button></form>
@@ -108,7 +122,8 @@
         <div class="anterior-datos">
           <strong>{% if h.fijado %}📌 {% endif %}{{ h.nombre or h.m.letra_titulos }}</strong>
           <div class="tenue" style="font-size:.85rem">{% if h.nombre %}{{ h.m.letra_titulos }}{% if h.css %} · {% endif %}{% endif %}{% if h.css %}con CSS propio{% endif %}
-            {% if h.es_actual %}<br><strong style="color:var(--green)">Es el que está publicado ahora</strong>{% elif h.fecha %}<br>Guardado el {{ h.fecha }}{% endif %}</div>
+            {% if h.es_actual %}<br><strong style="color:var(--green)">Es el que está publicado ahora</strong>{% elif h.fecha %}<br>Guardado el {{ h.fecha }}{% endif %}
+            {% if programado and programado.id == h.id %}<br>📅 Programado{% endif %}</div>
         </div>
         <div class="anterior-botones">
           <a class="btn chico secundario" style="text-decoration:none" target="_blank" rel="noopener" href="{{ url_for('publico', slug=tenant.slug, version=h.id) }}">Ver</a>
@@ -125,9 +140,41 @@
             <button class="btn chico" type="submit">Guardar</button>
           </form>
         </details>
+        {% if h.codigo %}
+        <details class="codigo-colega">
+          <summary>Pasárselo a una colega</summary>
+          <input type="text" readonly value="{{ h.codigo }}" aria-label="Código de este diseño" data-codigo>
+          <button type="button" class="btn chico secundario" data-copiar style="margin-top:6px">Copiar el código</button>
+        </details>
+        {% endif %}
       </div>
       {% endfor %}
     </div>
+  </section>
+
+  <section class="card" id="programar">
+    <h3>Programar un diseño</h3>
+    {% if programado %}
+    <div class="programado">
+      {% if programado.puesto %}<strong>«{{ programado.nombre }}» está en tu página.</strong>{% if programado.hasta %} El {{ programado.hasta }} vuelve al diseño de antes.{% endif %}
+      {% else %}<strong>El {{ programado.desde }} tu página pasa a «{{ programado.nombre }}».</strong>{% if programado.hasta %} El {{ programado.hasta }} vuelve al de antes.{% endif %}{% endif %}
+      <form method="post" action="{{ url_for('diseno_programar_cancelar') }}" style="margin-top:8px"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button class="btn chico secundario" type="submit">Cancelar</button></form>
+    </div>
+    {% endif %}
+    <p class="tenue corto" style="margin-top:0">Elegí uno de tus diseños guardados y las fechas: ese día se publica solo y, si ponés cuándo volver, ese día vuelve al que tenías. Te aviso por WhatsApp cuando cambia. El que programás queda fijado.</p>
+    <form method="post" action="{{ url_for('diseno_programar') }}">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <div class="programar-campos">
+        <div><label for="programar-id">Diseño</label>
+          <select id="programar-id" name="id" required>{% for h in historial %}<option value="{{ h.id }}"{% if programado and programado.id == h.id %} selected{% endif %}>{% if h.fijado %}📌 {% endif %}{{ h.nombre or h.m.letra_titulos }}{% if h.fecha and not h.nombre %} ({{ h.fecha }}){% endif %}</option>{% endfor %}</select></div>
+        <div><label for="programar-desde">Desde el</label>
+          <input type="date" id="programar-desde" name="desde" min="{{ hoy }}" required></div>
+        <div><label for="programar-hasta">Vuelve al de antes el <span class="tenue">(opcional)</span></label>
+          <input type="date" id="programar-hasta" name="hasta" min="{{ hoy }}"></div>
+      </div>
+      <button class="btn" type="submit" style="margin-top:10px">{{ 'Cambiar la programación' if programado else 'Programar' }}</button>
+    </form>
   </section>
   {% endif %}
 
@@ -147,6 +194,15 @@
       </form>
       {% endfor %}
     </div>
+    <form method="post" action="{{ url_for('diseno_codigo') }}" id="codigo-colega" style="margin-top:14px">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <label for="codigo">¿Te pasaron un código?</label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <input type="text" id="codigo" name="codigo" placeholder="DISENO-…" autocomplete="off" spellcheck="false" style="flex:1;min-width:200px">
+        <button class="btn secundario" type="submit">Cargar como borrador</button>
+      </div>
+      <p class="tenue" style="font-size:.85rem;margin:4px 0 0">Si una colega te pasa su diseño, pegalo acá: trae colores, letras y orden. Tu CSS propio, si tenés, queda igual.</p>
+    </form>
   </section>
 
   <section class="card" id="con-ia">
@@ -235,6 +291,12 @@
     e.target.textContent = 'Copiadas';
     setTimeout(() => { e.target.textContent = 'Copiar las instrucciones'; }, 1800);
   });
+  document.querySelectorAll('[data-copiar]').forEach((b) => b.addEventListener('click', async () => {
+    const t = b.parentElement.querySelector('[data-codigo]');
+    try { await navigator.clipboard.writeText(t.value); } catch (_) { t.select(); document.execCommand('copy'); }
+    b.textContent = 'Copiado';
+    setTimeout(() => { b.textContent = 'Copiar el código'; }, 1800);
+  }));
   const lista = document.getElementById('modulos'), orden = document.getElementById('orden');
   const guardarOrden = () => { orden.value = [...lista.children].map((li) => li.dataset.modulo).join(','); };
   lista.addEventListener('click', (e) => {

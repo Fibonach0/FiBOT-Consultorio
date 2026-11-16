@@ -37,6 +37,16 @@
         <label class="opcion"><input type="radio" name="formato" value="post"> Publicación</label>
       </fieldset>
       <fieldset>
+        <legend>Qué contar</legend>
+        <label class="opcion"><input type="radio" name="modelo" value="turnos"{% if modelo != 'vuelta' %} checked{% endif %}> Tus turnos online</label>
+        <label class="opcion"><input type="radio" name="modelo" value="vuelta"{% if modelo == 'vuelta' %} checked{% endif %}> Vuelvo de vacaciones</label>
+        <div id="campo-vuelta" style="margin-top:4px"{% if modelo != 'vuelta' %} hidden{% endif %}>
+          <label for="vuelvo" style="margin:0 0 2px">Vuelvo el</label>
+          <input type="date" id="vuelvo" name="vuelvo" value="{{ vuelta or '' }}">
+          <p class="tenue" style="font-size:.85rem;margin:4px 0 0">Lleva el día, cuántos faltan (contados hoy) y el QR a tu página para reservar.</p>
+        </div>
+      </fieldset>
+      <fieldset>
         <legend>Color</legend>
         {% for col in colores %}
         <label class="opcion"><input type="radio" name="color" value="{{ col.clave }}"{% if col.clave == (colores[0].clave if colores[0].clave == 'diseno' else (tenant.color_pagina or 'verde')) %} checked{% endif %}>
@@ -75,6 +85,18 @@
     colores: {{ colores|tojson }},
     letras: {{ letras|tojson }},
   };
+  const FRASES = { turnos: 'Sacá tu turno online', vuelta: 'Reservá desde ahora' };
+  const DIAS = ['domingo', 'lunes', 'martes', 'miércoles', 'jueves', 'viernes', 'sábado'];
+  // «Vuelvo el lunes 12/1» y «Faltan 5 días» (desde hoy, en este dispositivo).
+  function textoVuelta() {
+    const v = (form.vuelvo.value || '').split('-').map(Number);
+    if (v.length !== 3 || !v[0]) return null;
+    const dia = new Date(v[0], v[1] - 1, v[2]);
+    const hoy = new Date(); hoy.setHours(0, 0, 0, 0);
+    const faltan = Math.round((dia - hoy) / 86400000);
+    const cuenta = faltan > 1 ? `Faltan ${faltan} días` : faltan === 1 ? 'Es mañana' : faltan === 0 ? 'Es hoy' : '';
+    return { dia: `Vuelvo el ${DIAS[dia.getDay()]} ${dia.getDate()}/${dia.getMonth() + 1}`, cuenta };
+  }
   const BASE = { TINTA: '#1c1b19', TENUE: '#5b584f', FONDO: '#faf6ef',
                  SERIF: 'Newsreader, Georgia, serif', SANS: '"Hanken Grotesk", system-ui, sans-serif' };
   // La paleta del diseño publicado (col.letras) usa su fondo, tinta y letras.
@@ -89,8 +111,8 @@
   }
   const FORMATOS = {
     // Historias: Instagram tapa ~250 px arriba y abajo, lo importante va en el medio.
-    historia: { W: 1080, H: 1920, banda: 520, radio: 170, nombre: 92, qr: 420, linkY: 1640 },
-    post: { W: 1080, H: 1350, banda: 280, radio: 115, nombre: 80, qr: 300, linkY: 1270 },
+    historia: { W: 1080, H: 1920, banda: 520, radio: 170, nombre: 92, qr: 420, qrVuelta: 300, vuelta: 88, linkY: 1640 },
+    post: { W: 1080, H: 1350, banda: 280, radio: 115, nombre: 80, qr: 300, qrVuelta: 250, vuelta: 72, linkY: 1270 },
   };
   const cv = document.getElementById('tarjeta');
   const form = document.getElementById('opciones');
@@ -193,12 +215,14 @@
     // Abajo, de abajo hacia arriba: el link, el QR y la frase.
     const linkY = f.linkY;
     escribir(c, W, DATOS.link, { tam: 50, peso: 600, familia: SANS, color: TINTA, y: linkY, maxW: W - 120, max: 1 });
-    const pad = 24, lado = f.qr + pad * 2;
+    const vuelta = form.modelo.value === 'vuelta' ? textoVuelta() : null;
+    const tamQr = vuelta ? f.qrVuelta : f.qr;
+    const pad = 24, lado = tamQr + pad * 2;
     const caja = { x: (W - lado) / 2, y: linkY - 70 - lado };
     c.fillStyle = '#ffffff';
     redondo(c, caja.x, caja.y, lado, lado, 28); c.fill();
     c.strokeStyle = 'rgba(0,0,0,.08)'; c.lineWidth = 2; c.stroke();
-    const n = DATOS.qr.length, celda = f.qr / n;
+    const n = DATOS.qr.length, celda = tamQr / n;
     c.fillStyle = col.fuerte;
     DATOS.qr.forEach((fila, i) => {
       for (let j = 0; j < n; j++) {
@@ -206,11 +230,27 @@
       }
     });
     const titular = (form.titular.value || '').trim();
-    if (titular) escribir(c, W, titular, { tam: 52, peso: 600, familia: SANS, color: col.fuerte, y: caja.y - 44, maxW: ancho, max: 1 });
+    const titularY = caja.y - 44;
+    if (titular) escribir(c, W, titular, { tam: 52, peso: 600, familia: SANS, color: col.fuerte, y: titularY, maxW: ancho, max: 1 });
+    // Vacaciones: el día y la cuenta, entre quién es y la frase.
+    if (vuelta) {
+      let cuentaY = titularY - (titular ? 96 : 40);
+      let diaY = cuentaY - (vuelta.cuenta ? Math.round(f.vuelta * 0.95) : 0);
+      // Con un nombre largo (dos renglones) no entra arriba: se baja y, si
+      // tampoco, va sin la cuenta.
+      const minimo = y + Math.round(f.vuelta * 1.1);
+      if (diaY < minimo) {
+        diaY = minimo;
+        cuentaY = diaY + Math.round(f.vuelta * 0.95);
+        if (cuentaY > titularY - (titular ? 70 : 20)) vuelta.cuenta = '';
+      }
+      if (vuelta.cuenta) escribir(c, W, vuelta.cuenta, { tam: 44, familia: SANS, color: TENUE, y: cuentaY, maxW: ancho, max: 1 });
+      escribir(c, W, vuelta.dia, { tam: f.vuelta, peso: 500, familia: SERIF, color: col.fuerte, y: diaY, maxW: ancho, max: 1 });
+    }
   }
 
   function nombreArchivo() {
-    return `tarjeta-${DATOS.slug}-${form.formato.value}.png`;
+    return `tarjeta-${DATOS.slug}-${form.modelo.value === 'vuelta' ? 'vuelta-' : ''}${form.formato.value}.png`;
   }
 
   document.getElementById('descargar').addEventListener('click', () => {
@@ -235,6 +275,14 @@
     }, 'image/png');
   });
 
+  // Al cambiar qué contar, la frase de abajo cambia si no la tocaron.
+  form.querySelectorAll('[name=modelo]').forEach((r) => r.addEventListener('change', () => {
+    const v = form.modelo.value;
+    document.getElementById('campo-vuelta').hidden = v !== 'vuelta';
+    const otra = v === 'vuelta' ? FRASES.turnos : FRASES.vuelta;
+    if (!form.titular.value.trim() || form.titular.value === otra) form.titular.value = FRASES[v];
+  }));
+  if (form.modelo.value === 'vuelta' && form.titular.value === FRASES.turnos) form.titular.value = FRASES.vuelta;
   form.addEventListener('input', dibujar);
   form.addEventListener('change', dibujar);
 

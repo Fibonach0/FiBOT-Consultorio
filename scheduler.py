@@ -336,6 +336,11 @@ def _tick() -> None:
         except Exception:
             logger.exception("Fallo pasando horarios guardados vencidos de tenant %s", tenant["id"])
         try:
+            import disenos_programados  # acá: importa este módulo para avisar
+            disenos_programados.aplicar(tenant, datetime.now(tz).date())
+        except Exception:
+            logger.exception("Fallo el diseño programado de tenant %s", tenant["id"])
+        try:
             import pagos  # acá: pagos importa db y config, y de acá sólo esto
             pagos.vencer(tenant)
             pagos.verificar_conexion(tenant, datetime.now(tz).date())
