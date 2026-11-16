@@ -796,7 +796,7 @@
       <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       {% if tenant.pausado %}
         <div style="flex:2"><strong>Pausada{% if tenant.pausado_hasta %} hasta el {{ tenant.pausado_hasta[8:10] }}/{{ tenant.pausado_hasta[5:7] }} (ese día se reactiva sola){% endif %}:</strong> nadie puede reservar (ni por la web ni por WhatsApp).{% if tenant.mensaje_pausa %} <span class="tenue">«{{ tenant.mensaje_pausa }}»</span>{% endif %}
-          {% if tenant.pausado_hasta %}<br><a href="{{ url_for('tarjeta', modelo='vuelta') }}" id="tarjeta-vuelta">Hacer una historia «Vuelvo el {{ tenant.pausado_hasta[8:10]|int }}/{{ tenant.pausado_hasta[5:7]|int }}» para Instagram</a> <span class="muted">(dos días antes te mandamos el link por WhatsApp)</span>{% endif %}</div>
+          {% if tenant.pausado_hasta %}<br><a href="{{ url_for('tarjeta', modelo='vuelta') }}" id="tarjeta-vuelta">Hacer una historia «Vuelvo el {{ tenant.pausado_hasta[8:10]|int }}/{{ tenant.pausado_hasta[5:7]|int }}» para Instagram</a> <span class="tenue">(dos días antes te mandamos el link por WhatsApp)</span>{% endif %}</div>
         <input type="hidden" name="pausar" value="0">
         <div class="al-pie"><button class="btn chico" type="submit">Volver a tomar turnos</button></div>
       {% else %}
